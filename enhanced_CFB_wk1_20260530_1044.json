@@ -1,0 +1,3776 @@
+[
+  {
+    "game": "Stanford vs Hawai'i",
+    "win_prob": {
+      "Stanford": 35.9,
+      "Hawai'i": 64.0
+    },
+    "projected_score": {
+      "Stanford": 27.0,
+      "Hawai'i": 34.0,
+      "total": 61.0
+    },
+    "spread": {
+      "line": 3.0,
+      "Stanford_cover": 30.5
+    },
+    "total": {
+      "line": 50.0,
+      "over": 71.4,
+      "under": 28.6
+    },
+    "ratings": {
+      "Stanford": {
+        "off": 0.814,
+        "def": 0.852,
+        "epa_off": 0.0637,
+        "epa_def": 0.1726,
+        "elo": 1335.0
+      },
+      "Hawai'i": {
+        "off": 1.099,
+        "def": 0.942,
+        "epa_off": 0.1841,
+        "epa_def": 0.1738,
+        "elo": 1459.0
+      }
+    },
+    "ats": {
+      "Stanford": {
+        "pct": 0.429,
+        "record": "15-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "Hawai'i": {
+        "pct": 0.541,
+        "record": "20-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Stanford": {
+        "model": 35.9,
+        "market": 50.0,
+        "edge": -14.1
+      },
+      "Hawai'i": {
+        "model": 64.0,
+        "market": 50.0,
+        "edge": 14.0
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "North Dakota State vs Jacksonville State",
+    "win_prob": {
+      "North Dakota State": 27.3,
+      "Jacksonville State": 72.6
+    },
+    "projected_score": {
+      "North Dakota State": 27.2,
+      "Jacksonville State": 38.8,
+      "total": 66.0
+    },
+    "spread": {
+      "line": 10.0,
+      "North Dakota State_cover": 13.3
+    },
+    "total": {
+      "line": 50.0,
+      "over": 79.1,
+      "under": 20.9
+    },
+    "ratings": {
+      "North Dakota State": {
+        "off": 0.82,
+        "def": 0.857,
+        "epa_off": 0.0,
+        "epa_def": 0.0,
+        "elo": 1500.0
+      },
+      "Jacksonville State": {
+        "off": 1.201,
+        "def": 0.941,
+        "epa_off": 0.1849,
+        "epa_def": 0.1575,
+        "elo": 1491.0
+      }
+    },
+    "ats": {
+      "North Dakota State": {
+        "pct": 0.5,
+        "record": "0-0",
+        "signal": "INSUFFICIENT DATA"
+      },
+      "Jacksonville State": {
+        "pct": 0.6,
+        "record": "24-16",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "North Dakota State": {
+        "model": 27.3,
+        "market": 50.0,
+        "edge": -22.7
+      },
+      "Jacksonville State": {
+        "model": 72.6,
+        "market": 50.0,
+        "edge": 22.7
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 26.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (26/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Eastern Michigan vs Sacramento State",
+    "win_prob": {
+      "Eastern Michigan": 73.2,
+      "Sacramento State": 26.8
+    },
+    "projected_score": {
+      "Eastern Michigan": 37.9,
+      "Sacramento State": 26.3,
+      "total": 64.3
+    },
+    "spread": {
+      "line": 8.5,
+      "Eastern Michigan_cover": 57.2
+    },
+    "total": {
+      "line": 50.0,
+      "over": 76.3,
+      "under": 23.7
+    },
+    "ratings": {
+      "Eastern Michigan": {
+        "off": 1.073,
+        "def": 0.849,
+        "epa_off": 0.1932,
+        "epa_def": 0.2427,
+        "elo": 1239.0
+      },
+      "Sacramento State": {
+        "off": 0.82,
+        "def": 0.857,
+        "epa_off": 0.0,
+        "epa_def": 0.0,
+        "elo": 1500.0
+      }
+    },
+    "ats": {
+      "Eastern Michigan": {
+        "pct": 0.571,
+        "record": "20-15",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Sacramento State": {
+        "pct": 0.5,
+        "record": "0-0",
+        "signal": "INSUFFICIENT DATA"
+      }
+    },
+    "edge": {
+      "Eastern Michigan": {
+        "model": 73.2,
+        "market": 50.0,
+        "edge": 23.2
+      },
+      "Sacramento State": {
+        "model": 26.8,
+        "market": 50.0,
+        "edge": -23.2
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 26.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (26/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "UNLV vs Memphis",
+    "win_prob": {
+      "UNLV": 53.5,
+      "Memphis": 46.5
+    },
+    "projected_score": {
+      "UNLV": 39.2,
+      "Memphis": 37.5,
+      "total": 76.7
+    },
+    "spread": {
+      "line": 3.0,
+      "UNLV_cover": 47.5
+    },
+    "total": {
+      "line": 50.0,
+      "over": 90.9,
+      "under": 9.1
+    },
+    "ratings": {
+      "UNLV": {
+        "off": 1.25,
+        "def": 0.889,
+        "epa_off": 0.2984,
+        "epa_def": 0.214,
+        "elo": 1622.0
+      },
+      "Memphis": {
+        "off": 1.244,
+        "def": 0.97,
+        "epa_off": 0.256,
+        "epa_def": 0.1928,
+        "elo": 1540.0
+      }
+    },
+    "ats": {
+      "UNLV": {
+        "pct": 0.595,
+        "record": "25-17",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      },
+      "Memphis": {
+        "pct": 0.514,
+        "record": "19-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "UNLV": {
+        "model": 53.5,
+        "market": 50.0,
+        "edge": 3.5
+      },
+      "Memphis": {
+        "model": 46.5,
+        "market": 50.0,
+        "edge": -3.5
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 17.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (17/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "USC vs San Jos\u00e9 State",
+    "win_prob": {
+      "USC": 79.2,
+      "San Jos\u00e9 State": 20.8
+    },
+    "projected_score": {
+      "USC": 45.9,
+      "San Jos\u00e9 State": 30.0,
+      "total": 75.9
+    },
+    "spread": {
+      "line": 35.5,
+      "USC_cover": 15.9
+    },
+    "total": {
+      "line": 50.0,
+      "over": 90.8,
+      "under": 9.2
+    },
+    "ratings": {
+      "USC": {
+        "off": 1.268,
+        "def": 0.94,
+        "epa_off": 0.329,
+        "epa_def": 0.1555,
+        "elo": 1871.0
+      },
+      "San Jos\u00e9 State": {
+        "off": 1.022,
+        "def": 0.833,
+        "epa_off": 0.1783,
+        "epa_def": 0.2007,
+        "elo": 1146.0
+      }
+    },
+    "ats": {
+      "USC": {
+        "pct": 0.436,
+        "record": "17-22",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "San Jos\u00e9 State": {
+        "pct": 0.486,
+        "record": "18-19",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "USC": {
+        "model": 79.2,
+        "market": 50.0,
+        "edge": 29.2
+      },
+      "San Jos\u00e9 State": {
+        "model": 20.8,
+        "market": 50.0,
+        "edge": -29.2
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Florida State vs New Mexico State",
+    "win_prob": {
+      "Florida State": 84.5,
+      "New Mexico State": 15.5
+    },
+    "projected_score": {
+      "Florida State": 41.1,
+      "New Mexico State": 21.5,
+      "total": 62.5
+    },
+    "spread": {
+      "line": 29.5,
+      "Florida State_cover": 31.3
+    },
+    "total": {
+      "line": 50.0,
+      "over": 73.9,
+      "under": 26.1
+    },
+    "ratings": {
+      "Florida State": {
+        "off": 1.196,
+        "def": 0.981,
+        "epa_off": 0.271,
+        "epa_def": 0.1616,
+        "elo": 1556.0
+      },
+      "New Mexico State": {
+        "off": 0.812,
+        "def": 0.885,
+        "epa_off": 0.049,
+        "epa_def": 0.1054,
+        "elo": 1172.0
+      }
+    },
+    "ats": {
+      "Florida State": {
+        "pct": 0.459,
+        "record": "17-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "New Mexico State": {
+        "pct": 0.564,
+        "record": "22-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Florida State": {
+        "model": 84.5,
+        "market": 50.0,
+        "edge": 34.5
+      },
+      "New Mexico State": {
+        "model": 15.5,
+        "market": 50.0,
+        "edge": -34.5
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 48.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (48/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "TCU vs North Carolina",
+    "win_prob": {
+      "TCU": 68.3,
+      "North Carolina": 31.7
+    },
+    "projected_score": {
+      "TCU": 35.5,
+      "North Carolina": 26.3,
+      "total": 61.8
+    },
+    "spread": {
+      "line": 6.5,
+      "TCU_cover": 55.6
+    },
+    "total": {
+      "line": 49.5,
+      "over": 73.9,
+      "under": 26.1
+    },
+    "ratings": {
+      "TCU": {
+        "off": 1.156,
+        "def": 0.932,
+        "epa_off": 0.2146,
+        "epa_def": 0.147,
+        "elo": 1670.0
+      },
+      "North Carolina": {
+        "off": 0.873,
+        "def": 0.938,
+        "epa_off": 0.0658,
+        "epa_def": 0.179,
+        "elo": 1320.0
+      }
+    },
+    "ats": {
+      "TCU": {
+        "pct": 0.486,
+        "record": "18-19",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "North Carolina": {
+        "pct": 0.361,
+        "record": "13-23",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "TCU": {
+        "model": 68.3,
+        "market": 67.4,
+        "edge": 0.8
+      },
+      "North Carolina": {
+        "model": 31.7,
+        "market": 32.6,
+        "edge": -0.8
+      }
+    },
+    "situational": {
+      "weather": "DOME",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -1.0,
+      "market_signal": "\u2605   SLIGHT MOVE \u2192 AWAY (+1.0 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Virginia vs NC State",
+    "win_prob": {
+      "Virginia": 58.8,
+      "NC State": 41.2
+    },
+    "projected_score": {
+      "Virginia": 37.0,
+      "NC State": 32.7,
+      "total": 69.8
+    },
+    "spread": {
+      "line": 3.0,
+      "Virginia_cover": 52.8
+    },
+    "total": {
+      "line": 53.5,
+      "over": 79.4,
+      "under": 20.6
+    },
+    "ratings": {
+      "Virginia": {
+        "off": 1.165,
+        "def": 1.034,
+        "epa_off": 0.1825,
+        "epa_def": 0.0611,
+        "elo": 1637.0
+      },
+      "NC State": {
+        "off": 1.174,
+        "def": 0.911,
+        "epa_off": 0.2787,
+        "epa_def": 0.2075,
+        "elo": 1605.0
+      }
+    },
+    "ats": {
+      "Virginia": {
+        "pct": 0.629,
+        "record": "22-13",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      },
+      "NC State": {
+        "pct": 0.459,
+        "record": "17-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Virginia": {
+        "model": 58.8,
+        "market": 57.1,
+        "edge": 1.7
+      },
+      "NC State": {
+        "model": 41.2,
+        "market": 42.9,
+        "edge": -1.7
+      }
+    },
+    "situational": {
+      "weather": "DOME",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.5,
+      "market_signal": "\u2605   SLIGHT MOVE \u2192 AWAY (+0.5 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 34.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (34/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Wake Forest vs Akron",
+    "win_prob": {
+      "Wake Forest": 75.9,
+      "Akron": 24.1
+    },
+    "projected_score": {
+      "Wake Forest": 36.2,
+      "Akron": 22.5,
+      "total": 58.7
+    },
+    "spread": {
+      "line": 22.5,
+      "Wake Forest_cover": 33.0
+    },
+    "total": {
+      "line": 50.0,
+      "over": 66.3,
+      "under": 33.7
+    },
+    "ratings": {
+      "Wake Forest": {
+        "off": 1.067,
+        "def": 1.075,
+        "epa_off": 0.1513,
+        "epa_def": 0.0261,
+        "elo": 1531.0
+      },
+      "Akron": {
+        "off": 0.88,
+        "def": 0.904,
+        "epa_off": 0.0726,
+        "epa_def": 0.1102,
+        "elo": 1101.0
+      }
+    },
+    "ats": {
+      "Wake Forest": {
+        "pct": 0.471,
+        "record": "16-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Akron": {
+        "pct": 0.5,
+        "record": "17-17",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "Wake Forest": {
+        "model": 75.9,
+        "market": 50.0,
+        "edge": 25.9
+      },
+      "Akron": {
+        "model": 24.1,
+        "market": 50.0,
+        "edge": -25.9
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Rutgers vs Massachusetts",
+    "win_prob": {
+      "Rutgers": 91.2,
+      "Massachusetts": 8.8
+    },
+    "projected_score": {
+      "Rutgers": 47.4,
+      "Massachusetts": 20.5,
+      "total": 67.9
+    },
+    "spread": {
+      "line": 30.5,
+      "Rutgers_cover": 43.5
+    },
+    "total": {
+      "line": 50.0,
+      "over": 82.2,
+      "under": 17.8
+    },
+    "ratings": {
+      "Rutgers": {
+        "off": 1.165,
+        "def": 0.832,
+        "epa_off": 0.2138,
+        "epa_def": 0.3137,
+        "elo": 1469.0
+      },
+      "Massachusetts": {
+        "off": 0.623,
+        "def": 0.74,
+        "epa_off": -0.0111,
+        "epa_def": 0.2841,
+        "elo": 718.0
+      }
+    },
+    "ats": {
+      "Rutgers": {
+        "pct": 0.556,
+        "record": "20-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Massachusetts": {
+        "pct": 0.4,
+        "record": "14-21",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Rutgers": {
+        "model": 91.2,
+        "market": 50.0,
+        "edge": 41.2
+      },
+      "Massachusetts": {
+        "model": 8.8,
+        "market": 50.0,
+        "edge": -41.2
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 56.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (56/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Georgia Tech vs Colorado",
+    "win_prob": {
+      "Georgia Tech": 79.4,
+      "Colorado": 20.6
+    },
+    "projected_score": {
+      "Georgia Tech": 43.4,
+      "Colorado": 27.2,
+      "total": 70.5
+    },
+    "spread": {
+      "line": 7.0,
+      "Georgia Tech_cover": 68.0
+    },
+    "total": {
+      "line": 50.0,
+      "over": 85.5,
+      "under": 14.5
+    },
+    "ratings": {
+      "Georgia Tech": {
+        "off": 1.23,
+        "def": 0.918,
+        "epa_off": 0.2721,
+        "epa_def": 0.1954,
+        "elo": 1595.0
+      },
+      "Colorado": {
+        "off": 0.945,
+        "def": 0.856,
+        "epa_off": 0.1186,
+        "epa_def": 0.2138,
+        "elo": 1344.0
+      }
+    },
+    "ats": {
+      "Georgia Tech": {
+        "pct": 0.553,
+        "record": "21-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Colorado": {
+        "pct": 0.583,
+        "record": "21-15",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Georgia Tech": {
+        "model": 79.4,
+        "market": 50.0,
+        "edge": 29.4
+      },
+      "Colorado": {
+        "model": 20.6,
+        "market": 50.0,
+        "edge": -29.4
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Eastern Michigan vs San Jos\u00e9 State",
+    "win_prob": {
+      "Eastern Michigan": 62.8,
+      "San Jos\u00e9 State": 37.2
+    },
+    "projected_score": {
+      "Eastern Michigan": 39.2,
+      "San Jos\u00e9 State": 33.0,
+      "total": 72.2
+    },
+    "spread": {
+      "line": 3.5,
+      "Eastern Michigan_cover": 55.5
+    },
+    "total": {
+      "line": 50.0,
+      "over": 87.0,
+      "under": 13.0
+    },
+    "ratings": {
+      "Eastern Michigan": {
+        "off": 1.073,
+        "def": 0.849,
+        "epa_off": 0.1932,
+        "epa_def": 0.2427,
+        "elo": 1239.0
+      },
+      "San Jos\u00e9 State": {
+        "off": 1.022,
+        "def": 0.833,
+        "epa_off": 0.1783,
+        "epa_def": 0.2007,
+        "elo": 1146.0
+      }
+    },
+    "ats": {
+      "Eastern Michigan": {
+        "pct": 0.571,
+        "record": "20-15",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "San Jos\u00e9 State": {
+        "pct": 0.486,
+        "record": "18-19",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "Eastern Michigan": {
+        "model": 62.8,
+        "market": 50.0,
+        "edge": 12.8
+      },
+      "San Jos\u00e9 State": {
+        "model": 37.2,
+        "market": 50.0,
+        "edge": -12.8
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Michigan State vs Toledo",
+    "win_prob": {
+      "Michigan State": 18.2,
+      "Toledo": 81.8
+    },
+    "projected_score": {
+      "Michigan State": 20.8,
+      "Toledo": 38.4,
+      "total": 59.2
+    },
+    "spread": {
+      "line": 10.5,
+      "Michigan State_cover": 7.4
+    },
+    "total": {
+      "line": 50.0,
+      "over": 67.8,
+      "under": 32.2
+    },
+    "ratings": {
+      "Michigan State": {
+        "off": 1.01,
+        "def": 0.852,
+        "epa_off": 0.1246,
+        "epa_def": 0.2101,
+        "elo": 1409.0
+      },
+      "Toledo": {
+        "off": 1.185,
+        "def": 1.591,
+        "epa_off": 0.1825,
+        "epa_def": -0.0738,
+        "elo": 1646.0
+      }
+    },
+    "ats": {
+      "Michigan State": {
+        "pct": 0.472,
+        "record": "17-19",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Toledo": {
+        "pct": 0.55,
+        "record": "22-18",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Michigan State": {
+        "model": 18.2,
+        "market": 50.0,
+        "edge": -31.8
+      },
+      "Toledo": {
+        "model": 81.8,
+        "market": 50.0,
+        "edge": 31.8
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 48.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (48/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "USC vs Fresno State",
+    "win_prob": {
+      "USC": 64.8,
+      "Fresno State": 35.2
+    },
+    "projected_score": {
+      "USC": 36.4,
+      "Fresno State": 28.7,
+      "total": 65.1
+    },
+    "spread": {
+      "line": 23.5,
+      "USC_cover": 21.3
+    },
+    "total": {
+      "line": 50.0,
+      "over": 77.7,
+      "under": 22.3
+    },
+    "ratings": {
+      "USC": {
+        "off": 1.268,
+        "def": 0.94,
+        "epa_off": 0.329,
+        "epa_def": 0.1555,
+        "elo": 1871.0
+      },
+      "Fresno State": {
+        "off": 1.002,
+        "def": 1.071,
+        "epa_off": 0.1069,
+        "epa_def": 0.1057,
+        "elo": 1548.0
+      }
+    },
+    "ats": {
+      "USC": {
+        "pct": 0.436,
+        "record": "17-22",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "Fresno State": {
+        "pct": 0.486,
+        "record": "18-19",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "USC": {
+        "model": 64.8,
+        "market": 50.0,
+        "edge": 14.8
+      },
+      "Fresno State": {
+        "model": 35.2,
+        "market": 50.0,
+        "edge": -14.8
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": 0.5,
+      "market_signal": "\u2605   SLIGHT MOVE \u2192 HOME (+0.5 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Stanford vs Miami",
+    "win_prob": {
+      "Stanford": 20.9,
+      "Miami": 79.1
+    },
+    "projected_score": {
+      "Stanford": 21.5,
+      "Miami": 37.4,
+      "total": 58.9
+    },
+    "spread": {
+      "line": -21.5,
+      "Stanford_cover": 60.9
+    },
+    "total": {
+      "line": 50.0,
+      "over": 67.1,
+      "under": 32.9
+    },
+    "ratings": {
+      "Stanford": {
+        "off": 0.814,
+        "def": 0.852,
+        "epa_off": 0.0637,
+        "epa_def": 0.1726,
+        "elo": 1335.0
+      },
+      "Miami": {
+        "off": 1.222,
+        "def": 1.221,
+        "epa_off": 0.2176,
+        "epa_def": 0.0523,
+        "elo": 2014.0
+      }
+    },
+    "ats": {
+      "Stanford": {
+        "pct": 0.429,
+        "record": "15-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "Miami": {
+        "pct": 0.571,
+        "record": "24-18",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Stanford": {
+        "model": 20.9,
+        "market": 50.0,
+        "edge": -29.1
+      },
+      "Miami": {
+        "model": 79.1,
+        "market": 50.0,
+        "edge": 29.1
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "South Florida vs Florida International",
+    "win_prob": {
+      "South Florida": 76.1,
+      "Florida International": 23.9
+    },
+    "projected_score": {
+      "South Florida": 45.2,
+      "Florida International": 31.4,
+      "total": 76.5
+    },
+    "spread": {
+      "line": 12.5,
+      "South Florida_cover": 52.6
+    },
+    "total": {
+      "line": 50.0,
+      "over": 91.3,
+      "under": 8.7
+    },
+    "ratings": {
+      "South Florida": {
+        "off": 1.303,
+        "def": 0.962,
+        "epa_off": 0.308,
+        "epa_def": 0.0725,
+        "elo": 1774.0
+      },
+      "Florida International": {
+        "off": 1.093,
+        "def": 0.865,
+        "epa_off": 0.1564,
+        "epa_def": 0.1651,
+        "elo": 1324.0
+      }
+    },
+    "ats": {
+      "South Florida": {
+        "pct": 0.556,
+        "record": "20-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Florida International": {
+        "pct": 0.568,
+        "record": "21-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "South Florida": {
+        "model": 76.1,
+        "market": 50.0,
+        "edge": 26.1
+      },
+      "Florida International": {
+        "model": 23.9,
+        "market": 50.0,
+        "edge": -26.1
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Tulsa vs Oklahoma State",
+    "win_prob": {
+      "Tulsa": 76.3,
+      "Oklahoma State": 23.7
+    },
+    "projected_score": {
+      "Tulsa": 36.9,
+      "Oklahoma State": 23.3,
+      "total": 60.2
+    },
+    "spread": {
+      "line": -11.5,
+      "Tulsa_cover": 90.2
+    },
+    "total": {
+      "line": 50.0,
+      "over": 69.6,
+      "under": 30.4
+    },
+    "ratings": {
+      "Tulsa": {
+        "off": 0.971,
+        "def": 0.842,
+        "epa_off": 0.1131,
+        "epa_def": 0.1483,
+        "elo": 1110.0
+      },
+      "Oklahoma State": {
+        "off": 0.717,
+        "def": 0.811,
+        "epa_off": 0.011,
+        "epa_def": 0.2795,
+        "elo": 1110.0
+      }
+    },
+    "ats": {
+      "Tulsa": {
+        "pct": 0.417,
+        "record": "15-21",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      },
+      "Oklahoma State": {
+        "pct": 0.421,
+        "record": "16-22",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Tulsa": {
+        "model": 76.3,
+        "market": 50.0,
+        "edge": 26.3
+      },
+      "Oklahoma State": {
+        "model": 23.7,
+        "market": 50.0,
+        "edge": -26.3
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 26.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (26/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Cincinnati vs Boston College",
+    "win_prob": {
+      "Cincinnati": 73.4,
+      "Boston College": 26.6
+    },
+    "projected_score": {
+      "Cincinnati": 43.2,
+      "Boston College": 30.8,
+      "total": 74.0
+    },
+    "spread": {
+      "line": 9.5,
+      "Cincinnati_cover": 56.2
+    },
+    "total": {
+      "line": 50.0,
+      "over": 89.4,
+      "under": 10.5
+    },
+    "ratings": {
+      "Cincinnati": {
+        "off": 1.19,
+        "def": 0.903,
+        "epa_off": 0.2893,
+        "epa_def": 0.212,
+        "elo": 1471.0
+      },
+      "Boston College": {
+        "off": 1.043,
+        "def": 0.832,
+        "epa_off": 0.1588,
+        "epa_def": 0.2326,
+        "elo": 1359.0
+      }
+    },
+    "ats": {
+      "Cincinnati": {
+        "pct": 0.4,
+        "record": "14-21",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      },
+      "Boston College": {
+        "pct": 0.514,
+        "record": "19-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "Cincinnati": {
+        "model": 73.4,
+        "market": 50.0,
+        "edge": 23.4
+      },
+      "Boston College": {
+        "model": 26.6,
+        "market": 50.0,
+        "edge": -23.4
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Houston vs Oregon State",
+    "win_prob": {
+      "Houston": 74.2,
+      "Oregon State": 25.8
+    },
+    "projected_score": {
+      "Houston": 36.2,
+      "Oregon State": 23.4,
+      "total": 59.6
+    },
+    "spread": {
+      "line": 18.5,
+      "Houston_cover": 38.8
+    },
+    "total": {
+      "line": 50.0,
+      "over": 68.8,
+      "under": 31.2
+    },
+    "ratings": {
+      "Houston": {
+        "off": 1.059,
+        "def": 0.968,
+        "epa_off": 0.1153,
+        "epa_def": 0.109,
+        "elo": 1512.0
+      },
+      "Oregon State": {
+        "off": 0.828,
+        "def": 0.893,
+        "epa_off": 0.0497,
+        "epa_def": 0.1764,
+        "elo": 1150.0
+      }
+    },
+    "ats": {
+      "Houston": {
+        "pct": 0.543,
+        "record": "19-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Oregon State": {
+        "pct": 0.361,
+        "record": "13-23",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Houston": {
+        "model": 74.2,
+        "market": 50.0,
+        "edge": 24.2
+      },
+      "Oregon State": {
+        "model": 25.8,
+        "market": 50.0,
+        "edge": -24.2
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Duke vs Tulane",
+    "win_prob": {
+      "Duke": 56.9,
+      "Tulane": 43.1
+    },
+    "projected_score": {
+      "Duke": 38.6,
+      "Tulane": 35.3,
+      "total": 73.9
+    },
+    "spread": {
+      "line": 8.5,
+      "Duke_cover": 39.6
+    },
+    "total": {
+      "line": 50.0,
+      "over": 88.5,
+      "under": 11.5
+    },
+    "ratings": {
+      "Duke": {
+        "off": 1.223,
+        "def": 0.886,
+        "epa_off": 0.2482,
+        "epa_def": 0.234,
+        "elo": 1622.0
+      },
+      "Tulane": {
+        "off": 1.151,
+        "def": 0.964,
+        "epa_off": 0.2189,
+        "epa_def": 0.1538,
+        "elo": 1583.0
+      }
+    },
+    "ats": {
+      "Duke": {
+        "pct": 0.579,
+        "record": "22-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Tulane": {
+        "pct": 0.488,
+        "record": "20-21",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "Duke": {
+        "model": 56.9,
+        "market": 50.0,
+        "edge": 6.9
+      },
+      "Tulane": {
+        "model": 43.1,
+        "market": 50.0,
+        "edge": -6.9
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 17.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (17/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "California vs UCLA",
+    "win_prob": {
+      "California": 65.8,
+      "UCLA": 34.2
+    },
+    "projected_score": {
+      "California": 37.2,
+      "UCLA": 29.1,
+      "total": 66.4
+    },
+    "spread": {
+      "line": 1.5,
+      "California_cover": 63.0
+    },
+    "total": {
+      "line": 53.5,
+      "over": 74.4,
+      "under": 25.6
+    },
+    "ratings": {
+      "California": {
+        "off": 1.002,
+        "def": 0.9,
+        "epa_off": 0.1234,
+        "epa_def": 0.1686,
+        "elo": 1360.0
+      },
+      "UCLA": {
+        "off": 0.95,
+        "def": 0.811,
+        "epa_off": 0.1248,
+        "epa_def": 0.2531,
+        "elo": 1322.0
+      }
+    },
+    "ats": {
+      "California": {
+        "pct": 0.436,
+        "record": "17-22",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "UCLA": {
+        "pct": 0.432,
+        "record": "16-21",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "California": {
+        "model": 65.8,
+        "market": 52.2,
+        "edge": 13.6
+      },
+      "UCLA": {
+        "model": 34.2,
+        "market": 47.8,
+        "edge": -13.6
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -2.0,
+      "market_signal": "\u2605\u2605  MODERATE MOVE \u2192 AWAY (+2.0 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Illinois vs UAB",
+    "win_prob": {
+      "Illinois": 79.5,
+      "UAB": 20.5
+    },
+    "projected_score": {
+      "Illinois": 48.0,
+      "UAB": 31.7,
+      "total": 79.7
+    },
+    "spread": {
+      "line": 27.5,
+      "Illinois_cover": 28.9
+    },
+    "total": {
+      "line": 50.0,
+      "over": 93.4,
+      "under": 6.6
+    },
+    "ratings": {
+      "Illinois": {
+        "off": 1.188,
+        "def": 0.942,
+        "epa_off": 0.2099,
+        "epa_def": 0.1978,
+        "elo": 1595.0
+      },
+      "UAB": {
+        "off": 1.085,
+        "def": 0.75,
+        "epa_off": 0.1913,
+        "epa_def": 0.3364,
+        "elo": 1184.0
+      }
+    },
+    "ats": {
+      "Illinois": {
+        "pct": 0.556,
+        "record": "20-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "UAB": {
+        "pct": 0.417,
+        "record": "15-21",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Illinois": {
+        "model": 79.5,
+        "market": 50.0,
+        "edge": 29.5
+      },
+      "UAB": {
+        "model": 20.5,
+        "market": 50.0,
+        "edge": -29.5
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Indiana vs North Texas",
+    "win_prob": {
+      "Indiana": 89.5,
+      "North Texas": 10.5
+    },
+    "projected_score": {
+      "Indiana": 49.6,
+      "North Texas": 25.3,
+      "total": 74.9
+    },
+    "spread": {
+      "line": 40.5,
+      "Indiana_cover": 20.7
+    },
+    "total": {
+      "line": 50.0,
+      "over": 89.5,
+      "under": 10.5
+    },
+    "ratings": {
+      "Indiana": {
+        "off": 1.448,
+        "def": 1.455,
+        "epa_off": 0.3153,
+        "epa_def": 0.0283,
+        "elo": 2346.0
+      },
+      "North Texas": {
+        "off": 1.378,
+        "def": 0.877,
+        "epa_off": 0.3572,
+        "epa_def": 0.1799,
+        "elo": 1709.0
+      }
+    },
+    "ats": {
+      "Indiana": {
+        "pct": 0.634,
+        "record": "26-15",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      },
+      "North Texas": {
+        "pct": 0.564,
+        "record": "22-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Indiana": {
+        "model": 89.5,
+        "market": 50.0,
+        "edge": 39.5
+      },
+      "North Texas": {
+        "model": 10.5,
+        "market": 50.0,
+        "edge": -39.5
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 48.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (48/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Iowa vs Northern Illinois",
+    "win_prob": {
+      "Iowa": 83.0,
+      "Northern Illinois": 17.0
+    },
+    "projected_score": {
+      "Iowa": 37.4,
+      "Northern Illinois": 19.2,
+      "total": 56.6
+    },
+    "spread": {
+      "line": 29.5,
+      "Iowa_cover": 27.9
+    },
+    "total": {
+      "line": 50.0,
+      "over": 62.6,
+      "under": 37.4
+    },
+    "ratings": {
+      "Iowa": {
+        "off": 1.169,
+        "def": 1.187,
+        "epa_off": 0.1702,
+        "epa_def": 0.0797,
+        "elo": 1937.0
+      },
+      "Northern Illinois": {
+        "off": 0.836,
+        "def": 0.951,
+        "epa_off": 0.0401,
+        "epa_def": 0.1862,
+        "elo": 1233.0
+      }
+    },
+    "ats": {
+      "Iowa": {
+        "pct": 0.541,
+        "record": "20-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Northern Illinois": {
+        "pct": 0.389,
+        "record": "14-22",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Iowa": {
+        "model": 83.0,
+        "market": 50.0,
+        "edge": 33.0
+      },
+      "Northern Illinois": {
+        "model": 17.0,
+        "market": 50.0,
+        "edge": -33.0
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 53.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (53/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Michigan vs Western Michigan",
+    "win_prob": {
+      "Michigan": 59.6,
+      "Western Michigan": 40.4
+    },
+    "projected_score": {
+      "Michigan": 32.3,
+      "Western Michigan": 27.4,
+      "total": 59.8
+    },
+    "spread": {
+      "line": 26.5,
+      "Michigan_cover": 13.5
+    },
+    "total": {
+      "line": 50.0,
+      "over": 68.6,
+      "under": 31.4
+    },
+    "ratings": {
+      "Michigan": {
+        "off": 1.152,
+        "def": 1.054,
+        "epa_off": 0.1903,
+        "epa_def": 0.1217,
+        "elo": 1786.0
+      },
+      "Western Michigan": {
+        "off": 1.052,
+        "def": 1.095,
+        "epa_off": 0.1152,
+        "epa_def": 0.0605,
+        "elo": 1546.0
+      }
+    },
+    "ats": {
+      "Michigan": {
+        "pct": 0.488,
+        "record": "20-21",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Western Michigan": {
+        "pct": 0.605,
+        "record": "23-15",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Michigan": {
+        "model": 59.6,
+        "market": 50.0,
+        "edge": 9.6
+      },
+      "Western Michigan": {
+        "model": 40.4,
+        "market": 50.0,
+        "edge": -9.6
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 34.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (34/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Nebraska vs Ohio",
+    "win_prob": {
+      "Nebraska": 51.4,
+      "Ohio": 48.6
+    },
+    "projected_score": {
+      "Nebraska": 34.1,
+      "Ohio": 33.5,
+      "total": 67.5
+    },
+    "spread": {
+      "line": 23.5,
+      "Nebraska_cover": 12.2
+    },
+    "total": {
+      "line": 50.0,
+      "over": 81.0,
+      "under": 19.0
+    },
+    "ratings": {
+      "Nebraska": {
+        "off": 1.153,
+        "def": 0.956,
+        "epa_off": 0.1603,
+        "epa_def": 0.2074,
+        "elo": 1558.0
+      },
+      "Ohio": {
+        "off": 1.153,
+        "def": 1.027,
+        "epa_off": 0.2075,
+        "epa_def": 0.1238,
+        "elo": 1584.0
+      }
+    },
+    "ats": {
+      "Nebraska": {
+        "pct": 0.424,
+        "record": "14-19",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "Ohio": {
+        "pct": 0.579,
+        "record": "22-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Nebraska": {
+        "model": 51.4,
+        "market": 50.0,
+        "edge": 1.4
+      },
+      "Ohio": {
+        "model": 48.6,
+        "market": 50.0,
+        "edge": -1.4
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 17.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (17/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Ohio State vs Ball State",
+    "win_prob": {
+      "Ohio State": 96.6,
+      "Ball State": 3.4
+    },
+    "projected_score": {
+      "Ohio State": 45.7,
+      "Ball State": 11.5,
+      "total": 57.2
+    },
+    "spread": {
+      "line": 50.5,
+      "Ohio State_cover": 18.2
+    },
+    "total": {
+      "line": 50.0,
+      "over": 64.5,
+      "under": 35.5
+    },
+    "ratings": {
+      "Ohio State": {
+        "off": 1.278,
+        "def": 1.841,
+        "epa_off": 0.3125,
+        "epa_def": -0.0227,
+        "elo": 2138.0
+      },
+      "Ball State": {
+        "off": 0.704,
+        "def": 0.841,
+        "epa_off": -0.0043,
+        "epa_def": 0.1795,
+        "elo": 1010.0
+      }
+    },
+    "ats": {
+      "Ohio State": {
+        "pct": 0.65,
+        "record": "26-14",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      },
+      "Ball State": {
+        "pct": 0.588,
+        "record": "20-14",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Ohio State": {
+        "model": 96.6,
+        "market": 50.0,
+        "edge": 46.6
+      },
+      "Ball State": {
+        "model": 3.4,
+        "market": 50.0,
+        "edge": -46.6
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 61.0,
+      "classification": "MEDIUM",
+      "label": "\u26a0\ufe0f  MEDIUM CONFIDENCE (61/100)"
+    }
+  },
+  {
+    "game": "Oregon vs Boise State",
+    "win_prob": {
+      "Oregon": 74.4,
+      "Boise State": 25.6
+    },
+    "projected_score": {
+      "Oregon": 40.3,
+      "Boise State": 27.4,
+      "total": 67.7
+    },
+    "spread": {
+      "line": 24.5,
+      "Oregon_cover": 28.1
+    },
+    "total": {
+      "line": 50.0,
+      "over": 81.5,
+      "under": 18.5
+    },
+    "ratings": {
+      "Oregon": {
+        "off": 1.31,
+        "def": 1.158,
+        "epa_off": 0.3049,
+        "epa_def": 0.0494,
+        "elo": 2071.0
+      },
+      "Boise State": {
+        "off": 1.158,
+        "def": 0.982,
+        "epa_off": 0.2043,
+        "epa_def": 0.1228,
+        "elo": 1594.0
+      }
+    },
+    "ats": {
+      "Oregon": {
+        "pct": 0.61,
+        "record": "25-16",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      },
+      "Boise State": {
+        "pct": 0.6,
+        "record": "24-16",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Oregon": {
+        "model": 74.4,
+        "market": 50.0,
+        "edge": 24.4
+      },
+      "Boise State": {
+        "model": 25.6,
+        "market": 50.0,
+        "edge": -24.3
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Penn State vs Marshall",
+    "win_prob": {
+      "Penn State": 73.4,
+      "Marshall": 26.6
+    },
+    "projected_score": {
+      "Penn State": 42.6,
+      "Marshall": 30.3,
+      "total": 72.9
+    },
+    "spread": {
+      "line": 23.5,
+      "Penn State_cover": 29.1
+    },
+    "total": {
+      "line": 50.0,
+      "over": 88.3,
+      "under": 11.7
+    },
+    "ratings": {
+      "Penn State": {
+        "off": 1.245,
+        "def": 1.062,
+        "epa_off": 0.23,
+        "epa_def": 0.1179,
+        "elo": 1954.0
+      },
+      "Marshall": {
+        "off": 1.184,
+        "def": 0.882,
+        "epa_off": 0.1891,
+        "epa_def": 0.1566,
+        "elo": 1468.0
+      }
+    },
+    "ats": {
+      "Penn State": {
+        "pct": 0.524,
+        "record": "22-20",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Marshall": {
+        "pct": 0.579,
+        "record": "22-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Penn State": {
+        "model": 73.4,
+        "market": 50.0,
+        "edge": 23.4
+      },
+      "Marshall": {
+        "model": 26.6,
+        "market": 50.0,
+        "edge": -23.4
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "James Madison vs Liberty",
+    "win_prob": {
+      "James Madison": 81.7,
+      "Liberty": 18.3
+    },
+    "projected_score": {
+      "James Madison": 42.8,
+      "Liberty": 25.0,
+      "total": 67.8
+    },
+    "spread": {
+      "line": 6.0,
+      "James Madison_cover": 73.0
+    },
+    "total": {
+      "line": 50.0,
+      "over": 81.2,
+      "under": 18.8
+    },
+    "ratings": {
+      "James Madison": {
+        "off": 1.291,
+        "def": 1.214,
+        "epa_off": 0.2078,
+        "epa_def": 0.0332,
+        "elo": 1905.0
+      },
+      "Liberty": {
+        "off": 1.113,
+        "def": 0.914,
+        "epa_off": 0.1692,
+        "epa_def": 0.2074,
+        "elo": 1441.0
+      }
+    },
+    "ats": {
+      "James Madison": {
+        "pct": 0.6,
+        "record": "24-16",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      },
+      "Liberty": {
+        "pct": 0.395,
+        "record": "15-23",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "James Madison": {
+        "model": 81.7,
+        "market": 50.0,
+        "edge": 31.7
+      },
+      "Liberty": {
+        "model": 18.3,
+        "market": 50.0,
+        "edge": -31.7
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 48.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (48/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Troy vs Sam Houston",
+    "win_prob": {
+      "Troy": 78.8,
+      "Sam Houston": 21.1
+    },
+    "projected_score": {
+      "Troy": 36.2,
+      "Sam Houston": 20.8,
+      "total": 57.0
+    },
+    "spread": {
+      "line": 16.5,
+      "Troy_cover": 48.8
+    },
+    "total": {
+      "line": 50.0,
+      "over": 64.0,
+      "under": 36.0
+    },
+    "ratings": {
+      "Troy": {
+        "off": 0.942,
+        "def": 0.969,
+        "epa_off": 0.0964,
+        "epa_def": 0.116,
+        "elo": 1384.0
+      },
+      "Sam Houston": {
+        "off": 0.761,
+        "def": 0.787,
+        "epa_off": 0.0129,
+        "epa_def": 0.216,
+        "elo": 994.0
+      }
+    },
+    "ats": {
+      "Troy": {
+        "pct": 0.575,
+        "record": "23-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Sam Houston": {
+        "pct": 0.432,
+        "record": "16-21",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Troy": {
+        "model": 78.8,
+        "market": 50.0,
+        "edge": 28.8
+      },
+      "Sam Houston": {
+        "model": 21.1,
+        "market": 50.0,
+        "edge": -28.9
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.5,
+      "market_signal": "\u2605   SLIGHT MOVE \u2192 AWAY (+0.5 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 48.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (48/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Florida vs Florida Atlantic",
+    "win_prob": {
+      "Florida": 63.9,
+      "Florida Atlantic": 36.1
+    },
+    "projected_score": {
+      "Florida": 38.6,
+      "Florida Atlantic": 31.6,
+      "total": 70.2
+    },
+    "spread": {
+      "line": 25.5,
+      "Florida_cover": 17.5
+    },
+    "total": {
+      "line": 50.0,
+      "over": 84.8,
+      "under": 15.2
+    },
+    "ratings": {
+      "Florida": {
+        "off": 1.0,
+        "def": 0.941,
+        "epa_off": 0.1397,
+        "epa_def": 0.1822,
+        "elo": 1593.0
+      },
+      "Florida Atlantic": {
+        "off": 1.082,
+        "def": 0.792,
+        "epa_off": 0.2059,
+        "epa_def": 0.2627,
+        "elo": 1178.0
+      }
+    },
+    "ats": {
+      "Florida": {
+        "pct": 0.5,
+        "record": "18-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Florida Atlantic": {
+        "pct": 0.429,
+        "record": "15-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Florida": {
+        "model": 63.9,
+        "market": 50.0,
+        "edge": 13.9
+      },
+      "Florida Atlantic": {
+        "model": 36.1,
+        "market": 50.0,
+        "edge": -13.9
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Mississippi State vs UL Monroe",
+    "win_prob": {
+      "Mississippi State": 73.8,
+      "UL Monroe": 26.2
+    },
+    "projected_score": {
+      "Mississippi State": 39.8,
+      "UL Monroe": 27.4,
+      "total": 67.2
+    },
+    "spread": {
+      "line": 28.5,
+      "Mississippi State_cover": 20.9
+    },
+    "total": {
+      "line": 50.0,
+      "over": 81.1,
+      "under": 18.9
+    },
+    "ratings": {
+      "Mississippi State": {
+        "off": 1.104,
+        "def": 0.842,
+        "epa_off": 0.1379,
+        "epa_def": 0.2205,
+        "elo": 1468.0
+      },
+      "UL Monroe": {
+        "off": 0.841,
+        "def": 0.839,
+        "epa_off": 0.0855,
+        "epa_def": 0.1862,
+        "elo": 1016.0
+      }
+    },
+    "ats": {
+      "Mississippi State": {
+        "pct": 0.5,
+        "record": "18-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "UL Monroe": {
+        "pct": 0.417,
+        "record": "15-21",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Mississippi State": {
+        "model": 73.8,
+        "market": 50.0,
+        "edge": 23.8
+      },
+      "UL Monroe": {
+        "model": 26.2,
+        "market": 50.0,
+        "edge": -23.8
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Oklahoma vs UTEP",
+    "win_prob": {
+      "Oklahoma": 85.2,
+      "UTEP": 14.7
+    },
+    "projected_score": {
+      "Oklahoma": 35.5,
+      "UTEP": 15.6,
+      "total": 51.1
+    },
+    "spread": {
+      "line": 40.5,
+      "Oklahoma_cover": 13.6
+    },
+    "total": {
+      "line": 50.0,
+      "over": 51.2,
+      "under": 48.8
+    },
+    "ratings": {
+      "Oklahoma": {
+        "off": 1.002,
+        "def": 1.346,
+        "epa_off": 0.0995,
+        "epa_def": 0.0012,
+        "elo": 1810.0
+      },
+      "UTEP": {
+        "off": 0.78,
+        "def": 0.865,
+        "epa_off": 0.0163,
+        "epa_def": 0.1097,
+        "elo": 1135.0
+      }
+    },
+    "ats": {
+      "Oklahoma": {
+        "pct": 0.526,
+        "record": "20-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "UTEP": {
+        "pct": 0.389,
+        "record": "14-22",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Oklahoma": {
+        "model": 85.2,
+        "market": 50.0,
+        "edge": 35.2
+      },
+      "UTEP": {
+        "model": 14.7,
+        "market": 50.0,
+        "edge": -35.3
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 53.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (53/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "South Carolina vs Kent State",
+    "win_prob": {
+      "South Carolina": 71.5,
+      "Kent State": 28.5
+    },
+    "projected_score": {
+      "South Carolina": 35.6,
+      "Kent State": 24.5,
+      "total": 60.2
+    },
+    "spread": {
+      "line": 34.5,
+      "South Carolina_cover": 11.4
+    },
+    "total": {
+      "line": 50.0,
+      "over": 69.6,
+      "under": 30.4
+    },
+    "ratings": {
+      "South Carolina": {
+        "off": 0.933,
+        "def": 0.995,
+        "epa_off": 0.0988,
+        "epa_def": 0.0852,
+        "elo": 1697.0
+      },
+      "Kent State": {
+        "off": 0.892,
+        "def": 0.799,
+        "epa_off": 0.0941,
+        "epa_def": 0.1945,
+        "elo": 1001.0
+      }
+    },
+    "ats": {
+      "South Carolina": {
+        "pct": 0.568,
+        "record": "21-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Kent State": {
+        "pct": 0.361,
+        "record": "13-23",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "South Carolina": {
+        "model": 71.5,
+        "market": 50.0,
+        "edge": 21.5
+      },
+      "Kent State": {
+        "model": 28.5,
+        "market": 50.0,
+        "edge": -21.5
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Texas vs Texas State",
+    "win_prob": {
+      "Texas": 67.1,
+      "Texas State": 32.9
+    },
+    "projected_score": {
+      "Texas": 41.7,
+      "Texas State": 33.1,
+      "total": 74.8
+    },
+    "spread": {
+      "line": 30.5,
+      "Texas_cover": 13.1
+    },
+    "total": {
+      "line": 50.0,
+      "over": 89.5,
+      "under": 10.5
+    },
+    "ratings": {
+      "Texas": {
+        "off": 1.213,
+        "def": 1.068,
+        "epa_off": 0.1785,
+        "epa_def": 0.1045,
+        "elo": 1926.0
+      },
+      "Texas State": {
+        "off": 1.279,
+        "def": 0.88,
+        "epa_off": 0.3307,
+        "epa_def": 0.1761,
+        "elo": 1606.0
+      }
+    },
+    "ats": {
+      "Texas": {
+        "pct": 0.465,
+        "record": "20-23",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "Texas State": {
+        "pct": 0.474,
+        "record": "18-20",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "Texas": {
+        "model": 67.1,
+        "market": 50.0,
+        "edge": 17.1
+      },
+      "Texas State": {
+        "model": 32.9,
+        "market": 50.0,
+        "edge": -17.1
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Texas A&M vs Missouri State",
+    "win_prob": {
+      "Texas A&M": 76.2,
+      "Missouri State": 23.8
+    },
+    "projected_score": {
+      "Texas A&M": 42.3,
+      "Missouri State": 28.2,
+      "total": 70.5
+    },
+    "spread": {
+      "line": 38.5,
+      "Texas A&M_cover": 10.6
+    },
+    "total": {
+      "line": 50.0,
+      "over": 85.1,
+      "under": 14.9
+    },
+    "ratings": {
+      "Texas A&M": {
+        "off": 1.217,
+        "def": 1.054,
+        "epa_off": 0.2416,
+        "epa_def": 0.1257,
+        "elo": 1872.0
+      },
+      "Missouri State": {
+        "off": 1.082,
+        "def": 0.869,
+        "epa_off": 0.1767,
+        "epa_def": 0.2322,
+        "elo": 1328.0
+      }
+    },
+    "ats": {
+      "Texas A&M": {
+        "pct": 0.342,
+        "record": "13-25",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      },
+      "Missouri State": {
+        "pct": 0.484,
+        "record": "15-16",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "Texas A&M": {
+        "model": 76.2,
+        "market": 50.0,
+        "edge": 26.2
+      },
+      "Missouri State": {
+        "model": 23.8,
+        "market": 50.0,
+        "edge": -26.2
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "West Virginia vs Coastal Carolina",
+    "win_prob": {
+      "West Virginia": 58.1,
+      "Coastal Carolina": 41.9
+    },
+    "projected_score": {
+      "West Virginia": 33.2,
+      "Coastal Carolina": 29.2,
+      "total": 62.4
+    },
+    "spread": {
+      "line": 17.5,
+      "West Virginia_cover": 25.0
+    },
+    "total": {
+      "line": 50.0,
+      "over": 73.9,
+      "under": 26.1
+    },
+    "ratings": {
+      "West Virginia": {
+        "off": 0.898,
+        "def": 0.864,
+        "epa_off": 0.0696,
+        "epa_def": 0.1553,
+        "elo": 1291.0
+      },
+      "Coastal Carolina": {
+        "off": 0.923,
+        "def": 0.83,
+        "epa_off": 0.091,
+        "epa_def": 0.1911,
+        "elo": 1163.0
+      }
+    },
+    "ats": {
+      "West Virginia": {
+        "pct": 0.541,
+        "record": "20-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Coastal Carolina": {
+        "pct": 0.5,
+        "record": "19-19",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "West Virginia": {
+        "model": 58.1,
+        "market": 50.0,
+        "edge": 8.1
+      },
+      "Coastal Carolina": {
+        "model": 41.9,
+        "market": 50.0,
+        "edge": -8.1
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 34.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (34/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Pittsburgh vs Miami (OH)",
+    "win_prob": {
+      "Pittsburgh": 61.8,
+      "Miami (OH)": 38.2
+    },
+    "projected_score": {
+      "Pittsburgh": 33.8,
+      "Miami (OH)": 28.0,
+      "total": 61.7
+    },
+    "spread": {
+      "line": 16.5,
+      "Pittsburgh_cover": 29.4
+    },
+    "total": {
+      "line": 50.0,
+      "over": 71.7,
+      "under": 28.3
+    },
+    "ratings": {
+      "Pittsburgh": {
+        "off": 1.153,
+        "def": 0.966,
+        "epa_off": 0.1889,
+        "epa_def": 0.0756,
+        "elo": 1614.0
+      },
+      "Miami (OH)": {
+        "off": 0.985,
+        "def": 1.044,
+        "epa_off": 0.1036,
+        "epa_def": 0.0828,
+        "elo": 1400.0
+      }
+    },
+    "ats": {
+      "Pittsburgh": {
+        "pct": 0.5,
+        "record": "19-19",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Miami (OH)": {
+        "pct": 0.619,
+        "record": "26-16",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Pittsburgh": {
+        "model": 61.8,
+        "market": 50.0,
+        "edge": 11.8
+      },
+      "Miami (OH)": {
+        "model": 38.2,
+        "market": 50.0,
+        "edge": -11.8
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Washington vs Washington State",
+    "win_prob": {
+      "Washington": 71.8,
+      "Washington State": 28.2
+    },
+    "projected_score": {
+      "Washington": 37.7,
+      "Washington State": 26.2,
+      "total": 63.9
+    },
+    "spread": {
+      "line": 21.5,
+      "Washington_cover": 30.5
+    },
+    "total": {
+      "line": 50.0,
+      "over": 75.8,
+      "under": 24.2
+    },
+    "ratings": {
+      "Washington": {
+        "off": 1.244,
+        "def": 1.054,
+        "epa_off": 0.2874,
+        "epa_def": 0.0765,
+        "elo": 1866.0
+      },
+      "Washington State": {
+        "off": 1.011,
+        "def": 1.002,
+        "epa_off": 0.1343,
+        "epa_def": 0.0725,
+        "elo": 1549.0
+      }
+    },
+    "ats": {
+      "Washington": {
+        "pct": 0.488,
+        "record": "20-21",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Washington State": {
+        "pct": 0.579,
+        "record": "22-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Washington": {
+        "model": 71.8,
+        "market": 50.0,
+        "edge": 21.8
+      },
+      "Washington State": {
+        "model": 28.2,
+        "market": 50.0,
+        "edge": -21.8
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Colorado State vs Wyoming",
+    "win_prob": {
+      "Colorado State": 54.5,
+      "Wyoming": 45.4
+    },
+    "projected_score": {
+      "Colorado State": 27.9,
+      "Wyoming": 25.6,
+      "total": 53.6
+    },
+    "spread": {
+      "line": 4.0,
+      "Colorado State_cover": 46.7
+    },
+    "total": {
+      "line": 50.0,
+      "over": 56.5,
+      "under": 43.5
+    },
+    "ratings": {
+      "Colorado State": {
+        "off": 0.917,
+        "def": 0.841,
+        "epa_off": 0.1256,
+        "epa_def": 0.2359,
+        "elo": 1155.0
+      },
+      "Wyoming": {
+        "off": 0.786,
+        "def": 1.023,
+        "epa_off": 0.0504,
+        "epa_def": 0.0725,
+        "elo": 1295.0
+      }
+    },
+    "ats": {
+      "Colorado State": {
+        "pct": 0.417,
+        "record": "15-21",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      },
+      "Wyoming": {
+        "pct": 0.5,
+        "record": "18-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "Colorado State": {
+        "model": 54.5,
+        "market": 50.0,
+        "edge": 4.5
+      },
+      "Wyoming": {
+        "model": 45.4,
+        "market": 50.0,
+        "edge": -4.6
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 17.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (17/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Memphis vs Arkansas State",
+    "win_prob": {
+      "Memphis": 79.2,
+      "Arkansas State": 20.8
+    },
+    "projected_score": {
+      "Memphis": 42.8,
+      "Arkansas State": 26.8,
+      "total": 69.7
+    },
+    "spread": {
+      "line": 10.5,
+      "Memphis_cover": 61.0
+    },
+    "total": {
+      "line": 50.0,
+      "over": 84.3,
+      "under": 15.7
+    },
+    "ratings": {
+      "Memphis": {
+        "off": 1.244,
+        "def": 0.97,
+        "epa_off": 0.256,
+        "epa_def": 0.1928,
+        "elo": 1540.0
+      },
+      "Arkansas State": {
+        "off": 0.957,
+        "def": 0.881,
+        "epa_off": 0.0949,
+        "epa_def": 0.1907,
+        "elo": 1317.0
+      }
+    },
+    "ats": {
+      "Memphis": {
+        "pct": 0.514,
+        "record": "19-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Arkansas State": {
+        "pct": 0.568,
+        "record": "21-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Memphis": {
+        "model": 79.2,
+        "market": 50.0,
+        "edge": 29.2
+      },
+      "Arkansas State": {
+        "model": 20.8,
+        "market": 50.0,
+        "edge": -29.2
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Nevada vs Western Kentucky",
+    "win_prob": {
+      "Nevada": 31.5,
+      "Western Kentucky": 68.4
+    },
+    "projected_score": {
+      "Nevada": 24.0,
+      "Western Kentucky": 33.3,
+      "total": 57.3
+    },
+    "spread": {
+      "line": -4.0,
+      "Nevada_cover": 39.4
+    },
+    "total": {
+      "line": 50.0,
+      "over": 64.2,
+      "under": 35.8
+    },
+    "ratings": {
+      "Nevada": {
+        "off": 0.754,
+        "def": 0.878,
+        "epa_off": 0.0223,
+        "epa_def": 0.1948,
+        "elo": 1277.0
+      },
+      "Western Kentucky": {
+        "off": 1.113,
+        "def": 0.989,
+        "epa_off": 0.1621,
+        "epa_def": 0.1075,
+        "elo": 1408.0
+      }
+    },
+    "ats": {
+      "Nevada": {
+        "pct": 0.486,
+        "record": "17-18",
+        "signal": "\u2500  NEUTRAL ATS"
+      },
+      "Western Kentucky": {
+        "pct": 0.575,
+        "record": "23-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Nevada": {
+        "model": 31.5,
+        "market": 50.0,
+        "edge": -18.5
+      },
+      "Western Kentucky": {
+        "model": 68.4,
+        "market": 50.0,
+        "edge": 18.5
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Hawai'i vs UNLV",
+    "win_prob": {
+      "Hawai'i": 55.9,
+      "UNLV": 44.1
+    },
+    "projected_score": {
+      "Hawai'i": 37.2,
+      "UNLV": 34.3,
+      "total": 71.5
+    },
+    "spread": {
+      "line": -1.5,
+      "Hawai'i_cover": 58.7
+    },
+    "total": {
+      "line": 50.0,
+      "over": 86.4,
+      "under": 13.6
+    },
+    "ratings": {
+      "Hawai'i": {
+        "off": 1.099,
+        "def": 0.942,
+        "epa_off": 0.1841,
+        "epa_def": 0.1738,
+        "elo": 1459.0
+      },
+      "UNLV": {
+        "off": 1.25,
+        "def": 0.889,
+        "epa_off": 0.2984,
+        "epa_def": 0.214,
+        "elo": 1622.0
+      }
+    },
+    "ats": {
+      "Hawai'i": {
+        "pct": 0.541,
+        "record": "20-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "UNLV": {
+        "pct": 0.595,
+        "record": "25-17",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Hawai'i": {
+        "model": 55.9,
+        "market": 50.0,
+        "edge": 5.9
+      },
+      "UNLV": {
+        "model": 44.1,
+        "market": 50.0,
+        "edge": -5.9
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 17.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (17/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "New Mexico vs Central Michigan",
+    "win_prob": {
+      "New Mexico": 60.1,
+      "Central Michigan": 39.9
+    },
+    "projected_score": {
+      "New Mexico": 35.3,
+      "Central Michigan": 30.4,
+      "total": 65.7
+    },
+    "spread": {
+      "line": 12.5,
+      "New Mexico_cover": 34.9
+    },
+    "total": {
+      "line": 50.0,
+      "over": 78.7,
+      "under": 21.3
+    },
+    "ratings": {
+      "New Mexico": {
+        "off": 1.107,
+        "def": 0.957,
+        "epa_off": 0.1796,
+        "epa_def": 0.1123,
+        "elo": 1494.0
+      },
+      "Central Michigan": {
+        "off": 1.061,
+        "def": 0.956,
+        "epa_off": 0.1713,
+        "epa_def": 0.1001,
+        "elo": 1232.0
+      }
+    },
+    "ats": {
+      "New Mexico": {
+        "pct": 0.541,
+        "record": "20-17",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      },
+      "Central Michigan": {
+        "pct": 0.444,
+        "record": "16-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "New Mexico": {
+        "model": 60.1,
+        "market": 50.0,
+        "edge": 10.1
+      },
+      "Central Michigan": {
+        "model": 39.9,
+        "market": 50.0,
+        "edge": -10.1
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 38.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (38/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Alabama vs East Carolina",
+    "win_prob": {
+      "Alabama": 58.3,
+      "East Carolina": 41.7
+    },
+    "projected_score": {
+      "Alabama": 34.3,
+      "East Carolina": 30.1,
+      "total": 64.4
+    },
+    "spread": {
+      "line": 26.5,
+      "Alabama_cover": 12.7
+    },
+    "total": {
+      "line": 50.0,
+      "over": 76.8,
+      "under": 23.2
+    },
+    "ratings": {
+      "Alabama": {
+        "off": 1.171,
+        "def": 1.09,
+        "epa_off": 0.1979,
+        "epa_def": 0.0815,
+        "elo": 1857.0
+      },
+      "East Carolina": {
+        "off": 1.201,
+        "def": 1.048,
+        "epa_off": 0.2087,
+        "epa_def": 0.0932,
+        "elo": 1593.0
+      }
+    },
+    "ats": {
+      "Alabama": {
+        "pct": 0.6,
+        "record": "24-16",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      },
+      "East Carolina": {
+        "pct": 0.568,
+        "record": "21-16",
+        "signal": "\u2605  SLIGHT ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Alabama": {
+        "model": 58.3,
+        "market": 50.0,
+        "edge": 8.3
+      },
+      "East Carolina": {
+        "model": 41.7,
+        "market": 50.0,
+        "edge": -8.3
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": 1.0,
+      "market_signal": "\u2605   SLIGHT MOVE \u2192 HOME (+1.0 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 34.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (34/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Auburn vs Baylor",
+    "win_prob": {
+      "Auburn": 68.5,
+      "Baylor": 31.5
+    },
+    "projected_score": {
+      "Auburn": 41.2,
+      "Baylor": 31.6,
+      "total": 72.8
+    },
+    "spread": {
+      "line": 6.5,
+      "Auburn_cover": 56.4
+    },
+    "total": {
+      "line": 59.5,
+      "over": 74.8,
+      "under": 25.2
+    },
+    "ratings": {
+      "Auburn": {
+        "off": 1.179,
+        "def": 1.03,
+        "epa_off": 0.1703,
+        "epa_def": 0.069,
+        "elo": 1670.0
+      },
+      "Baylor": {
+        "off": 1.142,
+        "def": 0.819,
+        "epa_off": 0.1978,
+        "epa_def": 0.1808,
+        "elo": 1509.0
+      }
+    },
+    "ats": {
+      "Auburn": {
+        "pct": 0.444,
+        "record": "16-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "Baylor": {
+        "pct": 0.389,
+        "record": "14-22",
+        "signal": "\u2717\u2717 STRONG ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Auburn": {
+        "model": 68.5,
+        "market": 70.0,
+        "edge": -1.5
+      },
+      "Baylor": {
+        "model": 31.5,
+        "market": 30.0,
+        "edge": 1.5
+      }
+    },
+    "situational": {
+      "weather": "DOME",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -1.0,
+      "market_signal": "\u2605   SLIGHT MOVE \u2192 AWAY (+1.0 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 43.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (43/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "LSU vs Clemson",
+    "win_prob": {
+      "LSU": 45.4,
+      "Clemson": 54.5
+    },
+    "projected_score": {
+      "LSU": 27.5,
+      "Clemson": 29.7,
+      "total": 57.2
+    },
+    "spread": {
+      "line": 10.5,
+      "LSU_cover": 25.8
+    },
+    "total": {
+      "line": 50.5,
+      "over": 63.3,
+      "under": 36.7
+    },
+    "ratings": {
+      "LSU": {
+        "off": 0.931,
+        "def": 1.03,
+        "epa_off": 0.0633,
+        "epa_def": 0.0821,
+        "elo": 1675.0
+      },
+      "Clemson": {
+        "off": 1.125,
+        "def": 1.049,
+        "epa_off": 0.1898,
+        "epa_def": 0.1071,
+        "elo": 1755.0
+      }
+    },
+    "ats": {
+      "LSU": {
+        "pct": 0.436,
+        "record": "17-22",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "Clemson": {
+        "pct": 0.425,
+        "record": "17-23",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "LSU": {
+        "model": 45.4,
+        "market": 78.8,
+        "edge": -33.4
+      },
+      "Clemson": {
+        "model": 54.5,
+        "market": 21.2,
+        "edge": 33.3
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -1.0,
+      "market_signal": "\u2605   SLIGHT MOVE \u2192 AWAY (+1.0 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 19.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (19/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Ole Miss vs Louisville",
+    "win_prob": {
+      "Ole Miss": 57.0,
+      "Louisville": 43.0
+    },
+    "projected_score": {
+      "Ole Miss": 35.3,
+      "Louisville": 32.1,
+      "total": 67.5
+    },
+    "spread": {
+      "line": 6.5,
+      "Ole Miss_cover": 43.9
+    },
+    "total": {
+      "line": 55.5,
+      "over": 72.4,
+      "under": 27.6
+    },
+    "ratings": {
+      "Ole Miss": {
+        "off": 1.297,
+        "def": 1.039,
+        "epa_off": 0.3041,
+        "epa_def": 0.1324,
+        "elo": 2009.0
+      },
+      "Louisville": {
+        "off": 1.15,
+        "def": 1.051,
+        "epa_off": 0.1502,
+        "epa_def": 0.0529,
+        "elo": 1749.0
+      }
+    },
+    "ats": {
+      "Ole Miss": {
+        "pct": 0.615,
+        "record": "24-15",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      },
+      "Louisville": {
+        "pct": 0.436,
+        "record": "17-22",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      }
+    },
+    "edge": {
+      "Ole Miss": {
+        "model": 57.0,
+        "market": 70.0,
+        "edge": -13.1
+      },
+      "Louisville": {
+        "model": 43.0,
+        "market": 30.0,
+        "edge": 13.1
+      }
+    },
+    "situational": {
+      "weather": "DOME",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -2.0,
+      "market_signal": "\u2605\u2605  MODERATE MOVE \u2192 AWAY (+2.0 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 29.0,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (29/100) \u2014 Use Caution"
+    }
+  },
+  {
+    "game": "Wisconsin vs Notre Dame",
+    "win_prob": {
+      "Wisconsin": 9.3,
+      "Notre Dame": 90.7
+    },
+    "projected_score": {
+      "Wisconsin": 16.6,
+      "Notre Dame": 41.5,
+      "total": 58.1
+    },
+    "spread": {
+      "line": -20.5,
+      "Wisconsin_cover": 40.0
+    },
+    "total": {
+      "line": 47.5,
+      "over": 69.7,
+      "under": 30.3
+    },
+    "ratings": {
+      "Wisconsin": {
+        "off": 0.698,
+        "def": 0.985,
+        "epa_off": 0.0117,
+        "epa_def": 0.1885,
+        "elo": 1502.0
+      },
+      "Notre Dame": {
+        "off": 1.393,
+        "def": 1.207,
+        "epa_off": 0.3558,
+        "epa_def": 0.0424,
+        "elo": 2243.0
+      }
+    },
+    "ats": {
+      "Wisconsin": {
+        "pct": 0.444,
+        "record": "16-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "Notre Dame": {
+        "pct": 0.675,
+        "record": "27-13",
+        "signal": "\u2605\u2605 STRONG ATS COVER TREND"
+      }
+    },
+    "edge": {
+      "Wisconsin": {
+        "model": 9.3,
+        "market": 8.6,
+        "edge": 0.7
+      },
+      "Notre Dame": {
+        "model": 90.7,
+        "market": 91.4,
+        "edge": -0.7
+      }
+    },
+    "situational": {
+      "weather": "DOME",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -4.0,
+      "market_signal": "\u2605\u2605\u2605 SHARP MONEY \u2192 AWAY (+4.0 pts)"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 76.0,
+      "classification": "MEDIUM",
+      "label": "\u26a0\ufe0f  MEDIUM CONFIDENCE (76/100)"
+    }
+  },
+  {
+    "game": "Florida State vs SMU",
+    "win_prob": {
+      "Florida State": 51.2,
+      "SMU": 48.8
+    },
+    "projected_score": {
+      "Florida State": 33.1,
+      "SMU": 32.6,
+      "total": 65.7
+    },
+    "spread": {
+      "line": -2.5,
+      "Florida State_cover": 55.9
+    },
+    "total": {
+      "line": 52.5,
+      "over": 74.6,
+      "under": 25.4
+    },
+    "ratings": {
+      "Florida State": {
+        "off": 1.196,
+        "def": 0.981,
+        "epa_off": 0.271,
+        "epa_def": 0.1616,
+        "elo": 1556.0
+      },
+      "SMU": {
+        "off": 1.184,
+        "def": 1.116,
+        "epa_off": 0.2309,
+        "epa_def": 0.0299,
+        "elo": 1852.0
+      }
+    },
+    "ats": {
+      "Florida State": {
+        "pct": 0.459,
+        "record": "17-20",
+        "signal": "\u2717  SLIGHT ATS FADE TREND"
+      },
+      "SMU": {
+        "pct": 0.525,
+        "record": "21-19",
+        "signal": "\u2500  NEUTRAL ATS"
+      }
+    },
+    "edge": {
+      "Florida State": {
+        "model": 51.2,
+        "market": 43.8,
+        "edge": 7.4
+      },
+      "SMU": {
+        "model": 48.8,
+        "market": 56.2,
+        "edge": -7.4
+      }
+    },
+    "situational": {
+      "weather": "Unknown",
+      "home_rest_days": 7,
+      "away_rest_days": 7,
+      "line_movement": -0.0,
+      "market_signal": "\u2500  MINIMAL MOVEMENT"
+    },
+    "simulations": 10000,
+    "confidence": {
+      "score": 17.3,
+      "classification": "HIGH VARIANCE",
+      "label": "\ud83d\udd34 HIGH VARIANCE (17/100) \u2014 Use Caution"
+    }
+  }
+]
