@@ -34,7 +34,9 @@ from enhanced_data import EnhancedProfile, GameContext
 # If you load from a file or database, swap this import out.
 
 try:
-    from data.team_profiles import TEAM_PROFILES
+    from data.team_profiles import TEAM_PRfrom data.team_profiles import TEAM_PROFILES
+    from data.nfl_profiles import NFL_PROFILES
+    ALL_PROFILES = {**TEAM_PROFILES, **NFL_PROFILES}OFILES
 except ImportError:
     TEAM_PROFILES = {}  # fallback — add profiles manually below
 
