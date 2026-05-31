@@ -1,3 +1,11 @@
-fastapi
-uvicorn
-pydantic
+fastapi==0.136.3
+uvicorn==0.48.0
+requests==2.34.2
+numpy==2.4.6
+pandas==3.0.3
+streamlit==1.58.0
+python-dotenv==1.0.0
+cfbd==5.13.2
+pydantic==2.11.5
+httptools==0.8.0
+python-multipart==0.0.29
