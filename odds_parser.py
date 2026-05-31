@@ -5,7 +5,7 @@ Fetches and parses live odds from The Odds API.
 
 import requests
 
-API_KEY = "211af8df5f3ec9651332a6644b9941c3"  # Replace with your key — move to config.yaml later
+API_KEY = os.getenv("ODDS_API_KEY", "")
 BASE_URL = "https://api.the-odds-api.com/v4"
 
 SPORT_KEYS = {
