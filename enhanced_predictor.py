@@ -23,7 +23,7 @@ from typing import Optional, Tuple
 
 from enhanced_data import EnhancedProfile, GameContext, ATSRecord
 from situational import apply_context_adjustments, line_movement_signal, summarize_context
-from predictor import NFL_CONSTANTS, CFB_CONSTANTS
+from predictor import NFL_CONSTANTS, CFB_CONSTANTS, WNBA_CONSTANTS
 from roster_factors import RosterFactors, ConfidenceScore, calc_confidence_score
 
 
@@ -77,7 +77,7 @@ class EnhancedRatingEngine:
     """
 
     def __init__(self, league: str):
-        self.c = CFB_CONSTANTS if league == "CFB" else NFL_CONSTANTS
+        self.c = CFB_CONSTANTS if league == "CFB" else WNBA_CONSTANTS if league == "WNBA" else NFL_CONSTANTS
         self.league = league
         self.sos_weight = 0.20 if league == "CFB" else 0.10
         self.avg_epa_off = CFB_AVG_EPA_OFF if league == "CFB" else NFL_AVG_EPA_OFF

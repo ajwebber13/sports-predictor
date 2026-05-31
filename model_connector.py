@@ -16,6 +16,14 @@ try:
 except ImportError:
     NFL_PROFILES = {}
 
+try:
+    from data.wnba_profiles import WNBA_PROFILES
+except ImportError:
+    WNBA_PROFILES = {}
+
+ALL_PROFILES = {**TEAM_PROFILES, **NFL_PROFILES, **WNBA_PROFILES}
+
+
 ALL_PROFILES = {**TEAM_PROFILES, **NFL_PROFILES}
 
 NAME_MAP = {

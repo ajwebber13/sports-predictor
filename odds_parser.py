@@ -4,6 +4,7 @@ Fetches and parses live odds from The Odds API.
 """
 
 import requests
+import os
 
 API_KEY = os.getenv("ODDS_API_KEY", "")
 BASE_URL = "https://api.the-odds-api.com/v4"
@@ -13,6 +14,7 @@ SPORT_KEYS = {
     "ncaaf": "americanfootball_ncaaf",
     "nba": "basketball_nba",
     "ncaab": "basketball_ncaab",
+    "wnba": "basketball_wnba",
 }
 
 
