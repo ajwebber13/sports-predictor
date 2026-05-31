@@ -4,16 +4,19 @@ sys.path.insert(0, os.path.abspath("."))
 
 router = APIRouter(prefix="/wnba", tags=["WNBA"])
 
-
 @router.get("/edges")
 def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
     from wnba_data import get_team_stats, TEAM_IDS
     from wnba_predictor import WNBAPredictionEngine
     from wnba_props import get_wnba_events
     from odds_parser import american_to_implied
+    import requests, os as _os
+
     engine = WNBAPredictionEngine()
+    API_KEY = _os.getenv("ODDS_API_KEY", "")
     events = get_wnba_events()
     results = []
+
     for event in events:
         home = event.get("home_team", "")
         away = event.get("away_team", "")
@@ -24,28 +27,24 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         if not home_stats or not away_stats:
             continue
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
-        implied = round(american_to_implied(-110) * 100, 1)
-        e_home = round(pred.home_win_prob - implied, 2)
-        e_away = round(pred.away_win_prob - implied, 2)
+        implied_home = round(american_to_implied(-110) * 100, 1)
+        implied_away = round(american_to_implied(-110) * 100, 1)
+        edge_home = round(pred.home_win_prob - implied_home, 2)
+        edge_away = round(pred.away_win_prob - implied_away, 2)
         label = f"{away} @ {home}"
-        if e_home >= min_edge:
-            results.append({
-                "game": label, "bet": f"{home} ML",
-                "model_prob": pred.home_win_prob, "implied_prob": implied,
-                "edge": round(e_home / 100, 4),
+        if edge_home >= min_edge:
+            results.append({"game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
+                "implied_prob": implied_home, "edge": round(edge_home / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
-                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-            })
-        if e_away >= min_edge:
-            results.append({
-                "game": label, "bet": f"{away} ML",
-                "model_prob": pred.away_win_prob, "implied_prob": implied,
-                "edge": round(e_away / 100, 4),
+                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
+        if edge_away >= min_edge:
+            results.append({"game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
+                "implied_prob": implied_away, "edge": round(edge_away / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
-                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-            })
+                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
+
     results.sort(key=lambda x: x["edge"], reverse=True)
     return {"count": len(results), "best_bets": results}
 
@@ -66,7 +65,7 @@ def wnba_preview(home: str, away: str, simulations: int = Query(default=10000)):
     home_stats = get_team_stats(home)
     away_stats = get_team_stats(away)
     if not home_stats or not away_stats:
-        return {"error": "Could not fetch stats"}
+        return {"error": "Could not fetch team stats from ESPN"}
     engine = WNBAPredictionEngine()
     pred = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
     home_roster = get_roster(home)
