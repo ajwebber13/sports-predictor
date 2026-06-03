@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-API_BASE = "http://127.0.0.1:8000"
+API_BASE = "https://sports-predictor-api-44a0.onrender.com"
 
 st.set_page_config(page_title="Betting Model", page_icon="🏈", layout="wide")
 
