@@ -1,15 +1,8 @@
 """
 wnba_data.py
-=============
+============
 Pulls live WNBA data from ESPN's public API.
 No API key required.
-
-Data available:
-  - All 12 team IDs and names
-  - Team stats (pts, rebounds, assists, turnovers, pace)
-  - Win/loss records, home/away splits
-  - Full rosters with player details
-  - Schedule with rest days and travel
 """
 
 import requests
@@ -18,10 +11,6 @@ from typing import Optional, List, Dict
 from datetime import datetime, timezone
 
 BASE = "http://site.api.espn.com/apis/site/v2/sports/basketball/wnba"
-
-# ─────────────────────────────────────────────────────────────
-# ESPN TEAM ID MAP
-# ─────────────────────────────────────────────────────────────
 
 TEAM_IDS = {
     "Atlanta Dream":           "20",
@@ -41,36 +30,31 @@ TEAM_IDS = {
     "Washington Mystics":      "16",
 }
 
-# Reverse map for lookup by ID
 ID_TO_TEAM = {v: k for k, v in TEAM_IDS.items()}
 
 
-# ─────────────────────────────────────────────────────────────
-# DATA CLASSES
-# ─────────────────────────────────────────────────────────────
-
 @dataclass
 class WNBATeamStats:
-    team_name:      str
-    team_id:        str
-    wins:           int
-    losses:         int
-    home_wins:      int
-    home_losses:    int
-    away_wins:      int
-    away_losses:    int
-    pts_per_game:   float
-    opp_pts_per_game: float
+    team_name:         str
+    team_id:           str
+    wins:              int
+    losses:            int
+    home_wins:         int
+    home_losses:       int
+    away_wins:         int
+    away_losses:       int
+    pts_per_game:      float
+    opp_pts_per_game:  float
     rebounds_per_game: float
-    assists_per_game: float
+    assists_per_game:  float
     turnovers_per_game: float
-    fg_pct:         float
-    three_pct:      float
-    pace:           float
-    off_rating:     float
-    def_rating:     float
-    last_5:         str = "N/A"
-    streak:         str = "N/A"
+    fg_pct:            float
+    three_pct:         float
+    pace:              float
+    off_rating:        float
+    def_rating:        float
+    last_5:            str = "N/A"
+    streak:            str = "N/A"
 
     @property
     def net_rating(self) -> float:
@@ -122,10 +106,6 @@ class WNBARoster:
         return sorted(self.players, key=lambda p: p.pts, reverse=True)[:3]
 
 
-# ─────────────────────────────────────────────────────────────
-# DATA FETCHERS
-# ─────────────────────────────────────────────────────────────
-
 def _get(url: str, params: dict = None) -> dict:
     try:
         r = requests.get(url, params=params, timeout=10)
@@ -137,7 +117,6 @@ def _get(url: str, params: dict = None) -> dict:
 
 
 def get_team_stats(team_name: str) -> Optional[WNBATeamStats]:
-    """Fetch live team stats from ESPN."""
     team_id = TEAM_IDS.get(team_name)
     if not team_id:
         print(f"Unknown team: {team_name}")
@@ -149,13 +128,10 @@ def get_team_stats(team_name: str) -> Optional[WNBATeamStats]:
     if not stats_data or not team_data:
         return None
 
-    # Parse win/loss record
     team_info = team_data.get("team", {})
     record_summary = team_info.get("record", {}).get("items", [])
 
-    wins = losses = 0
-    home_wins = home_losses = away_wins = away_losses = 0
-
+    wins = losses = home_wins = home_losses = away_wins = away_losses = 0
     for rec in record_summary:
         rec_type = rec.get("type", "")
         stats = {s["name"]: s["value"] for s in rec.get("stats", [])}
@@ -169,45 +145,46 @@ def get_team_stats(team_name: str) -> Optional[WNBATeamStats]:
             away_wins   = int(stats.get("wins", 0))
             away_losses = int(stats.get("losses", 0))
 
-    # Parse team stats
     all_stats = {}
     categories = stats_data.get("results", {}).get("stats", {}).get("categories", [])
     for cat in categories:
         for stat in cat.get("stats", []):
             all_stats[stat["name"]] = stat.get("value", 0.0)
 
-    pts         = all_stats.get("avgPoints", all_stats.get("points", 80.0))
-    opp_pts     = all_stats.get("avgPointsAgainst", all_stats.get("pointsAgainst", 80.0))
-    reb         = all_stats.get("avgRebounds", 35.0)
-    ast         = all_stats.get("avgAssists", 20.0)
-    to          = all_stats.get("avgTurnovers", 13.0)
-    fg_pct      = all_stats.get("avgFieldGoalPct", all_stats.get("fieldGoalPct", 0.44))
-    three_pct   = all_stats.get("avgThreePointPct", all_stats.get("threePointPct", 0.33))
-    off_rtg     = all_stats.get("offensiveRating", round(pts / 0.95, 1))
-    def_rtg     = all_stats.get("defensiveRating", round(opp_pts / 0.95, 1))
-    pace        = all_stats.get("pace", 80.0)
+    pts       = all_stats.get("avgPoints", 80.0)
+    opp_pts   = all_stats.get("avgPointsAgainst", 80.0)
+    reb       = all_stats.get("avgRebounds", 35.0)
+    ast       = all_stats.get("avgAssists", 20.0)
+    to        = all_stats.get("avgTurnovers", 13.0)
+    fg_pct    = all_stats.get("avgFieldGoalPct", all_stats.get("fieldGoalPct", 0.44))
+    three_pct = all_stats.get("avgThreePointPct", all_stats.get("threePointPct", 0.33))
+    off_rtg   = all_stats.get("offensiveRating", round(float(pts) / 0.95, 1))
+    def_rtg   = all_stats.get("defensiveRating", round(float(opp_pts) / 0.95, 1))
+    pace      = all_stats.get("pace", 80.0)
 
     return WNBATeamStats(
-        team_name=team_name,
-        team_id=team_id,
-        wins=wins, losses=losses,
-        home_wins=home_wins, home_losses=home_losses,
-        away_wins=away_wins, away_losses=away_losses,
-        pts_per_game=round(float(pts), 1),
-        opp_pts_per_game=round(float(opp_pts), 1),
-        rebounds_per_game=round(float(reb), 1),
-        assists_per_game=round(float(ast), 1),
-        turnovers_per_game=round(float(to), 1),
-        fg_pct=round(float(fg_pct), 3),
-        three_pct=round(float(three_pct), 3),
-        pace=round(float(pace), 1),
-        off_rating=round(float(off_rtg), 1),
-        def_rating=round(float(def_rtg), 1),
+        team_name          = team_name,
+        team_id            = team_id,
+        wins               = wins,
+        losses             = losses,
+        home_wins          = home_wins,
+        home_losses        = home_losses,
+        away_wins          = away_wins,
+        away_losses        = away_losses,
+        pts_per_game       = round(float(pts), 1),
+        opp_pts_per_game   = round(float(opp_pts), 1),
+        rebounds_per_game  = round(float(reb), 1),
+        assists_per_game   = round(float(ast), 1),
+        turnovers_per_game = round(float(to), 1),
+        fg_pct             = round(float(fg_pct), 3),
+        three_pct          = round(float(three_pct), 3),
+        pace               = round(float(pace), 1),
+        off_rating         = round(float(off_rtg), 1),
+        def_rating         = round(float(def_rtg), 1),
     )
 
 
 def get_roster(team_name: str) -> Optional[WNBARoster]:
-    """Fetch full roster from ESPN."""
     team_id = TEAM_IDS.get(team_name)
     if not team_id:
         return None
@@ -220,7 +197,6 @@ def get_roster(team_name: str) -> Optional[WNBARoster]:
     for athlete in data.get("athletes", []):
         pos_info = athlete.get("position", {})
         pos = pos_info.get("abbreviation", "G") if isinstance(pos_info, dict) else "G"
-
         player = WNBAPlayer(
             player_id = athlete.get("id", ""),
             name      = athlete.get("displayName", "Unknown"),
@@ -236,39 +212,7 @@ def get_roster(team_name: str) -> Optional[WNBARoster]:
     return WNBARoster(team_name=team_name, players=players)
 
 
-def get_all_team_stats() -> Dict[str, WNBATeamStats]:
-    """Fetch stats for all WNBA teams."""
-    results = {}
-    for team_name in TEAM_IDS:
-        print(f"Fetching {team_name}...")
-        stats = get_team_stats(team_name)
-        if stats:
-            results[team_name] = stats
-    return results
-
-
-def get_schedule(team_name: str, limit: int = 5) -> list:
-    """Fetch recent/upcoming schedule for rest day calculations."""
-    team_id = TEAM_IDS.get(team_name)
-    if not team_id:
-        return []
-
-    data = _get(f"{BASE}/teams/{team_id}/schedule")
-    if not data:
-        return []
-
-    games = []
-    for event in data.get("events", [])[:limit]:
-        games.append({
-            "date": event.get("date", ""),
-            "name": event.get("name", ""),
-            "home": event.get("competitions", [{}])[0].get("competitors", [{}])[0].get("team", {}).get("displayName", ""),
-        })
-    return games
-
-
 def get_rest_days(team_name: str) -> int:
-    """Calculate days since last game."""
     team_id = TEAM_IDS.get(team_name)
     if not team_id:
         return 3
@@ -297,16 +241,19 @@ def get_rest_days(team_name: str) -> int:
 
 if __name__ == "__main__":
     print("Testing ESPN WNBA API...")
-    stats = get_team_stats("Las Vegas Aces")
-    if stats:
-        print(f"\n{stats.team_name}")
-        print(f"Record: {stats.wins}-{stats.losses} ({stats.win_pct:.1%})")
-        print(f"Home: {stats.home_wins}-{stats.home_losses} | Away: {stats.away_wins}-{stats.away_losses}")
-        print(f"PPG: {stats.pts_per_game} | OPP PPG: {stats.opp_pts_per_game}")
-        print(f"Net Rating: {stats.net_rating}")
+    for team in ["Las Vegas Aces", "New York Liberty", "Indiana Fever", "Toronto Tempo", "Portland Fire"]:
+        stats = get_team_stats(team)
+        if stats:
+            print(f"{stats.team_name}: {stats.wins}-{stats.losses} | PPG: {stats.pts_per_game}")
+        else:
+            print(f"{team}: FAILED")
 
-    roster = get_roster("Las Vegas Aces")
-    if roster:
-        print(f"\nRoster ({len(roster.players)} players):")
-        for p in roster.players[:5]:
-            print(f"  {p.jersey} {p.name} ({p.position}) - Age {p.age}")
+
+def get_all_team_stats() -> Dict[str, WNBATeamStats]:
+    results = {}
+    for team_name in TEAM_IDS:
+        print(f"Fetching {team_name}...")
+        stats = get_team_stats(team_name)
+        if stats:
+            results[team_name] = stats
+    return results
