@@ -78,4 +78,32 @@ def _extract_lines(game):
                 for o in m["outcomes"]:
                     if o["name"] == game["home_team"]: odds_home = o["price"]
                     elif o["name"] == game["away_team"]: odds_away = o["price"]
+
+    # If no h2h odds, estimate moneyline from spread
+    if odds_home == -110 and odds_away == -110 and spread_line != 0.0:
+        odds_home, odds_away = spread_to_moneyline(spread_line)
+
     return spread_line, over_under, odds_home, odds_away
+
+
+def spread_to_moneyline(spread: float):
+    """
+    Estimate moneyline odds from point spread.
+    Uses standard NFL/CFB conversion table.
+    Negative spread = favorite (home team).
+    """
+    import math
+    # Win probability from spread using logistic function
+    # Each point of spread ~ 3% win probability
+    home_win_prob = 1 / (1 + math.exp(spread * 0.15))
+    away_win_prob = 1 - home_win_prob
+
+    # Convert probability to American odds
+    def prob_to_american(p):
+        p = max(0.01, min(0.99, p))
+        if p >= 0.5:
+            return round(-(p / (1 - p)) * 100)
+        else:
+            return round(((1 - p) / p) * 100)
+
+    return prob_to_american(home_win_prob), prob_to_american(away_win_prob)
