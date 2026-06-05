@@ -19,8 +19,7 @@ def root():
 def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
     import sys, os, math
     sys.path.insert(0, os.path.abspath("."))
-    sys.path.insert(0, os.path.join(os.path.abspath("."), "services"))
-    from odds_parser import get_live_odds, american_to_implied
+    from services.odds_parser import get_live_odds, american_to_implied
     from data.nba_profiles import NBA_PROFILES
 
     games = get_live_odds("nba")
@@ -32,7 +31,6 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
         if home not in NBA_PROFILES or away not in NBA_PROFILES:
             continue
 
-        # Get real moneyline if available
         odds_home, odds_away = -110, -110
         spread_line = 0.0
         for bm in game.get("bookmakers", []):
@@ -45,25 +43,22 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
                     for o in m["outcomes"]:
                         if o["name"] == home: spread_line = o.get("point", 0.0)
 
-        # Net rating model
         home_net = NBA_PROFILES[home].pts_off - NBA_PROFILES[home].pts_def
         away_net = NBA_PROFILES[away].pts_off - NBA_PROFILES[away].pts_def
-        diff = (home_net - away_net) + 3.0
-        m_home = round(1 / (1 + math.exp(-diff / 8.0)) * 100, 1)
-        m_away = round(100 - m_home, 1)
-
-        i_home = round(american_to_implied(odds_home) * 100, 1)
-        i_away = round(american_to_implied(odds_away) * 100, 1)
-        e_home = round(m_home - i_home, 2)
-        e_away = round(m_away - i_away, 2)
-        label = f"{away} @ {home}"
+        diff    = (home_net - away_net) + 3.0
+        m_home  = round(1 / (1 + math.exp(-diff / 8.0)) * 100, 1)
+        m_away  = round(100 - m_home, 1)
+        i_home  = round(american_to_implied(odds_home) * 100, 1)
+        i_away  = round(american_to_implied(odds_away) * 100, 1)
+        e_home  = round(m_home - i_home, 2)
+        e_away  = round(m_away - i_away, 2)
+        label   = f"{away} @ {home}"
 
         if e_home >= min_edge:
             results.append({
                 "game": label, "bet": f"{home} ML", "odds": odds_home,
                 "model_prob": m_home, "implied_prob": i_home,
-                "edge": round(e_home / 100, 4),
-                "spread": spread_line,
+                "edge": round(e_home / 100, 4), "spread": spread_line,
                 "net_rating_home": round(home_net, 1),
                 "net_rating_away": round(away_net, 1),
                 "confidence": "NBA Net Rating Model",
@@ -72,8 +67,7 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
             results.append({
                 "game": label, "bet": f"{away} ML", "odds": odds_away,
                 "model_prob": m_away, "implied_prob": i_away,
-                "edge": round(e_away / 100, 4),
-                "spread": spread_line,
+                "edge": round(e_away / 100, 4), "spread": spread_line,
                 "net_rating_home": round(home_net, 1),
                 "net_rating_away": round(away_net, 1),
                 "confidence": "NBA Net Rating Model",
@@ -90,7 +84,7 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
     from wnba_data import get_team_stats, TEAM_IDS
     from wnba_predictor import WNBAPredictionEngine
     from wnba_props import get_wnba_events
-    from odds_parser import american_to_implied
+    from services.odds_parser import american_to_implied
     engine = WNBAPredictionEngine()
     events = get_wnba_events()
     results = []
@@ -105,18 +99,18 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
             continue
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
         implied = round(american_to_implied(-110) * 100, 1)
-        e_home = round(pred.home_win_prob - implied, 2)
-        e_away = round(pred.away_win_prob - implied, 2)
-        label = f"{away} @ {home}"
+        e_home  = round(pred.home_win_prob - implied, 2)
+        e_away  = round(pred.away_win_prob - implied, 2)
+        label   = f"{away} @ {home}"
         if e_home >= min_edge:
             results.append({"game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
-                "implied_prob": implied, "edge": round(e_home/100, 4),
+                "implied_prob": implied, "edge": round(e_home / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
                 "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
         if e_away >= min_edge:
             results.append({"game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
-                "implied_prob": implied, "edge": round(e_away/100, 4),
+                "implied_prob": implied, "edge": round(e_away / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
                 "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
