@@ -15,20 +15,21 @@ st.markdown("""
 .edge-moderate { border-left: 4px solid #ffd700; }
 .edge-slight { border-left: 4px solid #4a90e2; }
 .wnba-card { background: #0f1424; border: 1px solid #1e2540; border-radius: 8px; padding: 20px; margin-bottom: 12px; border-left: 4px solid #ff69b4; }
+.nba-card { background: #0f1424; border: 1px solid #1e2540; border-radius: 8px; padding: 20px; margin-bottom: 12px; border-left: 4px solid #c9a84c; }
 #MainMenu {visibility: hidden;} footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.title("⚙ Controls")
-    page = st.radio("View", ["🏈 Football Edges", "🏀 WNBA Edges", "🏀 WNBA Props"])
+    page = st.radio("View", ["🏈 Football Edges", "🏀 WNBA Edges", "🏀 NBA Edges", "🏀 WNBA Props"])
     st.markdown("---")
 
     if page == "🏈 Football Edges":
-        sport = st.selectbox("Sport", ["ncaaf", "nfl", "ncaab", "nba"])
+        sport = st.selectbox("Sport", ["ncaaf", "nfl", "ncaab"])
         simulations = st.select_slider("Simulations", [1000, 5000, 10000, 25000, 50000], value=10000)
         edge_min = st.slider("Min Edge %", 1.0, 15.0, 3.0, 0.5)
-    elif page == "🏀 WNBA Edges":
+    elif page in ["🏀 WNBA Edges", "🏀 NBA Edges"]:
         simulations = st.select_slider("Simulations", [1000, 5000, 10000, 25000, 50000], value=10000)
         edge_min = st.slider("Min Edge %", 1.0, 15.0, 3.0, 0.5)
     else:
@@ -95,8 +96,6 @@ if page == "🏈 Football Edges":
                 df.rename(columns={"edge": "edge_%"}, inplace=True)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
-    except requests.exceptions.ConnectionError:
-        st.error("Cannot connect to API.")
     except Exception as e:
         st.error(f"Error: {e}")
 
@@ -146,6 +145,66 @@ elif page == "🏀 WNBA Edges":
                     <span style="background:#1e2540; padding:3px 8px; border-radius:4px; margin-right:6px; font-size:12px">Market: {bet.get('implied_prob',0):.1f}%</span>
                     <span style="background:#1e2540; padding:3px 8px; border-radius:4px; margin-right:6px; font-size:12px">{home_team}: {home_record} | {home_rest}d rest</span>
                     <span style="background:#1e2540; padding:3px 8px; border-radius:4px; font-size:12px">{away_team}: {away_record} | {away_rest}d rest</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.subheader("📊 Data Table")
+        if filtered:
+            df = pd.DataFrame(filtered)
+            if "edge" in df.columns:
+                df["edge"] = (df["edge"] * 100).round(2)
+                df.rename(columns={"edge": "edge_%"}, inplace=True)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+    except Exception as e:
+        st.error(f"Error: {e}")
+
+
+# ─── NBA EDGES ────────────────────────────────────────────────
+
+elif page == "🏀 NBA Edges":
+    st.title("🏀 NBA Edge Board")
+    st.caption("Net Rating Model · Live DraftKings & FanDuel Lines · NBA Finals")
+
+    try:
+        r = requests.get(f"{API_BASE}/nba/edges",
+                         params={"simulations": simulations, "min_edge": edge_min},
+                         timeout=60)
+        data = r.json()
+        bets = data.get("best_bets", [])
+        filtered = [b for b in bets if b.get("edge", 0) * 100 >= edge_min]
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Games", data.get("count", len(bets)))
+        c2.metric("Edges Found", len(filtered))
+        c3.metric("Top Edge", f"{max((b.get('edge',0)*100 for b in filtered), default=0):.1f}%")
+
+        st.markdown("---")
+        st.subheader("💰 NBA Edge Board")
+
+        if not filtered:
+            st.info("No NBA edges above threshold right now.")
+        else:
+            for bet in filtered:
+                edge_pct    = bet.get("edge", 0) * 100
+                net_home    = bet.get("net_rating_home", "N/A")
+                net_away    = bet.get("net_rating_away", "N/A")
+                odds        = bet.get("odds", "N/A")
+                parts       = bet.get("game", "").split(" @ ")
+                away_team   = parts[0] if len(parts) == 2 else ""
+                home_team   = parts[1] if len(parts) == 2 else ""
+                label       = "★★★ STRONG" if edge_pct >= 8 else "★★ MODERATE" if edge_pct >= 5 else "★ SLIGHT"
+
+                st.markdown(f"""
+                <div class="nba-card">
+                    <b style="font-size:18px">{bet.get('game','')}</b>
+                    <span style="float:right; font-size:24px; color:#c9a84c"><b>{edge_pct:.1f}%</b> <small style="font-size:12px">{label}</small></span><br>
+                    <span style="color:#888; font-size:13px">{bet.get('bet','')} · Odds: {odds}</span><br><br>
+                    <span style="background:#1e2540; padding:3px 8px; border-radius:4px; margin-right:6px; font-size:12px">Model: {bet.get('model_prob',0):.1f}%</span>
+                    <span style="background:#1e2540; padding:3px 8px; border-radius:4px; margin-right:6px; font-size:12px">Market: {bet.get('implied_prob',0):.1f}%</span>
+                    <span style="background:#1e2540; padding:3px 8px; border-radius:4px; margin-right:6px; font-size:12px">{home_team} Net: {net_home:+.1f}</span>
+                    <span style="background:#1e2540; padding:3px 8px; border-radius:4px; font-size:12px">{away_team} Net: {net_away:+.1f}</span>
                 </div>
                 """, unsafe_allow_html=True)
 
