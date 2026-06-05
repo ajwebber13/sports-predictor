@@ -1,0 +1,72 @@
+name: Daily Sports Alerts
+
+on:
+  schedule:
+    # WNBA alerts - 9:00 AM CT (14:00 UTC)
+    - cron: '0 14 * * *'
+    # NBA alerts - 9:30 AM CT (14:30 UTC)
+    - cron: '30 14 * * *'
+    # NCAAF alerts - Fridays at 9:00 AM CT (14:00 UTC Friday)
+    - cron: '0 14 * * 5'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  send_wnba_alerts:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 14 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      - name: Send WNBA alerts
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: python telegram_alerts.py --sport wnba
+
+  send_nba_alerts:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '30 14 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      - name: Send NBA alerts
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: python telegram_alerts.py --sport nba
+
+  send_ncaaf_alerts:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 14 * * 5' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests python-dotenv
+
+      - name: Send NCAAF alerts
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: python telegram_alerts.py --sport ncaaf
