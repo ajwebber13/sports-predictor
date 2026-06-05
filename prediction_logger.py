@@ -128,8 +128,19 @@ def update_result(game: str, date: str, actual_winner: str) -> bool:
     return False
 
 
+
 if __name__ == "__main__":
-    # Show pending results
+    import sys
+
+    if len(sys.argv) >= 4 and sys.argv[1] == "update":
+        game_name     = sys.argv[2]
+        date_str      = sys.argv[3]
+        actual_winner = sys.argv[4] if len(sys.argv) >= 5 else ""
+        success = update_result(game_name, date_str, actual_winner)
+        if success:
+            print("Result saved. Run evaluate.py to see accuracy.")
+        sys.exit(0)
+
     pending = list_pending_results()
     if not pending:
         print("No pending results to fill in.")
@@ -138,4 +149,4 @@ if __name__ == "__main__":
         for p in pending:
             print(f"  {p['date']} | {p['game']} | Bet: {p['bet']} | Predicted: {p['prediction']['predicted_winner']}")
         print("\nTo update a result, run:")
-        print("  python prediction_logger.py update \"Game Name\" \"2026-06-04\" \"Actual Winner\"")
+        print('  python prediction_logger.py update "Game Name" "2026-06-04" "Actual Winner"')
