@@ -5,7 +5,6 @@ No API key required. Replaces The Odds API.
 """
 
 import requests
-from datetime import datetime, timezone
 
 ESPN_BASE = "http://site.api.espn.com/apis/site/v2/sports"
 
@@ -17,17 +16,8 @@ SPORT_ENDPOINTS = {
     "wnba":  "basketball/wnba",
 }
 
-# Default implied probability for -110 moneyline (no odds available)
-DEFAULT_IMPLIED = 0.524
-
 
 def get_live_odds(sport: str = "nba") -> list:
-    """
-    Fetch today's games from ESPN scoreboard.
-    Returns a list of game dicts matching the old Odds API format
-    so all existing routes work without changes.
-    sport: one of 'nfl', 'ncaaf', 'nba', 'ncaab', 'wnba'
-    """
     endpoint = SPORT_ENDPOINTS.get(sport)
     if not endpoint:
         print(f"Unknown sport: {sport}")
@@ -60,36 +50,30 @@ def get_live_odds(sport: str = "nba") -> list:
         if not home_team or not away_team:
             continue
 
-        # Build a game dict that matches what routes expect
         games.append({
-            "home_team":    home_team,
-            "away_team":    away_team,
+            "home_team":     home_team,
+            "away_team":     away_team,
             "commence_time": game_time,
-            "event_id":     event.get("id", ""),
-            # Empty bookmakers — routes fall back to default -110 odds
-            "bookmakers":   [],
+            "event_id":      event.get("id", ""),
+            "bookmakers":    [],
         })
 
     return games
 
 
 def parse_spread(game):
-    """Extract spread outcomes — returns None since ESPN doesn't provide lines."""
     return None
 
 
 def parse_totals(game):
-    """Extract totals — returns None since ESPN doesn't provide lines."""
     return None
 
 
 def parse_moneyline(game):
-    """Extract moneyline — returns None since ESPN doesn't provide lines."""
     return None
 
 
 def american_to_implied(odds: int) -> float:
-    """Convert American odds to implied probability (0-1 scale)."""
     if odds > 0:
         return 100 / (odds + 100)
     return abs(odds) / (abs(odds) + 100)
