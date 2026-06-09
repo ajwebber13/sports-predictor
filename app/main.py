@@ -161,9 +161,6 @@ def wnba_preview(home: str, away: str, simulations: int = Query(default=10000)):
                    for p in (away_roster.players[:10] if away_roster else [])],
         },
     }
-$routes = @'
-
-
 @app.get("/nfl/edges")
 def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
     import sys, os
@@ -334,6 +331,3 @@ def ncaab_preview(home: str, away: str, simulations: int = Query(default=10000))
                    for p in (away_roster.players[:10] if away_roster else [])],
         },
     }
-'@
-
-Add-Content -Path "C:\temp\sports_predictor\app\main.py" -Value $routes
