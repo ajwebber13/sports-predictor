@@ -14,8 +14,8 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from datetime import datetime
-from predictor import PredictionEngine
-from display import print_prediction, print_batch_summary, export_json
+from enhanced_predictor import EnhancedPredictionEngine as PredictionEngine
+from alert_engine import build_alert, PredictionInput  # ← Phase 1: Smarter Alerts
 
 # ─────────────────────────────────────────────────────────────
 # !! PASTE YOUR CFBD API KEY HERE !!
@@ -69,12 +69,12 @@ def run_cfb(week: int):
         print("  Check your API key in auto_predict.py")
         return
 
-    print(f"\n{'━'*64}")
+    print(f"\n{'┌'*64}")
     print(f"  CFB WEEK {week}  |  Source: College Football Data API")
     print(f"  Schedule: {CFB_SCHEDULE_YEAR}  |  Stats: {CFB_STATS_YEAR}")
     if CFB_STATS_YEAR < CFB_SCHEDULE_YEAR:
-        print(f"  ⚠  Preseason projection using {CFB_STATS_YEAR} stats.")
-    print(f"{'━'*64}")
+        print(f"  ⚠   Preseason projection using {CFB_STATS_YEAR} stats.")
+    print(f"{'└'*64}")
 
     matchups = build_weekly_matchups(
         client      = client,
@@ -107,10 +107,10 @@ def run_nfl(week: int, use_pbp: bool = False):
         print("  Run: pip install nfl-data-py pandas")
         return
 
-    print(f"\n{'━'*64}")
+    print(f"\n{'┌'*64}")
     print(f"  NFL WEEK {week}  |  Source: nfl-data-py")
     print(f"  Schedule: {NFL_SCHEDULE_YEAR}  |  Stats: {NFL_STATS_YEAR}")
-    print(f"{'━'*64}")
+    print(f"{'└'*64}")
 
     matchups = build_weekly_matchups(
         schedule_year = NFL_SCHEDULE_YEAR,
@@ -143,18 +143,44 @@ def _run_and_display(league: str, week: int, matchups_with_meta: list):
         metas.append(meta)
 
     print(f"\n{'═'*64}")
-    for pred, meta in zip(predictions, metas):
-        home      = meta.get("home_team", pred.team_a_name)
-        away      = meta.get("away_team", pred.team_b_name)
-        odds_note = "" if meta.get("has_odds") else "  [No odds — defaults used]"
-        print(f"\n  {away} @ {home}{odds_note}")
-        print_prediction(pred)
 
-    print_batch_summary(predictions)
+    for pred, meta in zip(predictions, metas):
+        home = meta.get("home_team", pred.team_b_name)
+        away = meta.get("away_team", pred.team_a_name)
+
+        # ── Build upgraded alert slip ──────────────────────────
+        try:
+            alert_input = PredictionInput(
+                sport            = league,
+                home_team        = home,
+                away_team        = away,
+                game_time        = meta.get("game_time", "TBD"),
+                home_win_prob    = getattr(pred, "team_b_win_prob", 0.5),
+                away_win_prob    = getattr(pred, "team_a_win_prob", 0.5),
+                bet_team         = getattr(pred, "predicted_winner", away),
+                bet_type         = "ML",
+                odds             = int(meta.get("odds", -110)),
+                home_net_rating  = float(meta.get("home_net_rating", 0.0)),
+                away_net_rating  = float(meta.get("away_net_rating", 0.0)),
+                opening_odds     = meta.get("opening_odds", None),
+                closing_odds     = meta.get("closing_odds", None),
+                stake            = 100.0
+            )
+            alert = build_alert(alert_input)
+            print(alert.formatted_slip)
+
+        except Exception as e:
+            # Fallback to original display if alert engine fails
+            print(f"\n  {away} @ {home}")
+            print(f"  [Fallback] {away} @ {home} — check alert_engine output above")
+            print(f"  [Alert engine error: {e}]")
+
+    print(f"\n  ✓ {len(predictions)} predictions complete.")
 
     ts  = datetime.now().strftime("%Y%m%d_%H%M")
     out = f"predictions_{league}_wk{week}_{ts}.json"
-    export_json(predictions, out)
+    # export_json disabled — no display module
+    pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -163,9 +189,9 @@ def _run_and_display(league: str, week: int, matchups_with_meta: list):
 
 def run_interactive():
     print("""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  SPORTS PREDICTION ENGINE  v1.0
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┌──────────────────────────────────────────────────────────────
+  SPORTS PREDICTION ENGINE  v2.0  |  Culture & Pulse Analytics
+└──────────────────────────────────────────────────────────────
 
   Options:
     1  CFB — choose week

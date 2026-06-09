@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Culture & Pulse Analytics — Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #080a0f;
+    --surface:   #0e1118;
+    --border:    #1c2030;
+    --accent:    #c8f135;
+    --accent2:   #35f19a;
+    --red:       #f13555;
+    --muted:     #4a5068;
+    --text:      #e8eaf2;
+    --subtext:   #8890a8;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.4;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 20px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background: rgba(8,10,15,0.92);
+    backdrop-filter: blur(12px);
+    z-index: 50;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 3px;
+    color: var(--accent);
+  }
+
+  .logo span { color: var(--subtext); font-size: 13px; letter-spacing: 2px; display: block; font-family: 'DM Mono', monospace; margin-top: -2px; }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .upload-btn {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 8px 18px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+  }
+
+  .upload-btn:hover { background: #d9ff55; transform: translateY(-1px); }
+
+  #file-input { display: none; }
+
+  .last-updated {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  main { padding: 40px; max-width: 1400px; margin: 0 auto; }
+
+  /* KPI Row */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px 20px;
+    position: relative;
+    overflow: hidden;
+    animation: fadeUp 0.4s ease both;
+  }
+
+  .kpi::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .kpi.red::before { background: var(--red); }
+  .kpi.green::before { background: var(--accent2); }
+
+  .kpi-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .kpi-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    line-height: 1;
+    color: var(--text);
+  }
+
+  .kpi-value.positive { color: var(--accent2); }
+  .kpi-value.negative { color: var(--red); }
+
+  .kpi-sub {
+    font-size: 11px;
+    color: var(--subtext);
+    margin-top: 6px;
+  }
+
+  /* Grid layout */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  .card-title {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  canvas { max-height: 260px; }
+
+  /* Bet table */
+  .bet-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .bet-table th {
+    text-align: left;
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: 2px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+
+  .bet-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(28,32,48,0.5);
+    color: var(--subtext);
+  }
+
+  .bet-table tr:hover td { background: rgba(255,255,255,0.02); color: var(--text); }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    font-weight: 500;
+  }
+
+  .badge.win  { background: rgba(53,241,154,0.12); color: var(--accent2); }
+  .badge.loss { background: rgba(241,53,85,0.12);  color: var(--red); }
+  .badge.bet  { background: rgba(200,241,53,0.12); color: var(--accent); }
+  .badge.pass { background: rgba(74,80,104,0.2);   color: var(--muted); }
+  .badge.nba  { background: rgba(200,241,53,0.08); color: var(--accent); }
+  .badge.wnba { background: rgba(53,241,154,0.08); color: var(--accent2); }
+
+  .profit.pos { color: var(--accent2); }
+  .profit.neg { color: var(--red); }
+
+  /* Sport breakdown */
+  .sport-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sport-row:last-child { border-bottom: none; }
+
+  .sport-name {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  .sport-stats { font-size: 11px; color: var(--subtext); text-align: right; }
+
+  .bar-wrap {
+    width: 100%;
+    height: 3px;
+    background: var(--border);
+    margin-top: 6px;
+    border-radius: 2px;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent);
+    transition: width 1s ease;
+  }
+
+  /* Empty state */
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+
+  .empty-icon { font-size: 40px; margin-bottom: 12px; }
+  .empty h3 { font-family: 'Syne', sans-serif; font-size: 18px; color: var(--subtext); margin-bottom: 8px; }
+  .empty p { font-size: 12px; line-height: 1.8; }
+  .empty code { background: var(--border); padding: 2px 6px; color: var(--accent); }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-delay-1 { animation-delay: 0.05s; }
+  .animate-delay-2 { animation-delay: 0.10s; }
+  .animate-delay-3 { animation-delay: 0.15s; }
+  .animate-delay-4 { animation-delay: 0.20s; }
+  .animate-delay-5 { animation-delay: 0.25s; }
+
+  @media (max-width: 900px) {
+    main { padding: 20px; }
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    header { padding: 16px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    Culture & Pulse
+    <span>ANALYTICS ENGINE</span>
+  </div>
+  <div class="header-right">
+    <span class="last-updated" id="last-updated">No data loaded</span>
+    <button class="upload-btn" onclick="document.getElementById('file-input').click()">
+      LOAD RESULTS
+    </button>
+    <input type="file" id="file-input" accept=".json" onchange="loadFile(event)">
+  </div>
+</header>
+
+<main id="main-content">
+  <div class="empty">
+    <div class="empty-icon">📊</div>
+    <h3>No Results Loaded</h3>
+    <p>
+      Click <strong>LOAD RESULTS</strong> and select your <code>results_log.json</code> file.<br>
+      Find it at: <code>C:\temp\sports_predictor\results_log.json</code>
+    </p>
+  </div>
+</main>
+
+<script>
+let allResults = [];
+
+function loadFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      allResults = JSON.parse(e.target.result);
+      document.getElementById('last-updated').textContent =
+        'Updated: ' + new Date().toLocaleTimeString();
+      renderDashboard(allResults);
+    } catch(err) {
+      alert('Could not parse JSON file. Make sure you selected results_log.json');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function renderDashboard(results) {
+  if (!results.length) return;
+
+  const wins       = results.filter(r => r.won);
+  const losses     = results.filter(r => !r.won);
+  const totalPL    = results.reduce((s, r) => s + r.profit, 0);
+  const totalStake = results.reduce((s, r) => s + (r.stake || 100), 0);
+  const roi        = totalStake > 0 ? (totalPL / totalStake * 100) : 0;
+  const winPct     = results.length > 0 ? (wins.length / results.length * 100) : 0;
+  const posEV      = results.filter(r => r.ev > 0);
+  const posEVWins  = posEV.filter(r => r.won);
+
+  const plClass  = totalPL >= 0 ? 'positive' : 'negative';
+  const roiClass = roi >= 0 ? 'positive' : 'negative';
+
+  // Build cumulative P/L for chart
+  let cumulative = 0;
+  const plData = results.map(r => {
+    cumulative += r.profit;
+    return parseFloat(cumulative.toFixed(2));
+  });
+  const labels = results.map((r, i) => `Bet ${i+1}`);
+
+  // Sport breakdown
+  const sports = [...new Set(results.map(r => r.sport || 'NBA'))];
+  const sportRows = sports.map(sport => {
+    const sr     = results.filter(r => (r.sport || 'NBA') === sport);
+    const sw     = sr.filter(r => r.won);
+    const spl    = sr.reduce((s,r) => s + r.profit, 0);
+    const sstake = sr.reduce((s,r) => s + (r.stake||100), 0);
+    const sroi   = sstake > 0 ? (spl/sstake*100) : 0;
+    return { sport, total: sr.length, wins: sw.length, pl: spl, roi: sroi };
+  });
+
+  // Decision breakdown
+  const decisions = ['BET IT', 'MARGINAL', 'PASS'];
+  const decRows = decisions.map(d => {
+    const dr  = results.filter(r => r.decision && r.decision.includes(d));
+    if (!dr.length) return null;
+    const dw  = dr.filter(r => r.won);
+    const dpl = dr.reduce((s,r) => s + r.profit, 0);
+    return { label: d, total: dr.length, wins: dw.length, pl: dpl };
+  }).filter(Boolean);
+
+  // Recent 10 bets (reversed)
+  const recent = [...results].reverse().slice(0, 10);
+
+  document.getElementById('main-content').innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi animate-delay-1">
+        <div class="kpi-label">Total P&L</div>
+        <div class="kpi-value ${plClass}">${totalPL >= 0 ? '+' : ''}$${Math.abs(totalPL).toFixed(0)}</div>
+        <div class="kpi-sub">across ${results.length} bets</div>
+      </div>
+      <div class="kpi animate-delay-2">
+        <div class="kpi-label">ROI</div>
+        <div class="kpi-value ${roiClass}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%</div>
+        <div class="kpi-sub">$${totalStake.toFixed(0)} staked</div>
+      </div>
+      <div class="kpi animate-delay-3">
+        <div class="kpi-label">Win Rate</div>
+        <div class="kpi-value">${winPct.toFixed(1)}%</div>
+        <div class="kpi-sub">${wins.length}W — ${losses.length}L</div>
+      </div>
+      <div class="kpi animate-delay-4">
+        <div class="kpi-label">+EV Accuracy</div>
+        <div class="kpi-value ${posEV.length && posEVWins.length/posEV.length > 0.5 ? 'positive' : ''}">${posEV.length ? (posEVWins.length/posEV.length*100).toFixed(0) : 0}%</div>
+        <div class="kpi-sub">${posEVWins.length}W of ${posEV.length} +EV bets</div>
+      </div>
+      <div class="kpi animate-delay-5">
+        <div class="kpi-label">Best Bet</div>
+        <div class="kpi-value positive">$${Math.max(...results.map(r=>r.profit)).toFixed(0)}</div>
+        <div class="kpi-sub">${results.reduce((b,r) => r.profit > b.profit ? r : b, results[0]).matchup?.split('@')[0]?.trim() || '—'}</div>
+      </div>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-title">Cumulative P&L</div>
+        <canvas id="pl-chart"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-title">By Sport</div>
+        ${sportRows.map(s => `
+          <div class="sport-row">
+            <div>
+              <div class="sport-name">${s.sport}</div>
+              <div class="bar-wrap"><div class="bar-fill" style="width:${Math.min(100,(s.wins/s.total)*100)}%"></div></div>
+            </div>
+            <div class="sport-stats">
+              <div style="color:var(--text)">${s.wins}W-${s.total-s.wins}L</div>
+              <div class="${s.pl >= 0 ? 'profit pos' : 'profit neg'}">${s.pl >= 0 ? '+' : ''}$${s.pl.toFixed(0)}</div>
+              <div>ROI ${s.roi >= 0 ? '+' : ''}${s.roi.toFixed(1)}%</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Recent Bets</div>
+        <table class="bet-table">
+          <thead>
+            <tr>
+              <th>MATCHUP</th>
+              <th>SPORT</th>
+              <th>DECISION</th>
+              <th>ODDS</th>
+              <th>P&L</th>
+              <th>RESULT</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recent.map(r => `
+              <tr>
+                <td>${r.matchup || '—'}</td>
+                <td><span class="badge ${(r.sport||'NBA').toLowerCase()}">${r.sport || 'NBA'}</span></td>
+                <td><span class="badge bet">${(r.decision||'').replace(' ✅','').replace(' ⚠️','').replace(' ❌','')}</span></td>
+                <td>${r.odds > 0 ? '+' : ''}${r.odds}</td>
+                <td class="profit ${r.profit >= 0 ? 'pos' : 'neg'}">${r.profit >= 0 ? '+' : ''}$${r.profit.toFixed(2)}</td>
+                <td><span class="badge ${r.won ? 'win' : 'loss'}">${r.won ? 'WIN' : 'LOSS'}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">By Decision Type</div>
+        <canvas id="decision-chart"></canvas>
+        <div style="margin-top:20px">
+          ${decRows.map(d => `
+            <div class="sport-row">
+              <div class="sport-name" style="font-size:13px">${d.label}</div>
+              <div class="sport-stats">
+                <div style="color:var(--text)">${d.wins}W-${d.total-d.wins}L</div>
+                <div class="${d.pl >= 0 ? 'profit pos' : 'profit neg'}">${d.pl >= 0 ? '+' : ''}$${d.pl.toFixed(0)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // P&L Chart
+  const plCtx = document.getElementById('pl-chart').getContext('2d');
+  new Chart(plCtx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: plData,
+        borderColor: totalPL >= 0 ? '#35f19a' : '#f13555',
+        backgroundColor: totalPL >= 0
+          ? 'rgba(53,241,154,0.06)'
+          : 'rgba(241,53,85,0.06)',
+        borderWidth: 2,
+        pointRadius: plData.length < 20 ? 4 : 0,
+        pointBackgroundColor: '#c8f135',
+        fill: true,
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: 'rgba(28,32,48,0.8)' },
+          ticks: { color: '#4a5068', font: { family: 'DM Mono', size: 10 },
+                   callback: v => '$' + v }
+        }
+      }
+    }
+  });
+
+  // Decision Chart
+  if (decRows.length) {
+    const dCtx = document.getElementById('decision-chart').getContext('2d');
+    new Chart(dCtx, {
+      type: 'doughnut',
+      data: {
+        labels: decRows.map(d => d.label),
+        datasets: [{
+          data: decRows.map(d => d.total),
+          backgroundColor: ['#c8f135', '#35f19a', '#4a5068'],
+          borderWidth: 0,
+        }]
+      },
+      options: {
+        responsive: true,
+        cutout: '70%',
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { color: '#8890a8', font: { family: 'DM Mono', size: 10 },
+                      padding: 16, boxWidth: 10 }
+          }
+        }
+      }
+    });
+  }
+}
+</script>
+</body>
+</html>

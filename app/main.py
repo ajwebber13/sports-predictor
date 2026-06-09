@@ -77,6 +77,15 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
     return {"sport": "nba", "count": len(results), "best_bets": results}
 
 
+@app.get("/nba/props")
+def nba_props(min_edge: float = Query(default=3.0)):
+    import sys, os
+    sys.path.insert(0, os.path.abspath("."))
+    from nba_props import get_nba_prop_edges
+    edges = get_nba_prop_edges(min_edge=min_edge)
+    return {"sport": "nba", "count": len(edges), "props": edges}
+
+
 @app.get("/wnba/edges")
 def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
     import sys, os

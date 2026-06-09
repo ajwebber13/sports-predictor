@@ -1,8 +1,7 @@
 """
 render_job.py — Culture & Pulse Analytics
 Runs on Render cron schedule daily.
-Fires alerts for all active sports and pulls ESPN results.
-
+Fires alerts for all active sports based on season gates.
 No PC required — runs entirely in the cloud.
 """
 
@@ -18,19 +17,14 @@ API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
-# Active months per sport
-SPORT_SEASONS = {
-    "nba":   [1, 2, 3, 4, 5, 6, 10, 11, 12],
-    "wnba":  [5, 6, 7, 8, 9, 10],
-    "nfl":   [1, 2, 8, 9, 10, 11, 12],
-    "ncaaf": [1, 8, 9, 10, 11, 12],
-}
+SPORTS = ["nba", "wnba", "nfl", "ncaaf", "ncaab"]
 
-SPORT_ENABLED = {
-    "nba":   True,
-    "wnba":  True,
-    "nfl":   False,  # flip to True in August
-    "ncaaf": False,  # flip to True in August
+SPORT_ENDPOINTS = {
+    "nba":   f"{API_BASE}/nba/edges",
+    "wnba":  f"{API_BASE}/wnba/edges",
+    "nfl":   f"{API_BASE}/nfl/edges",
+    "ncaaf": f"{API_BASE}/ncaaf/edges",
+    "ncaab": f"{API_BASE}/ncaab/edges",
 }
 
 
@@ -41,10 +35,6 @@ SPORT_ENABLED = {
 def log(msg: str):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     print(f"[{ts}] {msg}", flush=True)
-
-
-def is_in_season(sport: str) -> bool:
-    return datetime.now().month in SPORT_SEASONS.get(sport, [])
 
 
 def send_telegram(text: str):
@@ -68,17 +58,10 @@ def send_telegram(text: str):
 # ─────────────────────────────────────────────────────────────
 
 def run_alerts(sport: str):
-    """Hit the API edge endpoint and send Telegram alerts."""
     log(f"Fetching {sport.upper()} edges...")
 
     try:
-        if sport == "wnba":
-            r = requests.get(f"{API_BASE}/wnba/edges", timeout=60)
-        elif sport == "nba":
-            r = requests.get(f"{API_BASE}/nba/edges", timeout=60)
-        else:
-            r = requests.get(f"{API_BASE}/edges", params={"sport": sport}, timeout=60)
-
+        r    = requests.get(SPORT_ENDPOINTS[sport], timeout=60)
         data = r.json()
     except Exception as e:
         log(f"API error for {sport}: {e}")
@@ -88,13 +71,8 @@ def run_alerts(sport: str):
 
     if not bets:
         log(f"No {sport.upper()} edges found today.")
-        send_telegram(
-            f"🏀 <b>C&amp;P Edge Report — {sport.upper()}</b>\n\n"
-            f"No edges above threshold today. Stay patient."
-        )
         return
 
-    # Save predictions locally on Render (ephemeral but useful for same-run results check)
     try:
         from prediction_logger import save_all_predictions
         save_all_predictions(bets, sport)
@@ -102,16 +80,14 @@ def run_alerts(sport: str):
     except Exception as e:
         log(f"Prediction logger error: {e}")
 
-    # Send alerts via telegram_alerts formatting
     try:
         from telegram_alerts import (
-            format_header, format_wnba_alert, format_nba_alert,
-            format_football_alert, get_game_times, get_recommended_prob
+            format_header, format_alert,
+            get_game_times, get_recommended_prob
         )
 
         game_times = get_game_times(sport)
 
-        # Filter contradictory alerts
         clean_bets = []
         for bet in bets:
             if get_recommended_prob(bet) >= 45:
@@ -135,14 +111,7 @@ def run_alerts(sport: str):
                 if len(parts) == 2:
                     game_time = game_times.get(parts[0], game_times.get(parts[1], "Time TBD"))
 
-            if sport == "wnba":
-                msg = format_wnba_alert(bet, game_time)
-            elif sport == "nba":
-                msg = format_nba_alert(bet, game_time)
-            else:
-                msg = format_football_alert(bet, sport, game_time)
-
-            send_telegram(msg)
+            send_telegram(format_alert(bet, sport, game_time))
             time.sleep(1)
 
         log(f"Sent {len(clean_bets)} {sport.upper()} alerts.")
@@ -156,7 +125,6 @@ def run_alerts(sport: str):
 # ─────────────────────────────────────────────────────────────
 
 def run_results():
-    """Pull ESPN results and update record."""
     log("Pulling ESPN results...")
     try:
         from results_tracker import load_results, auto_pull_results, save_results, print_report
@@ -178,12 +146,15 @@ def run():
     log(f"Culture & Pulse — Daily Run — {datetime.now().strftime('%A %B %d, %Y')}")
     log("══════════════════════════════════════════════")
 
-    for sport in SPORT_ENABLED:
-        if not SPORT_ENABLED[sport]:
-            log(f"{sport.upper()}: disabled")
-            continue
+    try:
+        from telegram_alerts import is_in_season
+    except Exception as e:
+        log(f"Could not import season gates: {e}")
+        return
+
+    for sport in SPORTS:
         if not is_in_season(sport):
-            log(f"{sport.upper()}: out of season")
+            log(f"{sport.upper()}: out of season — skipping")
             continue
         run_alerts(sport)
         time.sleep(2)
