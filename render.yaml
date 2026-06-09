@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: sports-predictor-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
+    name: daily-alerts
+    runtime: python
+    schedule: "0 15 * * *"  # 10 AM CT (UTC-5) every day
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
