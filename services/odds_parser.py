@@ -1,66 +1,90 @@
 """
 services/odds_parser.py
-Fetches and parses live odds from The Odds API.
+Fetches live game data from ESPN's free public API.
+No API key required. Replaces The Odds API.
 """
 
 import requests
-import os
+from datetime import datetime, timezone
 
-API_KEY = os.getenv("ODDS_API_KEY", "")
-BASE_URL = "https://api.the-odds-api.com/v4"
+ESPN_BASE = "http://site.api.espn.com/apis/site/v2/sports"
 
-SPORT_KEYS = {
-    "nfl":   "americanfootball_nfl",
-    "ncaaf": "americanfootball_ncaaf",
-    "nba":   "basketball_nba",
-    "ncaab": "basketball_ncaab",
-    "wnba":  "basketball_wnba",
+SPORT_ENDPOINTS = {
+    "nfl":   "football/nfl",
+    "ncaaf": "football/college-football",
+    "nba":   "basketball/nba",
+    "ncaab": "basketball/mens-college-basketball",
+    "wnba":  "basketball/wnba",
 }
 
+# Default implied probability for -110 moneyline (no odds available)
+DEFAULT_IMPLIED = 0.524
 
-def get_live_odds(sport="ncaaf"):
+
+def get_live_odds(sport: str = "nba") -> list:
     """
-    Fetch live spread, total, and moneyline odds for a given sport.
+    Fetch today's games from ESPN scoreboard.
+    Returns a list of game dicts matching the old Odds API format
+    so all existing routes work without changes.
     sport: one of 'nfl', 'ncaaf', 'nba', 'ncaab', 'wnba'
     """
-    sport_key = SPORT_KEYS.get(sport, sport)
-    url = f"{BASE_URL}/sports/{sport_key}/odds"
-    params = {
-        "apiKey":     API_KEY,
-        "regions":    "us",
-        "markets":    "spreads,totals,h2h",
-        "bookmakers": "draftkings,fanduel",
-        "oddsFormat": "american",
-    }
-    response = requests.get(url, params=params, timeout=15)
-    response.raise_for_status()
-    return response.json()
+    endpoint = SPORT_ENDPOINTS.get(sport)
+    if not endpoint:
+        print(f"Unknown sport: {sport}")
+        return []
+
+    url = f"{ESPN_BASE}/{endpoint}/scoreboard"
+
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"ESPN API error for {sport}: {e}")
+        return []
+
+    games = []
+    for event in data.get("events", []):
+        competitions = event.get("competitions", [])
+        if not competitions:
+            continue
+        comp = competitions[0]
+        competitors = comp.get("competitors", [])
+        if len(competitors) < 2:
+            continue
+
+        home_team = next((c["team"]["displayName"] for c in competitors if c.get("homeAway") == "home"), "")
+        away_team = next((c["team"]["displayName"] for c in competitors if c.get("homeAway") == "away"), "")
+        game_time = event.get("date", "")
+
+        if not home_team or not away_team:
+            continue
+
+        # Build a game dict that matches what routes expect
+        games.append({
+            "home_team":    home_team,
+            "away_team":    away_team,
+            "commence_time": game_time,
+            "event_id":     event.get("id", ""),
+            # Empty bookmakers — routes fall back to default -110 odds
+            "bookmakers":   [],
+        })
+
+    return games
 
 
 def parse_spread(game):
-    """Extract spread outcomes from a game object."""
-    for bookmaker in game.get("bookmakers", []):
-        for market in bookmaker.get("markets", []):
-            if market["key"] == "spreads":
-                return market["outcomes"]
+    """Extract spread outcomes — returns None since ESPN doesn't provide lines."""
     return None
 
 
 def parse_totals(game):
-    """Extract over/under outcomes from a game object."""
-    for bookmaker in game.get("bookmakers", []):
-        for market in bookmaker.get("markets", []):
-            if market["key"] == "totals":
-                return market["outcomes"]
+    """Extract totals — returns None since ESPN doesn't provide lines."""
     return None
 
 
 def parse_moneyline(game):
-    """Extract moneyline outcomes from a game object."""
-    for bookmaker in game.get("bookmakers", []):
-        for market in bookmaker.get("markets", []):
-            if market["key"] == "h2h":
-                return market["outcomes"]
+    """Extract moneyline — returns None since ESPN doesn't provide lines."""
     return None
 
 
