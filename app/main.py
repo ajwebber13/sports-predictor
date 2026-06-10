@@ -21,16 +21,13 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
     sys.path.insert(0, os.path.abspath("."))
     from services.odds_parser import get_live_odds, american_to_implied
     from data.nba_profiles import NBA_PROFILES
-
     games = get_live_odds("nba")
     results = []
-
     for game in games:
         home = game.get("home_team", "")
         away = game.get("away_team", "")
         if home not in NBA_PROFILES or away not in NBA_PROFILES:
             continue
-
         odds_home, odds_away = -110, -110
         spread_line = 0.0
         for bm in game.get("bookmakers", []):
@@ -42,7 +39,6 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
                 if m["key"] == "spreads":
                     for o in m["outcomes"]:
                         if o["name"] == home: spread_line = o.get("point", 0.0)
-
         home_net = NBA_PROFILES[home].pts_off - NBA_PROFILES[home].pts_def
         away_net = NBA_PROFILES[away].pts_off - NBA_PROFILES[away].pts_def
         diff    = (home_net - away_net) + 3.0
@@ -53,46 +49,26 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
         e_home  = round(m_home - i_home, 2)
         e_away  = round(m_away - i_away, 2)
         label   = f"{away} @ {home}"
-
         if e_home >= min_edge:
-            results.append({
-                "game": label, "bet": f"{home} ML", "odds": odds_home,
+            results.append({"game": label, "bet": f"{home} ML", "odds": odds_home,
                 "model_prob": m_home, "implied_prob": i_home,
                 "edge": round(e_home / 100, 4), "spread": spread_line,
-                "net_rating_home": round(home_net, 1),
-                "net_rating_away": round(away_net, 1),
-                "confidence": "NBA Net Rating Model",
-            })
+                "net_rating_home": round(home_net, 1), "net_rating_away": round(away_net, 1)})
         if e_away >= min_edge:
-            results.append({
-                "game": label, "bet": f"{away} ML", "odds": odds_away,
+            results.append({"game": label, "bet": f"{away} ML", "odds": odds_away,
                 "model_prob": m_away, "implied_prob": i_away,
                 "edge": round(e_away / 100, 4), "spread": spread_line,
-                "net_rating_home": round(home_net, 1),
-                "net_rating_away": round(away_net, 1),
-                "confidence": "NBA Net Rating Model",
-            })
-
+                "net_rating_home": round(home_net, 1), "net_rating_away": round(away_net, 1)})
     results.sort(key=lambda x: x["edge"], reverse=True)
     return {"sport": "nba", "count": len(results), "best_bets": results}
-
-
-@app.get("/nba/props")
-def nba_props(min_edge: float = Query(default=3.0)):
-    import sys, os
-    sys.path.insert(0, os.path.abspath("."))
-    from nba_props import get_nba_prop_edges
-    edges = get_nba_prop_edges(min_edge=min_edge)
-    return {"sport": "nba", "count": len(edges), "props": edges}
 
 
 @app.get("/wnba/edges")
 def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
     import sys, os
     sys.path.insert(0, os.path.abspath("."))
-    from wnba_data import get_team_stats, TEAM_IDS
+    from wnba_data import get_team_stats, TEAM_IDS, get_wnba_events
     from wnba_predictor import WNBAPredictionEngine
-    from wnba_props import get_wnba_events
     from services.odds_parser import american_to_implied
     engine = WNBAPredictionEngine()
     events = get_wnba_events()
@@ -127,15 +103,6 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
     return {"count": len(results), "best_bets": results}
 
 
-@app.get("/wnba/props")
-def wnba_props(min_edge: float = Query(default=3.0)):
-    import sys, os
-    sys.path.insert(0, os.path.abspath("."))
-    from wnba_props import get_wnba_prop_edges
-    edges = get_wnba_prop_edges(min_edge=min_edge)
-    return {"count": len(edges), "props": edges}
-
-
 @app.get("/wnba/preview")
 def wnba_preview(home: str, away: str, simulations: int = Query(default=10000)):
     import sys, os
@@ -161,6 +128,8 @@ def wnba_preview(home: str, away: str, simulations: int = Query(default=10000)):
                    for p in (away_roster.players[:10] if away_roster else [])],
         },
     }
+
+
 @app.get("/nfl/edges")
 def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
     import sys, os
