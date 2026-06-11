@@ -2,15 +2,11 @@ name: Daily Sports Alerts
 
 on:
   schedule:
-    # ── CDT (Mar–Nov): 9:00 AM CT = 14:00 UTC ──
+    # 9:00 AM CT (CDT Mar–Nov = 14:00 UTC)
+    # Update to '0 15 * * *' in November when clocks change
     - cron: '0 14 * * *'    # WNBA + NBA + NCAAB daily (in season)
     - cron: '0 14 * * 5'    # NCAAF Fridays
     - cron: '0 14 * * 4'    # NFL Thursdays
-
-    # ── CST (Nov–Mar): 9:00 AM CT = 15:00 UTC ──
-    - cron: '0 15 * * *'    # WNBA + NBA + NCAAB daily (in season)
-    - cron: '0 15 * * 5'    # NCAAF Fridays
-    - cron: '0 15 * * 4'    # NFL Thursdays
 
   workflow_dispatch:
 
@@ -22,7 +18,6 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       github.event.schedule == '0 14 * * *' ||
-      github.event.schedule == '0 15 * * *' ||
       github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
@@ -42,7 +37,6 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       github.event.schedule == '0 14 * * *' ||
-      github.event.schedule == '0 15 * * *' ||
       github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +58,6 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       github.event.schedule == '0 14 * * *' ||
-      github.event.schedule == '0 15 * * *' ||
       github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +77,6 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       github.event.schedule == '0 14 * * 5' ||
-      github.event.schedule == '0 15 * * 5' ||
       github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
@@ -104,7 +96,6 @@ jobs:
     runs-on: ubuntu-latest
     if: >
       github.event.schedule == '0 14 * * 4' ||
-      github.event.schedule == '0 15 * * 4' ||
       github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
