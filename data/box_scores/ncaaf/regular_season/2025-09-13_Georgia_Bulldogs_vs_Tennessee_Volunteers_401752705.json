@@ -1,0 +1,666 @@
+{
+  "event_id": "401752705",
+  "sport": "ncaaf",
+  "season_year": 2025,
+  "season_type": "regular_season",
+  "date": "2025-09-13",
+  "game": "Georgia Bulldogs @ Tennessee Volunteers",
+  "final_score": {
+    "home": 41,
+    "away": 44,
+    "winner": "Georgia Bulldogs"
+  },
+  "home_box": {
+    "team": "Tennessee Volunteers",
+    "totals": {
+      "firstDowns": "23",
+      "thirdDownEff": "5-12",
+      "fourthDownEff": "0-0",
+      "totalYards": "496",
+      "netPassingYards": "371",
+      "completionAttempts": "24/36",
+      "yardsPerPass": "10.3",
+      "rushingYards": "125",
+      "rushingAttempts": "34",
+      "yardsPerRushAttempt": "3.7",
+      "totalPenaltiesYards": "10-82",
+      "turnovers": "2",
+      "fumblesLost": "0",
+      "interceptions": "2",
+      "possessionTime": "21:32"
+    },
+    "players": [
+      {
+        "name": "Joey Aguilar",
+        "position": "",
+        "jersey": "6",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Star Thomas",
+        "position": "",
+        "jersey": "9",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "DeSean Bishop",
+        "position": "",
+        "jersey": "18",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Peyton Lewis",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Joey Aguilar",
+        "position": "",
+        "jersey": "6",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Chris Brazzell II",
+        "position": "",
+        "jersey": "17",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Braylon Staley",
+        "position": "",
+        "jersey": "14",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Mike Matthews",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Miles Kitselman",
+        "position": "",
+        "jersey": "87",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Radarious Jackson",
+        "position": "",
+        "jersey": "5",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Boo Carter",
+        "position": "",
+        "jersey": "23",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Joey Aguilar",
+        "position": "",
+        "jersey": "6",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Bryson Eason",
+        "position": "",
+        "jersey": "20",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Arion Carter",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Andre Turrentine",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Edrees Farooq",
+        "position": "",
+        "jersey": "15",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jalen McMurray",
+        "position": "",
+        "jersey": "6",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Colton Hood",
+        "position": "",
+        "jersey": "8",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jeremiah Telander",
+        "position": "",
+        "jersey": "22",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Tyre West",
+        "position": "",
+        "jersey": "42",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Edwin Spillman",
+        "position": "",
+        "jersey": "13",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Bryson Eason",
+        "position": "",
+        "jersey": "20",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dominic Bailey",
+        "position": "",
+        "jersey": "90",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Joshua Josephs",
+        "position": "",
+        "jersey": "19",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Boo Carter",
+        "position": "",
+        "jersey": "23",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Caleb Herring",
+        "position": "",
+        "jersey": "31",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ty Redmond",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jordan Ross",
+        "position": "",
+        "jersey": "29",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Tyree Weathersby",
+        "position": "",
+        "jersey": "18",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "William Wright",
+        "position": "",
+        "jersey": "0",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Kaleb Beasley",
+        "position": "",
+        "jersey": "10",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ben Bolton",
+        "position": "",
+        "jersey": "33",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Justin Baker",
+        "position": "",
+        "jersey": "20",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ethan Utley",
+        "position": "",
+        "jersey": "17",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dylan Lewis",
+        "position": "",
+        "jersey": "24",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Mike Bethea II",
+        "position": "",
+        "jersey": "89",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ty Redmond",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Boo Carter",
+        "position": "",
+        "jersey": "23",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Max Gilbert",
+        "position": "",
+        "jersey": "90",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jackson Ross",
+        "position": "",
+        "jersey": "98",
+        "starter": false,
+        "active": true
+      }
+    ]
+  },
+  "away_box": {
+    "team": "Georgia Bulldogs",
+    "totals": {
+      "firstDowns": "28",
+      "thirdDownEff": "8-17",
+      "fourthDownEff": "2-2",
+      "totalYards": "502",
+      "netPassingYards": "304",
+      "completionAttempts": "23/32",
+      "yardsPerPass": "9.5",
+      "rushingYards": "198",
+      "rushingAttempts": "55",
+      "yardsPerRushAttempt": "3.6",
+      "totalPenaltiesYards": "5-39",
+      "turnovers": "2",
+      "fumblesLost": "1",
+      "interceptions": "1",
+      "possessionTime": "38:28"
+    },
+    "players": [
+      {
+        "name": "Gunner Stockton",
+        "position": "",
+        "jersey": "14",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ryan Puglisi",
+        "position": "",
+        "jersey": "12",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Nate Frazier",
+        "position": "",
+        "jersey": "3",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Gunner Stockton",
+        "position": "",
+        "jersey": "14",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Chauncey Bowens",
+        "position": "",
+        "jersey": "33",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dwight Phillips Jr.",
+        "position": "",
+        "jersey": "20",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Josh McCray",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Cash Jones",
+        "position": "",
+        "jersey": "32",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Zachariah Branch",
+        "position": "",
+        "jersey": "1",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": " Team",
+        "position": "",
+        "jersey": "",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dillon Bell",
+        "position": "",
+        "jersey": "86",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Colbie Young",
+        "position": "",
+        "jersey": "8",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Zachariah Branch",
+        "position": "",
+        "jersey": "1",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "London Humphreys",
+        "position": "",
+        "jersey": "16",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Lawson Luckie",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dillon Bell",
+        "position": "",
+        "jersey": "86",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Oscar Delp",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Sacovie White-Helton",
+        "position": "",
+        "jersey": "18",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Cash Jones",
+        "position": "",
+        "jersey": "32",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Chauncey Bowens",
+        "position": "",
+        "jersey": "33",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Gunner Stockton",
+        "position": "",
+        "jersey": "14",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "CJ Allen",
+        "position": "",
+        "jersey": "3",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Kyron Jones",
+        "position": "",
+        "jersey": "31",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Raylen Wilson",
+        "position": "",
+        "jersey": "5",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Joenel Aguero",
+        "position": "",
+        "jersey": "8",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Chris Cole",
+        "position": "",
+        "jersey": "9",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "KJ Bolden",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Daylen Everette",
+        "position": "",
+        "jersey": "6",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "JaCorey Thomas",
+        "position": "",
+        "jersey": "20",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Gabe Harris Jr.",
+        "position": "",
+        "jersey": "0",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Daniel Harris",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Quintavius Johnson",
+        "position": "",
+        "jersey": "33",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jordan Hall",
+        "position": "",
+        "jersey": "44",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Christen Miller",
+        "position": "",
+        "jersey": "52",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Elijah Griffin",
+        "position": "",
+        "jersey": "90",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Xzavier McLeod",
+        "position": "",
+        "jersey": "94",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Drew Bobo",
+        "position": "",
+        "jersey": "74",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ellis Robinson IV",
+        "position": "",
+        "jersey": "1",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Talyn Taylor",
+        "position": "",
+        "jersey": "11",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Justin Williams",
+        "position": "",
+        "jersey": "19",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Nnamdi Ogboko",
+        "position": "",
+        "jersey": "95",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Joenel Aguero",
+        "position": "",
+        "jersey": "8",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "KJ Bolden",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Zachariah Branch",
+        "position": "",
+        "jersey": "1",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Sacovie White-Helton",
+        "position": "",
+        "jersey": "18",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Peyton Woodring",
+        "position": "",
+        "jersey": "91",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Brett Thorson",
+        "position": "",
+        "jersey": "92",
+        "starter": false,
+        "active": true
+      }
+    ]
+  }
+}

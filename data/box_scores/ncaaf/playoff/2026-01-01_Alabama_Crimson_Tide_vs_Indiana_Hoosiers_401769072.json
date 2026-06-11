@@ -1,0 +1,582 @@
+{
+  "event_id": "401769072",
+  "sport": "ncaaf",
+  "season_year": 2025,
+  "season_type": "playoff",
+  "date": "2026-01-01",
+  "game": "Alabama Crimson Tide @ Indiana Hoosiers",
+  "final_score": {
+    "home": 38,
+    "away": 3,
+    "winner": "Indiana Hoosiers"
+  },
+  "home_box": {
+    "team": "Indiana Hoosiers",
+    "totals": {
+      "firstDowns": "22",
+      "thirdDownEff": "9-14",
+      "fourthDownEff": "0-0",
+      "totalYards": "407",
+      "netPassingYards": "192",
+      "completionAttempts": "14/16",
+      "yardsPerPass": "12.0",
+      "rushingYards": "215",
+      "rushingAttempts": "50",
+      "yardsPerRushAttempt": "4.3",
+      "totalPenaltiesYards": "1-10",
+      "turnovers": "0",
+      "fumblesLost": "0",
+      "interceptions": "0",
+      "possessionTime": "34:21"
+    },
+    "players": [
+      {
+        "name": "Fernando Mendoza",
+        "position": "",
+        "jersey": "15",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Kaelon Black",
+        "position": "",
+        "jersey": "8",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Roman Hemby",
+        "position": "",
+        "jersey": "1",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Fernando Mendoza",
+        "position": "",
+        "jersey": "15",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Khobie Martin",
+        "position": "",
+        "jersey": "28",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Alberto Mendoza",
+        "position": "",
+        "jersey": "16",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": " Team",
+        "position": "",
+        "jersey": "",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Charlie Becker",
+        "position": "",
+        "jersey": "80",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Omar Cooper Jr.",
+        "position": "",
+        "jersey": "3",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Elijah Sarratt",
+        "position": "",
+        "jersey": "13",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Riley Nowakowski",
+        "position": "",
+        "jersey": "37",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Kaelon Black",
+        "position": "",
+        "jersey": "8",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "E.J. Williams Jr.",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Isaiah Jones",
+        "position": "",
+        "jersey": "46",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Devan Boykin",
+        "position": "",
+        "jersey": "12",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Aiden Fisher",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Rolijah Hardy",
+        "position": "",
+        "jersey": "21",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Isaiah Jones",
+        "position": "",
+        "jersey": "46",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jamari Sharpe",
+        "position": "",
+        "jersey": "22",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "D'Angelo Ponds",
+        "position": "",
+        "jersey": "5",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Daniel Ndukwe",
+        "position": "",
+        "jersey": "17",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Louis Moore",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Hosea Wheeler",
+        "position": "",
+        "jersey": "0",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Mikail Kamara",
+        "position": "",
+        "jersey": "6",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dominique Ratcliff",
+        "position": "",
+        "jersey": "91",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Amare Ferrell",
+        "position": "",
+        "jersey": "1",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Mario Landino",
+        "position": "",
+        "jersey": "97",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Byron Baldwin Jr.",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Tyrique Tucker",
+        "position": "",
+        "jersey": "95",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jonathan Brady",
+        "position": "",
+        "jersey": "0",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Nico Radicic",
+        "position": "",
+        "jersey": "15",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Mitch McCarthy",
+        "position": "",
+        "jersey": "44",
+        "starter": false,
+        "active": true
+      }
+    ]
+  },
+  "away_box": {
+    "team": "Alabama Crimson Tide",
+    "totals": {
+      "firstDowns": "11",
+      "thirdDownEff": "3-11",
+      "fourthDownEff": "0-2",
+      "totalYards": "193",
+      "netPassingYards": "170",
+      "completionAttempts": "24/33",
+      "yardsPerPass": "5.2",
+      "rushingYards": "23",
+      "rushingAttempts": "17",
+      "yardsPerRushAttempt": "1.4",
+      "totalPenaltiesYards": "1-5",
+      "turnovers": "1",
+      "fumblesLost": "1",
+      "interceptions": "0",
+      "possessionTime": "25:39"
+    },
+    "players": [
+      {
+        "name": "Austin Mack",
+        "position": "",
+        "jersey": "10",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ty Simpson",
+        "position": "",
+        "jersey": "15",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Daniel Hill",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ty Simpson",
+        "position": "",
+        "jersey": "15",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Daniel Hill",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Kevin Riley",
+        "position": "",
+        "jersey": "28",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": " Team",
+        "position": "",
+        "jersey": "",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Austin Mack",
+        "position": "",
+        "jersey": "10",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Germie Bernard",
+        "position": "",
+        "jersey": "5",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ryan Coleman-Williams",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Josh Cuevas",
+        "position": "",
+        "jersey": "80",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Isaiah Horton",
+        "position": "",
+        "jersey": "1",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Daniel Hill",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jam Miller",
+        "position": "",
+        "jersey": "26",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ty Simpson",
+        "position": "",
+        "jersey": "15",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Austin Mack",
+        "position": "",
+        "jersey": "10",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Bray Hubbard",
+        "position": "",
+        "jersey": "18",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "LT Overton",
+        "position": "",
+        "jersey": "22",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Zabien Brown",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Nikhai Hill-Green",
+        "position": "",
+        "jersey": "41",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Yhonzae Pierre",
+        "position": "",
+        "jersey": "42",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Zavier Mincey",
+        "position": "",
+        "jersey": "12",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Deontae Lawson",
+        "position": "",
+        "jersey": "0",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Justin Jefferson",
+        "position": "",
+        "jersey": "10",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "London Simmons",
+        "position": "",
+        "jersey": "90",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Keon Sabb",
+        "position": "",
+        "jersey": "3",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Tim Keenan III",
+        "position": "",
+        "jersey": "96",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Domani Jackson",
+        "position": "",
+        "jersey": "1",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ivan Taylor",
+        "position": "",
+        "jersey": "13",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Red Morgan",
+        "position": "",
+        "jersey": "16",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "DaShawn Jones",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Edric Hill",
+        "position": "",
+        "jersey": "94",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Keon Keeley",
+        "position": "",
+        "jersey": "31",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Lotzeir Brooks",
+        "position": "",
+        "jersey": "17",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Justin Hill",
+        "position": "",
+        "jersey": "8",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dijon Lee Jr.",
+        "position": "",
+        "jersey": "5",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "QB Reese",
+        "position": "",
+        "jersey": "36",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jordan Renaud",
+        "position": "",
+        "jersey": "11",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Cam Calhoun",
+        "position": "",
+        "jersey": "9",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Qua Russaw",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Lotzeir Brooks",
+        "position": "",
+        "jersey": "17",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Conor Talty",
+        "position": "",
+        "jersey": "31",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Blake Doud",
+        "position": "",
+        "jersey": "38",
+        "starter": false,
+        "active": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,330 @@
+{
+  "event_id": "401767133",
+  "sport": "ncaaf",
+  "season_year": 2025,
+  "season_type": "regular_season",
+  "date": "2025-10-12",
+  "game": "Sacramento State Hornets @ Weber State Wildcats",
+  "final_score": {
+    "home": 27,
+    "away": 55,
+    "winner": "Sacramento State Hornets"
+  },
+  "home_box": {
+    "team": "Weber State Wildcats",
+    "totals": {
+      "firstDowns": "19",
+      "thirdDownEff": "5-13",
+      "fourthDownEff": "1-2",
+      "totalYards": "301",
+      "netPassingYards": "157",
+      "completionAttempts": "16/28",
+      "yardsPerPass": "5.6",
+      "rushingYards": "144",
+      "rushingAttempts": "41",
+      "yardsPerRushAttempt": "3.5",
+      "totalPenaltiesYards": "4-25",
+      "turnovers": "0",
+      "fumblesLost": "0",
+      "interceptions": "0",
+      "possessionTime": "31:02"
+    },
+    "players": [
+      {
+        "name": "Dijon Jennings",
+        "position": "",
+        "jersey": "10",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Chauncey Sylvester",
+        "position": "",
+        "jersey": "5",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Davion Godley",
+        "position": "",
+        "jersey": "25",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dijon Jennings",
+        "position": "",
+        "jersey": "10",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Zach Hrbacek",
+        "position": "",
+        "jersey": "27",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": " Team",
+        "position": "",
+        "jersey": "",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Chauncey Sylvester",
+        "position": "",
+        "jersey": "5",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Noah Bennee",
+        "position": "",
+        "jersey": "84",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Kelton Wafer",
+        "position": "",
+        "jersey": "81",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Marvin Session",
+        "position": "",
+        "jersey": "18",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jayleen Record",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Davion Godley",
+        "position": "",
+        "jersey": "25",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ammon Munyer",
+        "position": "",
+        "jersey": "85",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Dahlyn Jones",
+        "position": "",
+        "jersey": "88",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jayleen Record",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Robert Young",
+        "position": "",
+        "jersey": "",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Sloan Calder",
+        "position": "",
+        "jersey": "69",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Henry Way",
+        "position": "",
+        "jersey": "47",
+        "starter": false,
+        "active": true
+      }
+    ]
+  },
+  "away_box": {
+    "team": "Sacramento State Hornets",
+    "totals": {
+      "firstDowns": "22",
+      "thirdDownEff": "5-10",
+      "fourthDownEff": "2-3",
+      "totalYards": "460",
+      "netPassingYards": "63",
+      "completionAttempts": "6/10",
+      "yardsPerPass": "6.3",
+      "rushingYards": "397",
+      "rushingAttempts": "50",
+      "yardsPerRushAttempt": "7.9",
+      "totalPenaltiesYards": "11-94",
+      "turnovers": "0",
+      "fumblesLost": "0",
+      "interceptions": "0",
+      "possessionTime": "28:58"
+    },
+    "players": [
+      {
+        "name": "Cardell Williams",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jaxon Fresques",
+        "position": "",
+        "jersey": "83",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Cardell Williams",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jaquail Smith",
+        "position": "",
+        "jersey": "22",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Rodney Hammond Jr.",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Damian Henderson II",
+        "position": "",
+        "jersey": "4",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Michael Johnson",
+        "position": "",
+        "jersey": "24",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Sam Adams II",
+        "position": "",
+        "jersey": "28",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Rodney Hammond Jr.",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ernest Campbell",
+        "position": "",
+        "jersey": "13",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jordan Anderson",
+        "position": "",
+        "jersey": "3",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Sam Adams II",
+        "position": "",
+        "jersey": "28",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jaxon Fresques",
+        "position": "",
+        "jersey": "83",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jaxon Fresques",
+        "position": "",
+        "jersey": "83",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Rodney Hammond Jr.",
+        "position": "",
+        "jersey": "2",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Ernest Campbell",
+        "position": "",
+        "jersey": "13",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Michael Johnson",
+        "position": "",
+        "jersey": "24",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Jaxon Fresques",
+        "position": "",
+        "jersey": "83",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Grant Meadors",
+        "position": "",
+        "jersey": "49",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Cardell Williams",
+        "position": "",
+        "jersey": "7",
+        "starter": false,
+        "active": true
+      },
+      {
+        "name": "Cal McGough",
+        "position": "",
+        "jersey": "91",
+        "starter": false,
+        "active": true
+      }
+    ]
+  }
+}

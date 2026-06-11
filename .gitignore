@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 *.json
+!data/predictions/*.json
+!data/box_scores/**/*.json
+!results_log.json
