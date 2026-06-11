@@ -69,9 +69,20 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
     sys.path.insert(0, os.path.abspath("."))
     from wnba_data import get_team_stats, TEAM_IDS, get_wnba_events
     from wnba_predictor import WNBAPredictionEngine
-    from services.odds_parser import american_to_implied
+    from services.odds_parser import american_to_implied, get_live_odds, parse_moneyline
+
     engine = WNBAPredictionEngine()
     events = get_wnba_events()
+
+    # ── Build real moneyline implied prob lookup from The Odds API ──
+    odds_games  = get_live_odds("wnba")
+    odds_lookup = {}
+    for og in odds_games:
+        ml = parse_moneyline(og)
+        if ml:
+            odds_lookup[og.get("home_team", "")] = ml
+            odds_lookup[og.get("away_team", "")] = ml
+
     results = []
     for event in events:
         home = event.get("home_team", "")
@@ -83,22 +94,30 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         if not home_stats or not away_stats:
             continue
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
-        implied = round(american_to_implied(-110) * 100, 1)
-        e_home  = round(pred.home_win_prob - implied, 2)
-        e_away  = round(pred.away_win_prob - implied, 2)
-        label   = f"{away} @ {home}"
+
+        # Use real moneyline implied prob — fall back to 52.4% if not available
+        ml_probs = odds_lookup.get(home) or odds_lookup.get(away)
+        fallback = round(american_to_implied(-110) * 100, 1)
+        i_home   = ml_probs.get(home, fallback) if ml_probs else fallback
+        i_away   = ml_probs.get(away, fallback) if ml_probs else fallback
+
+        e_home = round(pred.home_win_prob - i_home, 2)
+        e_away = round(pred.away_win_prob - i_away, 2)
+        label  = f"{away} @ {home}"
+
         if e_home >= min_edge:
             results.append({"game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
-                "implied_prob": implied, "edge": round(e_home / 100, 4),
+                "implied_prob": i_home, "edge": round(e_home / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
                 "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
         if e_away >= min_edge:
             results.append({"game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
-                "implied_prob": implied, "edge": round(e_away / 100, 4),
+                "implied_prob": i_away, "edge": round(e_away / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
                 "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
+
     results.sort(key=lambda x: x["edge"], reverse=True)
     return {"count": len(results), "best_bets": results}
 
@@ -243,9 +262,20 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
     sys.path.insert(0, os.path.abspath("."))
     from ncaab_data import get_team_stats, get_ncaab_events
     from ncaab_predictor import NCAABPredictionEngine
-    from services.odds_parser import american_to_implied
+    from services.odds_parser import american_to_implied, get_live_odds, parse_moneyline
+
     engine = NCAABPredictionEngine()
     events = get_ncaab_events()
+
+    # ── Build real moneyline implied prob lookup from The Odds API ──
+    odds_games  = get_live_odds("ncaab")
+    odds_lookup = {}
+    for og in odds_games:
+        ml = parse_moneyline(og)
+        if ml:
+            odds_lookup[og.get("home_team", "")] = ml
+            odds_lookup[og.get("away_team", "")] = ml
+
     results = []
     for event in events:
         home = event.get("home_team", "")
@@ -255,22 +285,30 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
         if not home_stats or not away_stats:
             continue
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
-        implied = round(american_to_implied(-110) * 100, 1)
-        e_home  = round(pred.home_win_prob - implied, 2)
-        e_away  = round(pred.away_win_prob - implied, 2)
-        label   = f"{away} @ {home}"
+
+        # Use real moneyline implied prob — fall back to 52.4% if not available
+        ml_probs = odds_lookup.get(home) or odds_lookup.get(away)
+        fallback = round(american_to_implied(-110) * 100, 1)
+        i_home   = ml_probs.get(home, fallback) if ml_probs else fallback
+        i_away   = ml_probs.get(away, fallback) if ml_probs else fallback
+
+        e_home = round(pred.home_win_prob - i_home, 2)
+        e_away = round(pred.away_win_prob - i_away, 2)
+        label  = f"{away} @ {home}"
+
         if e_home >= min_edge:
             results.append({"game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
-                "implied_prob": implied, "edge": round(e_home / 100, 4),
+                "implied_prob": i_home, "edge": round(e_home / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
                 "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
         if e_away >= min_edge:
             results.append({"game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
-                "implied_prob": implied, "edge": round(e_away / 100, 4),
+                "implied_prob": i_away, "edge": round(e_away / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
                 "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
+
     results.sort(key=lambda x: x["edge"], reverse=True)
     return {"count": len(results), "best_bets": results}
 
