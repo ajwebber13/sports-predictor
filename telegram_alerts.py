@@ -6,6 +6,7 @@ Sports: NFL, CFB, WNBA, NBA, College Basketball
 
 Season gates prevent alerts during inactive periods.
 Date filtering ensures only today's games (Central Time) are sent.
+Game times pulled from ESPN (free, no API key needed).
 """
 
 import requests
@@ -28,6 +29,20 @@ CENTRAL_OFFSET   = -5  # CDT
 
 
 # ─────────────────────────────────────────────────────────────
+# ESPN SCHEDULE ENDPOINTS (free, no API key)
+# ─────────────────────────────────────────────────────────────
+
+ESPN_SCHEDULE_ENDPOINTS = {
+    "nfl":   "football/nfl",
+    "ncaaf": "football/college-football",
+    "nba":   "basketball/nba",
+    "ncaab": "basketball/mens-college-basketball",
+    "ncaaw": "basketball/womens-college-basketball",
+    "wnba":  "basketball/wnba",
+}
+
+
+# ─────────────────────────────────────────────────────────────
 # SEASON GATES
 # ─────────────────────────────────────────────────────────────
 
@@ -35,6 +50,7 @@ SEASON_WINDOWS = {
     "nfl":   (9, 2),   # Sept – Feb
     "ncaaf": (8, 1),   # Aug – Jan
     "ncaab": (11, 4),  # Nov – Apr
+    "ncaaw": (11, 4),  # Nov – Apr
     "wnba":  (5, 10),  # May – Oct
     "nba":   (10, 6),  # Oct – Jun
 }
@@ -43,7 +59,7 @@ def is_in_season(sport: str) -> bool:
     """Returns True if the sport is currently in season."""
     window = SEASON_WINDOWS.get(sport)
     if not window:
-        return True  # unknown sport — allow through
+        return True
 
     start_month, end_month = window
     current_month = datetime.now().month
@@ -90,25 +106,40 @@ def format_game_time(utc_str: str) -> str:
 
 
 def get_game_times(sport: str) -> tuple:
-    """Returns (formatted_times dict, raw_utc_times dict)."""
-    sys.path.insert(0, os.path.abspath("."))
-    try:
-        from services.odds_parser import get_live_odds
-        games     = get_live_odds(sport)
-        times     = {}
-        times_raw = {}
-        for g in games:
-            home     = g.get("home_team", "")
-            away     = g.get("away_team", "")
-            utc_time = g.get("commence_time", "")
-            fmt      = format_game_time(utc_time) if utc_time else "Time TBD"
-            for key in [f"{away} @ {home}", f"{home} @ {away}", home, away]:
-                times[key]     = fmt
-                times_raw[key] = utc_time
-        return times, times_raw
-    except Exception as e:
-        print(f"Could not fetch game times: {e}")
+    """Returns (formatted_times dict, raw_utc_times dict) from ESPN — free, no API key."""
+    endpoint = ESPN_SCHEDULE_ENDPOINTS.get(sport)
+    if not endpoint:
         return {}, {}
+
+    url = f"http://site.api.espn.com/apis/site/v2/sports/{endpoint}/scoreboard"
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"ESPN game times error ({sport}): {e}")
+        return {}, {}
+
+    times     = {}
+    times_raw = {}
+
+    for event in data.get("events", []):
+        competitions = event.get("competitions", [])
+        if not competitions:
+            continue
+        comp        = competitions[0]
+        competitors = comp.get("competitors", [])
+        home_team   = next((c["team"]["displayName"] for c in competitors if c.get("homeAway") == "home"), "")
+        away_team   = next((c["team"]["displayName"] for c in competitors if c.get("homeAway") == "away"), "")
+        utc_time    = event.get("date", "")
+        fmt         = format_game_time(utc_time) if utc_time else "Time TBD"
+
+        for key in [f"{away_team} @ {home_team}", f"{home_team} @ {away_team}", home_team, away_team]:
+            times[key]     = fmt
+            times_raw[key] = utc_time
+
+    print(f"ESPN returned {len(data.get('events', []))} events for {sport}")
+    return times, times_raw
 
 
 def send_message(text: str):
@@ -129,7 +160,8 @@ def sport_label(sport: str) -> str:
     labels = {
         "ncaaf": "College Football",
         "nfl":   "NFL",
-        "ncaab": "College Basketball",
+        "ncaab": "College Basketball (Men)",
+        "ncaaw": "College Basketball (Women)",
         "wnba":  "WNBA",
         "nba":   "NBA",
     }
@@ -248,6 +280,7 @@ def get_edges_url(sport: str, simulations: int) -> str:
         "nfl":   f"{API_BASE}/nfl/edges",
         "ncaaf": f"{API_BASE}/ncaaf/edges",
         "ncaab": f"{API_BASE}/ncaab/edges",
+        "ncaaw": f"{API_BASE}/ncaaw/edges",
         "wnba":  f"{API_BASE}/wnba/edges",
         "nba":   f"{API_BASE}/nba/edges",
     }
@@ -272,7 +305,6 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         return
 
     print(f"Fetching edges for {sport}...")
-    sys.path.insert(0, os.path.abspath("."))
     game_times, game_times_raw = get_game_times(sport)
     print(f"Game times loaded: {len(game_times)} entries")
 
@@ -303,16 +335,6 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
 
     if LOGGING_ENABLED:
         save_all_predictions(bets, sport)
-
-    # ── NO EDGES ABOVE THRESHOLD ──
-    if not bets:
-        print("No edges found.")
-        send_message(
-            f"{emoji} <b>C&amp;P Picks — {label}</b>\n\n"
-            f"📅 {today_label}\n"
-            f"No edges above threshold today. Stay patient."
-        )
-        return
 
     # ── FILTER CONTRADICTORY ALERTS ──
     clean_bets = []
