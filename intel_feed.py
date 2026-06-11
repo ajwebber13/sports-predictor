@@ -29,7 +29,7 @@ from typing import Optional
 # ─────────────────────────────────────────────
 
 # Get a free key at https://the-odds-api.com (500 requests/month free)
-ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "211af8df5f3ec9651332a6644b9941c3")
+ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "adad2067eb2ada1766fd28ea5578ff9c")
 
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 
