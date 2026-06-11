@@ -106,5 +106,44 @@
     "actual_winner": "NYK",
     "won": true,
     "logged_at": "2026-06-08 22:57"
+  },
+  {
+    "game": "Dallas Wings @ Minnesota Lynx",
+    "sport": "WNBA",
+    "date": "2026-06-09",
+    "event_id": "",
+    "bet": "Minnesota Lynx ML",
+    "odds": "N/A",
+    "model_prob": 58.0,
+    "edge": 5.6,
+    "actual_winner": "Minnesota Lynx",
+    "won": true,
+    "logged_at": "2026-06-11 22:37"
+  },
+  {
+    "game": "Phoenix Mercury @ Golden State Valkyries",
+    "sport": "WNBA",
+    "date": "2026-06-09",
+    "event_id": "",
+    "bet": "Golden State Valkyries ML",
+    "odds": "N/A",
+    "model_prob": 71.6,
+    "edge": 19.2,
+    "actual_winner": "Golden State Valkyries",
+    "won": true,
+    "logged_at": "2026-06-11 22:37"
+  },
+  {
+    "game": "San Antonio Spurs @ New York Knicks",
+    "sport": "NBA",
+    "date": "2026-06-10",
+    "event_id": "",
+    "bet": "New York Knicks ML",
+    "odds": -110,
+    "model_prob": 84.1,
+    "edge": 31.7,
+    "actual_winner": "New York Knicks",
+    "won": true,
+    "logged_at": "2026-06-11 22:37"
   }
 ]
