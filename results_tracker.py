@@ -22,9 +22,9 @@ from difflib import get_close_matches
 # PATHS
 # ─────────────────────────────────────────────────────────────
 
-BASE_DIR      = os.path.dirname(__file__)
+BASE_DIR        = os.path.dirname(__file__)
 PREDICTIONS_DIR = os.path.join(BASE_DIR, "data", "predictions")
-RESULTS_LOG   = os.path.join(BASE_DIR, "results_log.json")
+RESULTS_LOG     = os.path.join(BASE_DIR, "results_log.json")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -36,6 +36,8 @@ ESPN_ENDPOINTS = {
     "nba":   "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
     "nfl":   "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
     "ncaaf": "http://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
+    "ncaab": "http://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+    "ncaaw": "http://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball/scoreboard",
 }
 
 ESPN_HEADERS = {
@@ -55,7 +57,7 @@ def fetch_espn_results(sport: str, date_str: str) -> list:
     """
     Fetch completed game results from ESPN for a given sport and date.
     date_str format: YYYY-MM-DD
-    Returns list of { home_team, away_team, home_score, away_score, winner }
+    Returns list of { event_id, home_team, away_team, home_score, away_score, winner }
     """
     cache_key = f"{sport}_{date_str}"
     if cache_key in _espn_cache:
@@ -65,7 +67,6 @@ def fetch_espn_results(sport: str, date_str: str) -> list:
     if not endpoint:
         return []
 
-    # ESPN scoreboard uses YYYYMMDD
     espn_date = date_str.replace("-", "")
 
     try:
@@ -107,11 +108,12 @@ def fetch_espn_results(sport: str, date_str: str) -> list:
             winner     = home_name if home_score > away_score else away_name
 
             games.append({
-                "home_team":   home_name,
-                "away_team":   away_name,
-                "home_score":  home_score,
-                "away_score":  away_score,
-                "winner":      winner,
+                "event_id":   event.get("id", ""),
+                "home_team":  home_name,
+                "away_team":  away_name,
+                "home_score": home_score,
+                "away_score": away_score,
+                "winner":     winner,
             })
 
         _espn_cache[cache_key] = games
@@ -126,7 +128,7 @@ def match_team_name(name: str, candidates: list) -> str:
     """Fuzzy match a team name against ESPN results."""
     if not name or not candidates:
         return ""
-    name_lower = name.lower()
+    name_lower  = name.lower()
     cands_lower = [c.lower() for c in candidates]
     if name_lower in cands_lower:
         return candidates[cands_lower.index(name_lower)]
@@ -136,16 +138,24 @@ def match_team_name(name: str, candidates: list) -> str:
     return ""
 
 
-def find_actual_winner(sport: str, date_str: str, home_team: str, away_team: str) -> str:
+def find_actual_winner(sport: str, date_str: str, home_team: str, away_team: str, event_id: str = "") -> str:
     """
     Look up the actual winner for a game from ESPN.
+    Uses event_id for exact match when available, falls back to fuzzy team name match.
     Returns team name string or empty string if not found/not completed.
     """
     games = fetch_espn_results(sport, date_str)
     if not games:
         return ""
 
-    all_teams = []
+    # ── Exact match by event_id (preferred) ──
+    if event_id:
+        for g in games:
+            if g.get("event_id") == event_id:
+                return g["winner"]
+
+    # ── Fallback: fuzzy team name match ──
+    all_teams    = []
     for g in games:
         all_teams.extend([g["home_team"], g["away_team"]])
 
@@ -200,11 +210,10 @@ def auto_pull_results(results: list) -> list:
 
     print(f"\n  Scanning {len(files)} prediction file(s)...\n")
 
-    new_count    = 0
-    pending      = 0
-    not_found    = 0
-
-    today = datetime.now().date()
+    new_count = 0
+    pending   = 0
+    not_found = 0
+    today     = datetime.now().date()
 
     for filepath in files:
         with open(filepath, "r") as f:
@@ -213,25 +222,26 @@ def auto_pull_results(results: list) -> list:
             except Exception:
                 continue
 
-        game      = pred.get("game", "")
-        sport     = pred.get("sport", "").lower()
-        date_str  = pred.get("date", "")
-        bet_label = pred.get("bet", "")
+        game       = pred.get("game", "")
+        sport      = pred.get("sport", "").lower()
+        date_str   = pred.get("date", "")
+        bet_label  = pred.get("bet", "")
         model_prob = pred.get("model_prob", 50)
-        edge      = pred.get("edge", 0)
-        odds      = pred.get("odds", "N/A")
+        edge       = pred.get("edge", 0)
+        odds       = pred.get("odds", "N/A")
+        event_id   = pred.get("event_id", "")
 
         # Skip if actual result already filled in
         actual_winner = pred.get("actual_result", {}).get("actual_winner", "")
         if actual_winner:
-            # Already resolved — log if not already in results_log
             if not result_exists(game, date_str, results):
-                parts         = game.split(" @ ")
-                away_team     = parts[0] if len(parts) == 2 else ""
-                home_team     = parts[1] if len(parts) == 2 else ""
-                bet_on_home   = home_team in bet_label
+                parts            = game.split(" @ ")
+                away_team        = parts[0] if len(parts) == 2 else ""
+                home_team        = parts[1] if len(parts) == 2 else ""
+                bet_on_home      = home_team in bet_label
                 predicted_winner = home_team if bet_on_home else away_team
-                won = predicted_winner.lower() in actual_winner.lower() or actual_winner.lower() in predicted_winner.lower()
+                won = (predicted_winner.lower() in actual_winner.lower() or
+                       actual_winner.lower() in predicted_winner.lower())
                 _append_result(results, pred, game, sport, date_str, bet_label,
                                odds, model_prob, edge, actual_winner, won)
                 new_count += 1
@@ -255,8 +265,8 @@ def auto_pull_results(results: list) -> list:
             not_found += 1
             continue
 
-        # Fetch from ESPN
-        winner = find_actual_winner(sport, date_str, home_team, away_team)
+        # Fetch from ESPN (event_id used for exact match when available)
+        winner = find_actual_winner(sport, date_str, home_team, away_team, event_id)
 
         if not winner:
             print(f"  ⚠  No ESPN result: {game} ({date_str})")
@@ -271,7 +281,8 @@ def auto_pull_results(results: list) -> list:
         # Determine W/L
         bet_on_home      = home_team in bet_label
         predicted_winner = home_team if bet_on_home else away_team
-        won = predicted_winner.lower() in winner.lower() or winner.lower() in predicted_winner.lower()
+        won = (predicted_winner.lower() in winner.lower() or
+               winner.lower() in predicted_winner.lower())
         result_str = "✅ WIN" if won else "❌ LOSS"
 
         print(f"  {result_str}  {game}  |  Bet: {bet_label}  |  Winner: {winner}")
@@ -297,6 +308,7 @@ def _append_result(results, pred, game, sport, date_str, bet_label,
         "game":          game,
         "sport":         sport.upper(),
         "date":          date_str,
+        "event_id":      pred.get("event_id", ""),
         "bet":           bet_label,
         "odds":          odds,
         "model_prob":    model_prob,
@@ -321,10 +333,10 @@ def print_report(results: list):
     print(f"  Generated: {datetime.now().strftime('%B %d, %Y %I:%M %p')}")
     print(f"{'═'*60}")
 
-    total        = len(results)
-    wins         = sum(1 for r in results if r["won"])
-    losses       = total - wins
-    win_pct      = (wins / total * 100) if total > 0 else 0
+    total   = len(results)
+    wins    = sum(1 for r in results if r["won"])
+    losses  = total - wins
+    win_pct = (wins / total * 100) if total > 0 else 0
 
     print(f"\n  OVERALL")
     print(f"  {'─'*40}")
@@ -337,9 +349,9 @@ def print_report(results: list):
         print(f"\n  BY SPORT")
         print(f"  {'─'*40}")
         for sport in sports:
-            sr    = [r for r in results if r["sport"] == sport]
-            sw    = sum(1 for r in sr if r["won"])
-            sp    = (sw / len(sr) * 100)
+            sr = [r for r in results if r["sport"] == sport]
+            sw = sum(1 for r in sr if r["won"])
+            sp = (sw / len(sr) * 100)
             print(f"  {sport:<6}  {sw}W-{len(sr)-sw}L  ({sp:.0f}%)")
 
     # By edge tier
@@ -354,8 +366,8 @@ def print_report(results: list):
         tr = [r for r in results if fn(r)]
         if not tr:
             continue
-        tw  = sum(1 for r in tr if r["won"])
-        tp  = (tw / len(tr) * 100)
+        tw = sum(1 for r in tr if r["won"])
+        tp = (tw / len(tr) * 100)
         print(f"  {label}  {tw}W-{len(tr)-tw}L  ({tp:.0f}%)")
 
     # Recent results
@@ -388,7 +400,6 @@ if __name__ == "__main__":
             print("  Cancelled.")
 
     else:
-        # Default: auto-pull + report
         results = auto_pull_results(results)
         save_results(results)
         print_report(results)

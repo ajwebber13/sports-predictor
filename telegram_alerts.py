@@ -5,6 +5,7 @@ Sends game prediction alerts to Culture & Pulse Picks Telegram channel.
 Sports: NFL, CFB, WNBA, NBA, College Basketball
 
 Season gates prevent alerts during inactive periods.
+Date filtering ensures only today's games (Central Time) are sent.
 """
 
 import requests
@@ -48,11 +49,28 @@ def is_in_season(sport: str) -> bool:
     current_month = datetime.now().month
 
     if start_month <= end_month:
-        # Same year window e.g. May–Oct
         return start_month <= current_month <= end_month
     else:
-        # Wraps year e.g. Sept–Feb, Oct–Jun
         return current_month >= start_month or current_month <= end_month
+
+
+# ─────────────────────────────────────────────────────────────
+# DATE HELPERS
+# ─────────────────────────────────────────────────────────────
+
+def get_today_ct() -> datetime.date:
+    """Returns today's date in Central Time."""
+    return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
+
+
+def is_today_ct(utc_str: str) -> bool:
+    """Returns True if the UTC game time falls on today in Central Time."""
+    try:
+        utc_dt     = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
+        central_dt = utc_dt + timedelta(hours=CENTRAL_OFFSET)
+        return central_dt.date() == get_today_ct()
+    except:
+        return True  # if parse fails, let it through
 
 
 # ─────────────────────────────────────────────────────────────
@@ -71,25 +89,26 @@ def format_game_time(utc_str: str) -> str:
         return "Time TBD"
 
 
-def get_game_times(sport: str) -> dict:
+def get_game_times(sport: str) -> tuple:
+    """Returns (formatted_times dict, raw_utc_times dict)."""
     sys.path.insert(0, os.path.abspath("."))
     try:
         from services.odds_parser import get_live_odds
-        games = get_live_odds(sport)
-        times = {}
+        games     = get_live_odds(sport)
+        times     = {}
+        times_raw = {}
         for g in games:
             home     = g.get("home_team", "")
             away     = g.get("away_team", "")
             utc_time = g.get("commence_time", "")
             fmt      = format_game_time(utc_time) if utc_time else "Time TBD"
-            times[f"{away} @ {home}"] = fmt
-            times[f"{home} @ {away}"] = fmt
-            times[home] = fmt
-            times[away] = fmt
-        return times
+            for key in [f"{away} @ {home}", f"{home} @ {away}", home, away]:
+                times[key]     = fmt
+                times_raw[key] = utc_time
+        return times, times_raw
     except Exception as e:
         print(f"Could not fetch game times: {e}")
-        return {}
+        return {}, {}
 
 
 def send_message(text: str):
@@ -143,6 +162,17 @@ def fmt_odds(odds) -> str:
         return ""
 
 
+def get_raw_time_for_bet(bet: dict, times_raw: dict) -> str:
+    """Looks up the raw UTC commence_time for a bet using multiple key formats."""
+    game  = bet.get("game", "")
+    parts = game.split(" @ ")
+    for key in [game] + parts:
+        raw = times_raw.get(key)
+        if raw:
+            return raw
+    return ""
+
+
 # ─────────────────────────────────────────────────────────────
 # FORMATTERS
 # ─────────────────────────────────────────────────────────────
@@ -151,7 +181,7 @@ def format_header(bets: list, sport: str) -> str:
     emoji    = sport_emoji(sport)
     label    = sport_label(sport)
     top_edge = max((b.get("edge", 0) * 100 for b in bets), default=0)
-    today    = datetime.now().strftime("%B %d, %Y")
+    today    = get_today_ct().strftime("%B %d, %Y")
     return (
         f"{emoji} <b>Culture &amp; Pulse Picks</b>\n"
         f"📅 {today} — {label}\n"
@@ -198,6 +228,17 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
     )
 
 
+def format_no_games(sport: str) -> str:
+    emoji = sport_emoji(sport)
+    label = sport_label(sport)
+    today = get_today_ct().strftime("%B %d, %Y")
+    return (
+        f"{emoji} <b>Culture &amp; Pulse Picks — {label}</b>\n\n"
+        f"📅 {today}\n"
+        f"No {label} games scheduled today."
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 # API ROUTING
 # ─────────────────────────────────────────────────────────────
@@ -221,8 +262,9 @@ def get_edges_url(sport: str, simulations: int) -> str:
 # ─────────────────────────────────────────────────────────────
 
 def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
-    emoji = sport_emoji(sport)
-    label = sport_label(sport)
+    emoji       = sport_emoji(sport)
+    label       = sport_label(sport)
+    today_label = get_today_ct().strftime("%B %d, %Y")
 
     # Season gate
     if not is_in_season(sport):
@@ -231,7 +273,7 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
 
     print(f"Fetching edges for {sport}...")
     sys.path.insert(0, os.path.abspath("."))
-    game_times = get_game_times(sport)
+    game_times, game_times_raw = get_game_times(sport)
     print(f"Game times loaded: {len(game_times)} entries")
 
     try:
@@ -242,20 +284,37 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         print(f"Could not reach API: {e}")
         return
 
-    bets = data.get("best_bets", [])
+    bets_raw = data.get("best_bets", [])
 
+    # ── DATE FILTER: only keep today's games (Central Time) ──
+    bets = []
+    for bet in bets_raw:
+        raw_time = get_raw_time_for_bet(bet, game_times_raw)
+        if raw_time and not is_today_ct(raw_time):
+            print(f"Skipping stale game (not today): {bet.get('game')} — {raw_time}")
+            continue
+        bets.append(bet)
+
+    # ── NO GAMES TODAY ──
     if not bets:
-        print("No edges found.")
-        send_message(
-            f"{emoji} <b>C&amp;P Picks — {label}</b>\n\n"
-            f"No edges above threshold today. Stay patient."
-        )
+        print(f"No {label} games today ({today_label}).")
+        send_message(format_no_games(sport))
         return
 
     if LOGGING_ENABLED:
         save_all_predictions(bets, sport)
 
-    # Filter contradictory alerts
+    # ── NO EDGES ABOVE THRESHOLD ──
+    if not bets:
+        print("No edges found.")
+        send_message(
+            f"{emoji} <b>C&amp;P Picks — {label}</b>\n\n"
+            f"📅 {today_label}\n"
+            f"No edges above threshold today. Stay patient."
+        )
+        return
+
+    # ── FILTER CONTRADICTORY ALERTS ──
     clean_bets = []
     for bet in bets:
         recommended_prob = get_recommended_prob(bet)
@@ -268,10 +327,12 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         print("All alerts filtered. Nothing sent.")
         send_message(
             f"{emoji} <b>C&amp;P Picks — {label}</b>\n\n"
+            f"📅 {today_label}\n"
             f"No clean edges after model validation. Stay patient."
         )
         return
 
+    # ── SEND ALERTS ──
     send_message(format_header(clean_bets, sport))
     time.sleep(1)
 
@@ -288,7 +349,7 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         send_message(msg)
         time.sleep(1)
 
-    print(f"Sent {len(clean_bets)} alerts to {TELEGRAM_CHANNEL}")
+    print(f"Sent {len(clean_bets)} alerts for {label} on {today_label} to {TELEGRAM_CHANNEL}")
 
 
 if __name__ == "__main__":

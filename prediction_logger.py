@@ -41,6 +41,7 @@ def save_prediction(bet: dict, sport: str):
     bet_label = bet.get("bet", "")
     odds      = bet.get("odds", "N/A")
     date_str  = extract_game_date(bet)
+    event_id  = bet.get("event_id", "")
 
     # Extract predicted winner from bet label
     predicted_winner = bet_label.replace(" ML", "").replace(" +", "").replace(" -", "").strip()
@@ -59,6 +60,7 @@ def save_prediction(bet: dict, sport: str):
         "game":         game,
         "sport":        sport,
         "date":         date_str,
+        "event_id":     event_id,
         "bet":          bet_label,
         "odds":         odds,
         "model_prob":   bet.get("model_prob", 0),
@@ -145,4 +147,4 @@ if __name__ == "__main__":
         for p in pending:
             print(f"  {p['date']} | {p['game']} | Bet: {p['bet']} | Predicted: {p['prediction']['predicted_winner']}")
         print("\nTo update a result manually, run:")
-        print('  python prediction_logger.py update "Game Name" "2026-06-04" "Actual Winner"')
+        print('  python prediction_logger.py update "Game Name" "2026-06-09" "Actual Winner"')
