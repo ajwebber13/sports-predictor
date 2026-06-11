@@ -7,10 +7,27 @@ Run alongside telegram_alerts.py — called automatically when alerts fire.
 
 import json
 import os
+import requests
 from datetime import datetime, timedelta
 
 PREDICTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "predictions")
 CENTRAL_OFFSET  = -5  # CDT
+
+ESPN_ENDPOINTS = {
+    "nfl":   "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+    "ncaaf": "http://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
+    "nba":   "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+    "ncaab": "http://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+    "ncaaw": "http://site.api.espn.com/apis/site/v2/sports/basketball/womens-college-basketball/scoreboard",
+    "wnba":  "http://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
+}
+
+SEASON_TYPE_MAP = {
+    1: "preseason",
+    2: "regular_season",
+    3: "playoff",
+    4: "offseason",
+}
 
 
 def ensure_dir():
@@ -18,10 +35,7 @@ def ensure_dir():
 
 
 def extract_game_date(bet: dict) -> str:
-    """
-    Pull the actual game date from commence_time if available.
-    Falls back to today's date if not present.
-    """
+    """Pull the actual game date from commence_time if available."""
     commence_time = bet.get("commence_time", "")
     if commence_time:
         try:
@@ -33,6 +47,49 @@ def extract_game_date(bet: dict) -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
+def get_game_type(sport: str, event_id: str = "", home_team: str = "", away_team: str = "") -> str:
+    """
+    Detect game type (regular_season, playoff, preseason) from ESPN.
+    Uses event_id for exact match when available, falls back to team name match.
+    Returns 'regular_season' if unable to determine.
+    """
+    endpoint = ESPN_ENDPOINTS.get(sport.lower())
+    if not endpoint:
+        return "regular_season"
+
+    try:
+        r = requests.get(endpoint, timeout=10)
+        r.raise_for_status()
+        data   = r.json()
+        events = data.get("events", [])
+
+        # Check season type at the top level first
+        season_type = data.get("season", {}).get("type", 2)
+        default_type = SEASON_TYPE_MAP.get(season_type, "regular_season")
+
+        for event in events:
+            # Match by event_id if available
+            matched = False
+            if event_id and event.get("id", "") == event_id:
+                matched = True
+            elif home_team or away_team:
+                competitors = event.get("competitions", [{}])[0].get("competitors", [])
+                names = [c.get("team", {}).get("displayName", "") for c in competitors]
+                if home_team in names or away_team in names:
+                    matched = True
+
+            if matched:
+                # Get season type from the event itself
+                event_season_type = event.get("season", {}).get("type", season_type)
+                return SEASON_TYPE_MAP.get(event_season_type, default_type)
+
+        return default_type
+
+    except Exception as e:
+        print(f"Could not detect game type for {sport}: {e}")
+        return "regular_season"
+
+
 def save_prediction(bet: dict, sport: str):
     """Save a single bet/edge to a JSON prediction file."""
     ensure_dir()
@@ -42,6 +99,14 @@ def save_prediction(bet: dict, sport: str):
     odds      = bet.get("odds", "N/A")
     date_str  = extract_game_date(bet)
     event_id  = bet.get("event_id", "")
+
+    # Parse teams
+    parts     = game.split(" @ ")
+    away_team = parts[0] if len(parts) == 2 else ""
+    home_team = parts[1] if len(parts) == 2 else ""
+
+    # Detect game type from ESPN
+    game_type = get_game_type(sport, event_id, home_team, away_team)
 
     # Extract predicted winner from bet label
     predicted_winner = bet_label.replace(" ML", "").replace(" +", "").replace(" -", "").strip()
@@ -61,6 +126,7 @@ def save_prediction(bet: dict, sport: str):
         "sport":        sport,
         "date":         date_str,
         "event_id":     event_id,
+        "game_type":    game_type,
         "bet":          bet_label,
         "odds":         odds,
         "model_prob":   bet.get("model_prob", 0),
@@ -78,7 +144,7 @@ def save_prediction(bet: dict, sport: str):
     with open(filepath, "w") as f:
         json.dump(data, f, indent=2)
 
-    print(f"  Saved prediction: {filename}")
+    print(f"  Saved prediction: {filename} [{game_type}]")
 
 
 def save_all_predictions(bets: list, sport: str):
@@ -145,6 +211,6 @@ if __name__ == "__main__":
     else:
         print(f"\n{len(pending)} predictions need results:\n")
         for p in pending:
-            print(f"  {p['date']} | {p['game']} | Bet: {p['bet']} | Predicted: {p['prediction']['predicted_winner']}")
+            print(f"  {p['date']} | {p['game']} | [{p.get('game_type', 'unknown')}] | Bet: {p['bet']}")
         print("\nTo update a result manually, run:")
-        print('  python prediction_logger.py update "Game Name" "2026-06-09" "Actual Winner"')
+        print('  python prediction_logger.py update "Game Name" "2026-06-11" "Actual Winner"')
