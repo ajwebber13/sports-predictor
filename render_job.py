@@ -37,6 +37,17 @@ def log(msg: str):
     print(f"[{ts}] {msg}", flush=True)
 
 
+def wake_api():
+    """Ping the API to wake Render free tier before running alerts."""
+    log("Waking API...")
+    try:
+        requests.get(f"{API_BASE}/", timeout=60)
+        time.sleep(10)
+        log("API awake.")
+    except Exception as e:
+        log(f"Wake ping failed: {e}")
+
+
 def send_telegram(text: str):
     if not TELEGRAM_TOKEN:
         log("No Telegram token — skipping.")
@@ -146,6 +157,8 @@ def run():
     log(f"Culture & Pulse — Daily Run — {datetime.now().strftime('%A %B %d, %Y')}")
     log("══════════════════════════════════════════════")
 
+    wake_api()
+
     try:
         from telegram_alerts import is_in_season
     except Exception as e:
@@ -157,7 +170,7 @@ def run():
             log(f"{sport.upper()}: out of season — skipping")
             continue
         run_alerts(sport)
-        time.sleep(2)
+        time.sleep(5)
 
     log("")
     run_results()
