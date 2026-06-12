@@ -82,21 +82,21 @@ def run_alerts(sport: str):
 
     try:
         from telegram_alerts import (
-            format_header, format_alert,
-            get_game_times, get_recommended_prob
+            format_header, format_alert, get_game_times
         )
 
-        game_times = get_game_times(sport)
+        game_times, game_times_raw = get_game_times(sport)
 
         clean_bets = []
         for bet in bets:
-            if get_recommended_prob(bet) >= 45:
+            prob = bet.get("model_prob", 50)
+            if prob >= 55:
                 clean_bets.append(bet)
             else:
-                log(f"Skipping contradictory: {bet.get('game')}")
+                log(f"Skipping low confidence: {bet.get('game')} — {prob}%")
 
         if not clean_bets:
-            log("All alerts filtered as contradictory.")
+            log("No bets met confidence threshold.")
             return
 
         send_telegram(format_header(clean_bets, sport))
