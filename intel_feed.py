@@ -15,21 +15,23 @@ Sources:
   - Injuries: ESPN API (free, no key needed)
   - Line movement: The Odds API (free tier = 500 req/month)
     Get your free key at: https://the-odds-api.com
-    Paste it below or set env var: ODDS_API_KEY
+    Paste it below or set env var: "4715e62920e940cec7ec335194cf5e2a"
 """
 
+from ast import Return
 import os
 import requests
 from datetime import datetime, timezone
 from typing import Optional
-
+from dotenv import load_dotenv
+load_dotenv()
 
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
 
 # Get a free key at https://the-odds-api.com (500 requests/month free)
-ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "adad2067eb2ada1766fd28ea5578ff9c")
+ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "4715e62920e940cec7ec335194cf5e2a")  
 
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 
@@ -189,10 +191,10 @@ def fetch_line_movement(league: str) -> dict[str, LineMovement]:
     Returns dict of {team_name: LineMovement}
     Uses The Odds API free tier.
     """
-    if ODDS_API_KEY == "YOUR_ODDS_API_KEY_HERE":
+    if ODDS_API_KEY == "4715e62920e940cec7ec335194cf5e2a": 
         return {}
-
-    sport_key = ODDS_API_SPORT_KEYS.get(league)
+    
+        sport_key = ODDS_API_SPORT_KEYS.get(league)
     if not sport_key:
         return {}
 
@@ -335,7 +337,7 @@ if __name__ == "__main__":
     # Line movement
     print(f"\n  LINE MOVEMENT")
     print(f"  {'─'*40}")
-    if ODDS_API_KEY == "YOUR_ODDS_API_KEY_HERE":
+    if ODDS_API_KEY == "4715e62920e940cec7ec335194cf5e2a":
         print("  Add your Odds API key to intel_feed.py to enable line movement.")
         print("  Free key at: https://the-odds-api.com")
     else:

@@ -1,14 +1,19 @@
 """
 nba_wnba_predict.py
 ====================
-Standalone NBA + WNBA prediction runner.
+Standalone NBA + WNBA + NCAAB prediction runner.
 Primary source: The Odds API (games 24-48hrs ahead)
 Fallback: ESPN scoreboard (today only)
 
+Now includes:
+  - ESPN win probability sanity check (divergence > 10pts = suppressed)
+  - Confidence filter (teams with < 10 games = suppressed)
+
 Usage:
-  python nba_wnba_predict.py          # interactive menu
-  python nba_wnba_predict.py nba      # run NBA games
-  python nba_wnba_predict.py wnba     # run WNBA games
+  python nba_wnba_predict.py           # interactive menu
+  python nba_wnba_predict.py nba       # run NBA games
+  python nba_wnba_predict.py wnba      # run WNBA games
+  python nba_wnba_predict.py ncaab     # run NCAAB games
 
 Requirements:
   pip install requests numpy
@@ -23,6 +28,8 @@ from datetime import datetime
 from alert_engine import build_alert, PredictionInput
 from intel_feed import get_matchup_intel, format_intel_summary, ODDS_API_KEY
 from live_ratings import get_live_ratings
+from live_records import get_live_records, get_record
+from espn_winprob import validate_pick, print_validation_result
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -31,21 +38,25 @@ sys.path.insert(0, os.path.dirname(__file__))
 # LEAGUE CONSTANTS
 # ─────────────────────────────────────────────
 
-NBA_CONSTANTS  = {"league_avg_pts": 113.0, "home_adv_pts": 3.0, "score_std_dev": 11.0}
-WNBA_CONSTANTS = {"league_avg_pts":  82.0, "home_adv_pts": 3.0, "score_std_dev": 10.0}
+NBA_CONSTANTS   = {"league_avg_pts": 113.0, "home_adv_pts": 3.0, "score_std_dev": 11.0}
+WNBA_CONSTANTS  = {"league_avg_pts":  82.0, "home_adv_pts": 3.0, "score_std_dev": 10.0}
+NCAAB_CONSTANTS = {"league_avg_pts":  72.0, "home_adv_pts": 3.5, "score_std_dev": 10.0}
 
 ODDS_API_SPORT_KEYS = {
-    "NBA":  "basketball_nba",
-    "WNBA": "basketball_wnba",
+    "NBA":   "basketball_nba",
+    "WNBA":  "basketball_wnba",
+    "NCAAB": "basketball_ncaab",
 }
 
-ESPN_NBA_URL  = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
-ESPN_WNBA_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard"
+ESPN_URLS = {
+    "NBA":   "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+    "WNBA":  "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
+    "NCAAB": "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+}
 
 
 # ─────────────────────────────────────────────
-# NET RATINGS -- 2025-26 Regular Season
-# Update each season
+# NET RATINGS -- Update each season
 # ─────────────────────────────────────────────
 
 NBA_NET_RATINGS = {
@@ -99,6 +110,13 @@ WNBA_NET_RATINGS = {
     "Connecticut Sun":        -16.0,
 }
 
+# NCAAB: net rating approximations — update or pull live from CFBD/ESPN
+NCAAB_NET_RATINGS = {
+    # Add teams here as needed — same format as NBA/WNBA
+    # Example: "Duke Blue Devils": 12.4,
+}
+
+
 
 # ─────────────────────────────────────────────
 # GAME FETCHERS
@@ -110,7 +128,10 @@ def fetch_games_from_odds_api(league: str) -> list:
         return []
 
     sport_key = ODDS_API_SPORT_KEYS.get(league)
-    ratings   = NBA_NET_RATINGS if league == "NBA" else WNBA_NET_RATINGS
+    if not sport_key:
+        return []
+
+    ratings = _get_ratings(league)
 
     try:
         resp = requests.get(
@@ -130,7 +151,6 @@ def fetch_games_from_odds_api(league: str) -> list:
         try:
             home_name = game.get("home_team", "")
             away_name = game.get("away_team", "")
-
             commence  = game.get("commence_time", "")
             try:
                 dt        = datetime.fromisoformat(commence.replace("Z", "+00:00"))
@@ -151,17 +171,15 @@ def fetch_games_from_odds_api(league: str) -> list:
                 break
 
             parsed.append({
-                "league":       league,
-                "home_team":    home_name,
-                "away_team":    away_name,
-                "game_time":    game_time,
-                "home_ml":      int(home_ml),
-                "away_ml":      int(away_ml),
-                "opening_home": None,
-                "opening_away": None,
-                "home_net":     ratings.get(home_name, 0.0),
-                "away_net":     ratings.get(away_name, 0.0),
-                "status":       "pre",
+                "league":    league,
+                "home_team": home_name,
+                "away_team": away_name,
+                "game_time": game_time,
+                "home_ml":   int(home_ml),
+                "away_ml":   int(away_ml),
+                "home_net":  ratings.get(home_name, 0.0),
+                "away_net":  ratings.get(away_name, 0.0),
+                "status":    "pre",
             })
         except Exception as e:
             print(f"  Parse error: {e}")
@@ -171,11 +189,17 @@ def fetch_games_from_odds_api(league: str) -> list:
 
 def fetch_games_from_espn(league: str) -> list:
     """Fallback -- ESPN scoreboard, today only."""
-    url     = ESPN_NBA_URL if league == "NBA" else ESPN_WNBA_URL
-    ratings = NBA_NET_RATINGS if league == "NBA" else WNBA_NET_RATINGS
+    url     = ESPN_URLS.get(league)
+    ratings = _get_ratings(league)
+    if not url:
+        return []
 
     try:
-        resp = requests.get(url, timeout=10)
+        resp = requests.get(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+            "Referer": "https://www.espn.com/",
+        }, timeout=10)
         resp.raise_for_status()
         events = resp.json().get("events", [])
     except Exception as e:
@@ -194,8 +218,8 @@ def fetch_games_from_espn(league: str) -> list:
 
             home_name = home["team"]["displayName"]
             away_name = away["team"]["displayName"]
-
             game_date = event.get("date", "")
+
             try:
                 dt        = datetime.fromisoformat(game_date.replace("Z", "+00:00"))
                 game_time = dt.strftime("%a %b %d - %I:%M %p CT")
@@ -212,17 +236,15 @@ def fetch_games_from_espn(league: str) -> list:
                 continue
 
             parsed.append({
-                "league":       league,
-                "home_team":    home_name,
-                "away_team":    away_name,
-                "game_time":    game_time,
-                "home_ml":      int(home_ml) if home_ml else -110,
-                "away_ml":      int(away_ml) if away_ml else +100,
-                "opening_home": None,
-                "opening_away": None,
-                "home_net":     ratings.get(home_name, 0.0),
-                "away_net":     ratings.get(away_name, 0.0),
-                "status":       status,
+                "league":    league,
+                "home_team": home_name,
+                "away_team": away_name,
+                "game_time": game_time,
+                "home_ml":   int(home_ml) if home_ml else -110,
+                "away_ml":   int(away_ml) if away_ml else +100,
+                "home_net":  ratings.get(home_name, 0.0),
+                "away_net":  ratings.get(away_name, 0.0),
+                "status":    status,
             })
         except Exception:
             continue
@@ -240,8 +262,33 @@ def fetch_games(league: str) -> list:
 
 
 # ─────────────────────────────────────────────
-# PREDICTION ENGINE
+# HELPERS
 # ─────────────────────────────────────────────
+
+def _get_ratings(league: str) -> dict:
+    if league == "NBA":
+        return NBA_NET_RATINGS
+    if league == "WNBA":
+        return WNBA_NET_RATINGS
+    return NCAAB_NET_RATINGS
+
+
+def _get_constants(league: str) -> dict:
+    if league == "NBA":
+        return NBA_CONSTANTS
+    if league == "WNBA":
+        return WNBA_CONSTANTS
+    return NCAAB_CONSTANTS
+
+
+def _get_record(team_name: str, league: str, records: dict = None) -> tuple:
+    """
+    Look up win/loss record for confidence filtering.
+    Pulls live from ESPN via live_records — no manual updates needed.
+    Pass pre-fetched records dict to avoid redundant API calls.
+    """
+    return get_record(team_name, league, records)
+
 
 def implied_prob(odds: int) -> float:
     if odds > 0:
@@ -275,12 +322,11 @@ def pick_best_bet(home_prob, away_prob, home_ml, away_ml, home_name, away_name):
 # ─────────────────────────────────────────────
 
 def run_league(league: str, stake: float = 100.0):
-    constants = NBA_CONSTANTS if league == "NBA" else WNBA_CONSTANTS
+    constants = _get_constants(league)
 
-    # Live ratings -- falls back to static if unavailable
-    static_ratings = NBA_NET_RATINGS if league == "NBA" else WNBA_NET_RATINGS
-    live = get_live_ratings(league)
-    ratings = {**static_ratings, **live}  # live overrides static
+    static_ratings = _get_ratings(league)
+    live           = get_live_ratings(league)
+    ratings        = {**static_ratings, **live}
 
     print(f"\n{'='*60}")
     print(f"  {league} PREDICTIONS  |  Culture & Pulse Analytics")
@@ -292,14 +338,43 @@ def run_league(league: str, stake: float = 100.0):
         print(f"\n  No {league} games found.")
         return
 
-    predictions = []
+    predictions  = []
+    suppressed   = []
+
+    # Fetch records once for the whole slate — avoids one API call per game
+    live_recs = get_live_records(league)
 
     for game in games:
-        # Override with live ratings
         game["home_net"] = ratings.get(game["home_team"], game["home_net"])
         game["away_net"] = ratings.get(game["away_team"], game["away_net"])
 
         home_prob, away_prob = simulate_game(game["home_net"], game["away_net"], constants)
+
+        # ── ESPN sanity check + confidence filter ────────────
+        home_w, home_l = _get_record(game["home_team"], league, live_recs)
+        away_w, away_l = _get_record(game["away_team"], league, live_recs)
+
+        validation = validate_pick(
+            league          = league,
+            home_team       = game["home_team"],
+            away_team       = game["away_team"],
+            model_home_prob = round(home_prob * 100, 1),
+            home_wins       = home_w,
+            home_losses     = home_l,
+            away_wins       = away_w,
+            away_losses     = away_l,
+        )
+
+        if validation["suppress"]:
+            suppressed.append({
+                "matchup": f"{game['away_team']} @ {game['home_team']}",
+                "reason":  validation["suppress_reason"],
+            })
+            print(f"\n  ⚠  SUPPRESSED: {game['away_team']} @ {game['home_team']}")
+            print(f"     Reason: {validation['suppress_reason']}")
+            continue
+        # ─────────────────────────────────────────────────────
+
         bet_team, odds, win_prob, edge = pick_best_bet(
             home_prob, away_prob,
             game["home_ml"], game["away_ml"],
@@ -343,9 +418,18 @@ def run_league(league: str, stake: float = 100.0):
         alert = build_alert(pred_input)
         print(f"\n{alert.formatted_slip}")
         print(format_intel_summary(intel, game["home_team"], game["away_team"]))
+
+        # Show ESPN comparison if available
+        if validation["espn_home_prob"] is not None:
+            model_pct = round(home_prob * 100, 1)
+            espn_pct  = validation["espn_home_prob"]
+            gap       = validation["divergence"]["gap"]
+            print(f"  📊 ESPN check: Model {model_pct}% | ESPN {espn_pct}% | Gap {gap}pts ✅")
+
         predictions.append(alert)
 
-    if not predictions:
+    # ── Summary ──────────────────────────────────────────────
+    if not predictions and not suppressed:
         print(f"\n  No {league} games to predict.")
         return
 
@@ -354,8 +438,12 @@ def run_league(league: str, stake: float = 100.0):
     passed   = sum(1 for p in predictions if "PASS"     in p.bet_quality)
 
     print(f"\n{'-'*60}")
-    print(f"  SUMMARY -- {len(predictions)} games analyzed")
+    print(f"  SUMMARY -- {len(predictions)} games predicted | {len(suppressed)} suppressed")
     print(f"  BET IT: {bet_it}  |  MARGINAL: {marginal}  |  PASS: {passed}")
+    if suppressed:
+        print(f"\n  Suppressed picks:")
+        for s in suppressed:
+            print(f"    ✗ {s['matchup']} — {s['reason']}")
     print(f"{'-'*60}\n")
 
     ts  = datetime.now().strftime("%Y%m%d_%H%M")
@@ -382,13 +470,14 @@ def run_league(league: str, stake: float = 100.0):
 def run_interactive():
     print("""
 +--------------------------------------------------------------+
-  SPORTS PREDICTION ENGINE  v2.0  |  Culture & Pulse Analytics
+  SPORTS PREDICTION ENGINE  v2.1  |  Culture & Pulse Analytics
 +--------------------------------------------------------------+
 
   Options:
     1  NBA predictions
     2  WNBA predictions
-    3  Both
+    3  NCAAB predictions
+    4  All three
     q  Quit
 """)
     try:
@@ -403,8 +492,11 @@ def run_interactive():
     elif choice == "2":
         run_league("WNBA", stake)
     elif choice == "3":
+        run_league("NCAAB", stake)
+    elif choice == "4":
         run_league("NBA", stake)
         run_league("WNBA", stake)
+        run_league("NCAAB", stake)
     elif choice == "q":
         return
     else:
@@ -418,9 +510,9 @@ def run_interactive():
 if __name__ == "__main__":
     if len(sys.argv) == 2:
         league = sys.argv[1].upper()
-        if league in ("NBA", "WNBA"):
+        if league in ("NBA", "WNBA", "NCAAB"):
             run_league(league)
         else:
-            print("Usage: python nba_wnba_predict.py [nba|wnba]")
+            print("Usage: python nba_wnba_predict.py [nba|wnba|ncaab]")
     else:
         run_interactive()

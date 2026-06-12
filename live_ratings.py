@@ -91,7 +91,6 @@ def fetch_nba_via_nba_api() -> dict:
     try:
         from nba_api.stats.endpoints import leaguedashteamstats
 
-        # Use Base measure with PerGame — NET_RATING available in Advanced
         stats = leaguedashteamstats.LeagueDashTeamStats(
             season="2025-26",
             measure_type_detailed_defense="Advanced",
@@ -109,7 +108,6 @@ def fetch_nba_via_nba_api() -> dict:
     except Exception:
         pass
 
-    # Try alternate parameter name
     try:
         from nba_api.stats.endpoints import leaguedashteamstats
         stats = leaguedashteamstats.LeagueDashTeamStats(
@@ -157,9 +155,9 @@ def fetch_nba_direct() -> dict:
         }
         resp = requests.get(url, headers=headers, params=params, timeout=15)
         resp.raise_for_status()
-        data    = resp.json()
+        data         = resp.json()
         headers_list = data["resultSets"][0]["headers"]
-        rows    = data["resultSets"][0]["rowSet"]
+        rows         = data["resultSets"][0]["rowSet"]
 
         name_idx = headers_list.index("TEAM_NAME")
         net_idx  = headers_list.index("NET_RATING")
@@ -177,66 +175,29 @@ def fetch_nba_direct() -> dict:
 
 
 # ─────────────────────────────────────────────
-# WNBA — ESPN standings point differential
+# WNBA — ESPN team stats via wnba_data.py
 # ─────────────────────────────────────────────
 
 def fetch_wnba_live() -> dict:
     """
-    Derive WNBA net ratings from Odds API market lines.
-    Teams with stronger implied probabilities across games
-    get higher net ratings. Uses current season static as base,
-    adjusts based on recent odds data.
+    Pull WNBA net ratings directly from ESPN via wnba_data.py.
+    Uses each team's offensive and defensive ratings from ESPN stats.
+    No API key needed. Updates automatically as the season progresses.
     """
     try:
-        from intel_feed import ODDS_API_KEY
-        if ODDS_API_KEY == "YOUR_ODDS_API_KEY_HERE":
-            return {}
-
-        resp = requests.get(
-            "https://api.the-odds-api.com/v4/sports/basketball_wnba/odds",
-            params={"apiKey": ODDS_API_KEY, "regions": "us",
-                    "markets": "h2h", "oddsFormat": "american"},
-            timeout=10
-        )
-        resp.raise_for_status()
-        games = resp.json()
-        if not games:
-            return {}
-
-        # Accumulate implied win prob per team across all games
-        team_probs = {}
-        team_counts = {}
-
-        for game in games:
-            for book in game.get("bookmakers", [])[:1]:
-                for market in book.get("markets", []):
-                    if market.get("key") != "h2h":
-                        continue
-                    for outcome in market.get("outcomes", []):
-                        team  = outcome["name"]
-                        odds  = outcome["price"]
-                        if odds > 0:
-                            prob = 100 / (odds + 100)
-                        else:
-                            prob = abs(odds) / (abs(odds) + 100)
-                        team_probs[team]  = team_probs.get(team, 0) + prob
-                        team_counts[team] = team_counts.get(team, 0) + 1
-
-        if not team_probs:
-            return {}
-
-        # Convert avg implied prob to net rating scale
-        # 50% implied = 0.0 net, 75% = +8.0, 25% = -8.0
+        from wnba_data import get_team_stats, TEAM_IDS
         ratings = {}
-        for team, total_prob in team_probs.items():
-            avg_prob = total_prob / team_counts[team]
-            net = round((avg_prob - 0.5) * 32, 1)  # scale to ~±16 range
-            ratings[team] = net
-
+        for team_name in TEAM_IDS:
+            stats = get_team_stats(team_name)
+            if stats:
+                # Skip teams with no games played yet
+                games_played = stats.wins + stats.losses
+                if games_played == 0:
+                    continue
+                ratings[team_name] = stats.net_rating
         return ratings if len(ratings) >= 5 else {}
-
     except Exception as e:
-        print(f"  [Ratings] WNBA Odds API error: {e}")
+        print(f"  [Ratings] WNBA ESPN fetch error: {e}")
         return {}
 
 
