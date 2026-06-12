@@ -178,7 +178,7 @@ def build_alert(pred: PredictionInput) -> AlertOutput:
         win_prob = pred.away_win_prob
 
     implied_prob = american_to_implied(pred.odds)
-    model_edge = round((implied_prob - win_prob) * 100, 1)  # Market overpricing vs model
+    model_edge = round((win_prob - implied_prob) * 100, 1)
 
     ev = calculate_ev(win_prob, pred.odds, pred.stake)
     bet_quality, star_rating, ev_verdict = rate_bet_quality(ev, win_prob, implied_prob, pred.stake)
