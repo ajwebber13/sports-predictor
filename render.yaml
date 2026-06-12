@@ -13,7 +13,7 @@ services:
   - type: cron
     name: daily-alerts
     runtime: python
-    schedule: "0 15 * * *"  # 10 AM CT daily
+    schedule: "0 17 * * *"  # 11 AM CT daily
     buildCommand: pip install -r requirements.txt
     startCommand: python render_job.py
     envVars:
