@@ -42,6 +42,10 @@ NBA_CONSTANTS   = {"league_avg_pts": 113.0, "home_adv_pts": 3.0, "score_std_dev"
 WNBA_CONSTANTS  = {"league_avg_pts":  82.0, "home_adv_pts": 3.0, "score_std_dev": 10.0}
 NCAAB_CONSTANTS = {"league_avg_pts":  72.0, "home_adv_pts": 3.5, "score_std_dev": 10.0}
 
+# Minimum win probability to publish a pick
+# Below this threshold the model is backing a likely loser — suppress it
+MIN_WIN_PROB = 0.45
+
 ODDS_API_SPORT_KEYS = {
     "NBA":   "basketball_nba",
     "WNBA":  "basketball_wnba",
@@ -380,6 +384,18 @@ def run_league(league: str, stake: float = 100.0):
             game["home_ml"], game["away_ml"],
             game["home_team"], game["away_team"]
         )
+
+        # ── Minimum win probability filter ───────────────────
+        if win_prob < MIN_WIN_PROB:
+            suppressed.append({
+                "matchup": f"{game['away_team']} @ {game['home_team']}",
+                "reason":  f"{bet_team} win prob {round(win_prob*100,1)}% below {int(MIN_WIN_PROB*100)}% minimum threshold",
+            })
+            win_pct = round(win_prob * 100, 1)
+            print(f"  SUPPRESSED: {game['away_team']} @ {game['home_team']}")
+            print(f"     Reason: {bet_team} win prob {win_pct}% below minimum")
+            continue
+        # ─────────────────────────────────────────────────────
 
         intel        = get_matchup_intel(game["home_team"], game["away_team"], league)
         home_net_adj = game["home_net"] + intel["home_injury_adj"]
