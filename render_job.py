@@ -9,6 +9,7 @@ import os
 import sys
 import requests
 import time
+import argparse
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -66,9 +67,10 @@ def send_telegram(text: str):
 
 # ─────────────────────────────────────────────────────────────
 # ALERT RUNNER
+# Returns True if alerts were sent, False if nothing fired
 # ─────────────────────────────────────────────────────────────
 
-def run_alerts(sport: str):
+def run_alerts(sport: str) -> bool:
     log(f"Fetching {sport.upper()} edges...")
 
     try:
@@ -76,13 +78,13 @@ def run_alerts(sport: str):
         data = r.json()
     except Exception as e:
         log(f"API error for {sport}: {e}")
-        return
+        return False
 
     bets = data.get("best_bets", [])
 
     if not bets:
         log(f"No {sport.upper()} edges found today.")
-        return
+        return False
 
     try:
         from prediction_logger import save_all_predictions
@@ -108,7 +110,7 @@ def run_alerts(sport: str):
 
         if not clean_bets:
             log("No bets met confidence threshold.")
-            return
+            return False
 
         send_telegram(format_header(clean_bets, sport))
         time.sleep(1)
@@ -126,9 +128,11 @@ def run_alerts(sport: str):
             time.sleep(1)
 
         log(f"Sent {len(clean_bets)} {sport.upper()} alerts.")
+        return True
 
     except Exception as e:
         log(f"Alert formatting error: {e}")
+        return False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -152,9 +156,10 @@ def run_results():
 # MAIN
 # ─────────────────────────────────────────────────────────────
 
-def run():
+def run(retry: bool = False):
     log("══════════════════════════════════════════════")
-    log(f"Culture & Pulse — Daily Run — {datetime.now().strftime('%A %B %d, %Y')}")
+    label = "Noon Retry" if retry else "Daily Run"
+    log(f"Culture & Pulse — {label} — {datetime.now().strftime('%A %B %d, %Y')}")
     log("══════════════════════════════════════════════")
 
     wake_api()
@@ -169,16 +174,37 @@ def run():
         if not is_in_season(sport):
             log(f"{sport.upper()}: out of season — skipping")
             continue
-        run_alerts(sport)
+
+        if retry:
+            # Only re-check sports that may have had no data at 9 AM
+            try:
+                r = requests.get(SPORT_ENDPOINTS[sport], timeout=60)
+                data = r.json()
+                bets = data.get("best_bets", [])
+                clean = [b for b in bets if b.get("model_prob", 0) >= 55]
+                if clean:
+                    log(f"{sport.upper()}: {len(clean)} pick(s) found on retry — sending alerts")
+                    run_alerts(sport)
+                else:
+                    log(f"{sport.upper()}: still no edges on retry — skipping")
+            except Exception as e:
+                log(f"Retry check error for {sport}: {e}")
+        else:
+            run_alerts(sport)
+
         time.sleep(5)
 
-    log("")
-    run_results()
+    if not retry:
+        log("")
+        run_results()
 
     log("══════════════════════════════════════════════")
-    log("Daily run complete.")
+    log(f"{label} complete.")
     log("══════════════════════════════════════════════")
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--retry", action="store_true", help="Noon retry run for missed morning picks")
+    args = parser.parse_args()
+    run(retry=args.retry)
