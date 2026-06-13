@@ -1,0 +1,20 @@
+name: Noon Retry
+
+on:
+  schedule:
+    - cron: '0 17 * * *'
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run noon retry
+        run: python render_job.py --retry
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
