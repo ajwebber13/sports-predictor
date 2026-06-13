@@ -202,6 +202,99 @@ def fetch_wnba_live() -> dict:
 
 
 # ─────────────────────────────────────────────
+# NBA — ESPN team stats (same approach as WNBA)
+# ─────────────────────────────────────────────
+
+# ESPN NBA team ID map
+NBA_TEAM_IDS = {
+    "Atlanta Hawks": "1", "Boston Celtics": "2", "Brooklyn Nets": "17",
+    "Charlotte Hornets": "30", "Chicago Bulls": "4", "Cleveland Cavaliers": "5",
+    "Dallas Mavericks": "6", "Denver Nuggets": "7", "Detroit Pistons": "8",
+    "Golden State Warriors": "9", "Houston Rockets": "10", "Indiana Pacers": "11",
+    "LA Clippers": "12", "Los Angeles Lakers": "13", "Memphis Grizzlies": "29",
+    "Miami Heat": "14", "Milwaukee Bucks": "15", "Minnesota Timberwolves": "16",
+    "New Orleans Pelicans": "3", "New York Knicks": "18", "Oklahoma City Thunder": "25",
+    "Orlando Magic": "19", "Philadelphia 76ers": "20", "Phoenix Suns": "21",
+    "Portland Trail Blazers": "22", "Sacramento Kings": "23", "San Antonio Spurs": "24",
+    "Toronto Raptors": "28", "Utah Jazz": "26", "Washington Wizards": "27",
+}
+
+ESPN_NBA_BASE = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
+
+ESPN_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+    "Referer": "https://www.espn.com/",
+}
+
+
+def fetch_nba_espn() -> dict:
+    """
+    ESPN NBA team stats don't include opponent points per game.
+    Net rating can't be accurately derived from ESPN alone for NBA.
+    Returns empty — nba_api is used as primary source instead.
+    """
+    return {}
+
+    ratings = {}
+    failed  = 0
+
+    for team_name, team_id in NBA_TEAM_IDS.items():
+        try:
+            stats_url = f"{ESPN_NBA_BASE}/teams/{team_id}/statistics"
+            team_url  = f"{ESPN_NBA_BASE}/teams/{team_id}"
+
+            stats_resp = requests.get(stats_url, headers=ESPN_HEADERS, timeout=10)
+            team_resp  = requests.get(team_url,  headers=ESPN_HEADERS, timeout=10)
+
+            if stats_resp.status_code != 200 or team_resp.status_code != 200:
+                failed += 1
+                continue
+
+            stats_data = stats_resp.json()
+            team_data  = team_resp.json()
+
+            # Check games played from record
+            record_items = team_data.get("team", {}).get("record", {}).get("items", [])
+            games_played = 0
+            for rec in record_items:
+                if rec.get("type") == "total":
+                    rec_stats = {s["name"]: s["value"] for s in rec.get("stats", [])}
+                    games_played = int(rec_stats.get("wins", 0)) + int(rec_stats.get("losses", 0))
+                    break
+
+            if games_played == 0:
+                continue
+
+            # Pull offensive and defensive ratings
+            all_stats = {}
+            categories = stats_data.get("results", {}).get("stats", {}).get("categories", [])
+            for cat in categories:
+                for stat in cat.get("stats", []):
+                    all_stats[stat["name"]] = stat.get("value", 0.0)
+
+            off_rtg = float(all_stats.get("offensiveRating", 0))
+            def_rtg = float(all_stats.get("defensiveRating", 0))
+
+            # ESPN NBA doesn't expose opponent points in team stats endpoint
+            # Skip ESPN for NBA — nba_api handles this reliably
+            pass
+
+        except Exception:
+            failed += 1
+            continue
+
+    if failed > 10:
+        print(f"  [Ratings] ESPN NBA: {failed} teams failed to load")
+
+    return ratings if len(ratings) >= 20 else {}
+
+
+# ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────
 
@@ -215,7 +308,9 @@ def get_live_ratings(league: str, force_refresh: bool = False) -> dict:
     print(f"  [Ratings] Fetching live {league} ratings...")
 
     if league == "NBA":
-        ratings = fetch_nba_direct()
+        ratings = fetch_nba_espn()
+        if not ratings:
+            ratings = fetch_nba_direct()
         if not ratings:
             ratings = fetch_nba_via_nba_api()
         if not ratings:
