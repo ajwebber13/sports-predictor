@@ -1,4 +1,3 @@
-@"
 name: Morning Run
 
 on:
@@ -19,5 +18,4 @@ jobs:
       - name: Run morning alerts
         run: python render_job.py
         env:
-          TELEGRAM_TOKEN: `${{ secrets.TELEGRAM_TOKEN }}
-"@ | Set-Content C:\temp\sports_predictor\.github\workflows\morning_run.yml
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
