@@ -1,8 +1,10 @@
+@"
 name: Morning Run
 
 on:
   schedule:
     - cron: '0 14 * * *'
+  workflow_dispatch:
 
 jobs:
   morning:
@@ -17,4 +19,5 @@ jobs:
       - name: Run morning alerts
         run: python render_job.py
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TOKEN: `${{ secrets.TELEGRAM_TOKEN }}
+"@ | Set-Content C:\temp\sports_predictor\.github\workflows\morning_run.yml
