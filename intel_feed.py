@@ -18,7 +18,6 @@ Sources:
     Paste it below or set env var: "4715e62920e940cec7ec335194cf5e2a"
 """
 
-from ast import Return
 import os
 import requests
 from datetime import datetime, timezone
@@ -144,15 +143,18 @@ def fetch_injuries(league: str) -> dict[str, list[InjuryReport]]:
         return {}
 
     injuries = {}
-    for item in data.get("injuries", []):
-        team   = item.get("team", {}).get("displayName", "Unknown")
-        player = item.get("athlete", {}).get("displayName", "Unknown")
-        pos    = item.get("athlete", {}).get("position", {}).get("abbreviation", "")
-        status = item.get("status", "Unknown")
-        desc   = item.get("shortComment", item.get("longComment", ""))
+    for team_obj in data.get("injuries", []):
+        team_name = team_obj.get("displayName", "Unknown")
+        for item in team_obj.get("injuries", []):
+            athlete   = item.get("athlete", {})
+            player    = athlete.get("displayName", "Unknown")
+            pos_info  = athlete.get("position", {})
+            pos       = pos_info.get("abbreviation", "") if isinstance(pos_info, dict) else ""
+            status    = item.get("status", "Unknown")
+            desc      = item.get("shortComment", item.get("longComment", ""))
 
-        report = InjuryReport(team, player, pos, status, desc)
-        injuries.setdefault(team, []).append(report)
+            report = InjuryReport(team_name, player, pos, status, desc)
+            injuries.setdefault(team_name, []).append(report)
 
     return injuries
 
@@ -186,23 +188,23 @@ def injury_adj_pts(impact_score: float) -> float:
 # LINE MOVEMENT
 # ─────────────────────────────────────────────
 
-def fetch_line_movement(league: str) -> dict[str, LineMovement]:
+def fetch_line_movement(league: str) -> dict:
     """
     Returns dict of {team_name: LineMovement}
     Uses The Odds API free tier.
     """
-    if ODDS_API_KEY == "4715e62920e940cec7ec335194cf5e2a": 
+    if not ODDS_API_KEY or ODDS_API_KEY == "YOUR_ODDS_API_KEY_HERE":
         return {}
-    
-        sport_key = ODDS_API_SPORT_KEYS.get(league)
+
+    sport_key = ODDS_API_SPORT_KEYS.get(league)
     if not sport_key:
         return {}
 
     url = f"{ODDS_API_BASE}/sports/{sport_key}/odds"
     params = {
-        "apiKey":   ODDS_API_KEY,
-        "regions":  "us",
-        "markets":  "h2h",
+        "apiKey":     ODDS_API_KEY,
+        "regions":    "us",
+        "markets":    "h2h",
         "oddsFormat": "american",
         "bookmakers": "draftkings,fanduel,betmgm",
     }
@@ -222,7 +224,6 @@ def fetch_line_movement(league: str) -> dict[str, LineMovement]:
         if not bookmakers:
             continue
 
-        # Aggregate odds across bookmakers for best line
         team_odds = {}
         for book in bookmakers:
             for market in book.get("markets", []):
@@ -231,13 +232,10 @@ def fetch_line_movement(league: str) -> dict[str, LineMovement]:
                 for outcome in market.get("outcomes", []):
                     team  = outcome.get("name")
                     price = outcome.get("price", -110)
-                    # Keep the best (most favorable) odds seen across books
                     if team not in team_odds or price > team_odds[team]:
                         team_odds[team] = price
 
         for team, current_odds in team_odds.items():
-            # True opening line requires historical endpoint (paid tier)
-            # For now current = opening; CLV will populate as lines move
             movements[team] = LineMovement(
                 team         = team,
                 opening_odds = int(current_odds),
@@ -245,8 +243,6 @@ def fetch_line_movement(league: str) -> dict[str, LineMovement]:
             )
 
     return movements
-
-
 # ─────────────────────────────────────────────
 # INTEL SUMMARY FOR A MATCHUP
 # ─────────────────────────────────────────────
@@ -337,7 +333,7 @@ if __name__ == "__main__":
     # Line movement
     print(f"\n  LINE MOVEMENT")
     print(f"  {'─'*40}")
-    if ODDS_API_KEY == "4715e62920e940cec7ec335194cf5e2a":
+    if not ODDS_API_KEY or ODDS_API_KEY == "4715e62920e940cec7ec335194cf5e2a":
         print("  Add your Odds API key to intel_feed.py to enable line movement.")
         print("  Free key at: https://the-odds-api.com")
     else:
