@@ -30,6 +30,8 @@ class PredictionInput:
     stake: float = 100.0
     home_injuries: str = ""
     away_injuries: str = ""
+    home_record: str = ""
+    away_record: str = ""
 
 
 @dataclass
@@ -53,6 +55,8 @@ class AlertOutput:
     model_edge: float
     home_injuries: str
     away_injuries: str
+    home_record: str
+    away_record: str
     formatted_slip: str
 
 
@@ -125,12 +129,16 @@ def build_alert(pred: PredictionInput) -> AlertOutput:
     else:
         payout = (100 / abs(pred.odds)) * pred.stake
 
-    matchup      = f"{pred.away_team} @ {pred.home_team}"
-    sport_emoji  = {"NBA": "🏀", "NFL": "🏈", "CFB": "🏈", "WNBA": "🏀"}.get(pred.sport, "🏀")
+    matchup     = f"{pred.away_team} @ {pred.home_team}"
+    sport_emoji = {"NBA": "🏀", "NFL": "🏈", "CFB": "🏈", "WNBA": "🏀"}.get(pred.sport, "🏀")
 
-    # Injury lines for the slip
+    # Injury lines
     home_inj_line = f"  {pred.home_team}: {pred.home_injuries}" if pred.home_injuries else f"  {pred.home_team}: None reported"
     away_inj_line = f"  {pred.away_team}: {pred.away_injuries}" if pred.away_injuries else f"  {pred.away_team}: None reported"
+
+    # Record lines
+    home_rec_line = f"  {pred.home_team}: {pred.home_record}" if pred.home_record else f"  {pred.home_team}: N/A"
+    away_rec_line = f"  {pred.away_team}: {pred.away_record}" if pred.away_record else f"  {pred.away_team}: N/A"
 
     slip = f"""
 {sport_emoji} {pred.sport} ALERT — Culture & Pulse Analytics
@@ -157,6 +165,10 @@ NET RATINGS
   {pred.home_team}: {pred.home_net_rating:+.1f}
   {pred.away_team}: {pred.away_net_rating:+.1f}
 
+RECORDS
+{home_rec_line}
+{away_rec_line}
+
 KEY INJURIES
 {home_inj_line}
 {away_inj_line}
@@ -165,26 +177,28 @@ For entertainment only. Bet responsibly.
 """.strip()
 
     return AlertOutput(
-        sport             = pred.sport,
-        matchup           = matchup,
-        game_time         = pred.game_time,
-        bet_team          = pred.bet_team,
-        bet_type          = pred.bet_type,
-        odds              = pred.odds,
-        win_probability   = win_prob,
+        sport               = pred.sport,
+        matchup             = matchup,
+        game_time           = pred.game_time,
+        bet_team            = pred.bet_team,
+        bet_type            = pred.bet_type,
+        odds                = pred.odds,
+        win_probability     = win_prob,
         implied_probability = implied_prob,
-        ev_per_stake      = ev,
-        ev_verdict        = ev_verdict,
-        bet_quality       = bet_quality,
-        star_rating       = star_rating,
-        clv_status        = clv_status,
-        clv_detail        = clv_detail,
-        home_net          = pred.home_net_rating,
-        away_net          = pred.away_net_rating,
-        model_edge        = model_edge,
-        home_injuries     = pred.home_injuries,
-        away_injuries     = pred.away_injuries,
-        formatted_slip    = slip,
+        ev_per_stake        = ev,
+        ev_verdict          = ev_verdict,
+        bet_quality         = bet_quality,
+        star_rating         = star_rating,
+        clv_status          = clv_status,
+        clv_detail          = clv_detail,
+        home_net            = pred.home_net_rating,
+        away_net            = pred.away_net_rating,
+        model_edge          = model_edge,
+        home_injuries       = pred.home_injuries,
+        away_injuries       = pred.away_injuries,
+        home_record         = pred.home_record,
+        away_record         = pred.away_record,
+        formatted_slip      = slip,
     )
 
 
@@ -206,6 +220,8 @@ if __name__ == "__main__":
         stake=200,
         home_injuries="Keldon Johnson (Questionable)",
         away_injuries="None reported",
+        home_record="18-24",
+        away_record="32-10",
     )
     result = build_alert(test)
     print(result.formatted_slip)

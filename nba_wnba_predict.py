@@ -8,6 +8,8 @@ Fallback: ESPN scoreboard (today only)
 Now includes:
   - ESPN win probability sanity check (divergence > 10pts = suppressed)
   - Confidence filter (teams with < 10 games = suppressed)
+  - Injury adjustments applied BEFORE suppression check
+  - Live W-L records displayed in alert slip
 
 Usage:
   python nba_wnba_predict.py           # interactive menu
@@ -34,16 +36,14 @@ from espn_winprob import validate_pick, print_validation_result
 sys.path.insert(0, os.path.dirname(__file__))
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # LEAGUE CONSTANTS
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 
 NBA_CONSTANTS   = {"league_avg_pts": 113.0, "home_adv_pts": 3.0, "score_std_dev": 11.0}
 WNBA_CONSTANTS  = {"league_avg_pts":  82.0, "home_adv_pts": 3.0, "score_std_dev": 10.0}
 NCAAB_CONSTANTS = {"league_avg_pts":  72.0, "home_adv_pts": 3.5, "score_std_dev": 10.0}
 
-# Minimum win probability to publish a pick
-# Below this threshold the model is backing a likely loser — suppress it
 MIN_WIN_PROB = 0.45
 
 ODDS_API_SPORT_KEYS = {
@@ -59,9 +59,9 @@ ESPN_URLS = {
 }
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # NET RATINGS -- Update each season
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 
 NBA_NET_RATINGS = {
     "Oklahoma City Thunder":    11.1,
@@ -114,20 +114,14 @@ WNBA_NET_RATINGS = {
     "Connecticut Sun":        -16.0,
 }
 
-# NCAAB: net rating approximations — update or pull live from CFBD/ESPN
-NCAAB_NET_RATINGS = {
-    # Add teams here as needed — same format as NBA/WNBA
-    # Example: "Duke Blue Devils": 12.4,
-}
+NCAAB_NET_RATINGS = {}
 
 
-
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # GAME FETCHERS
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 
 def fetch_games_from_odds_api(league: str) -> list:
-    """Primary source -- Odds API has games 24-48hrs ahead with live lines."""
     if ODDS_API_KEY == "YOUR_ODDS_API_KEY_HERE":
         return []
 
@@ -192,7 +186,6 @@ def fetch_games_from_odds_api(league: str) -> list:
 
 
 def fetch_games_from_espn(league: str) -> list:
-    """Fallback -- ESPN scoreboard, today only."""
     url     = ESPN_URLS.get(league)
     ratings = _get_ratings(league)
     if not url:
@@ -257,7 +250,6 @@ def fetch_games_from_espn(league: str) -> list:
 
 
 def fetch_games(league: str) -> list:
-    """Odds API first, ESPN fallback."""
     games = fetch_games_from_odds_api(league)
     if games:
         return games
@@ -265,9 +257,9 @@ def fetch_games(league: str) -> list:
     return fetch_games_from_espn(league)
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # HELPERS
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 
 def _get_ratings(league: str) -> dict:
     if league == "NBA":
@@ -286,12 +278,13 @@ def _get_constants(league: str) -> dict:
 
 
 def _get_record(team_name: str, league: str, records: dict = None) -> tuple:
-    """
-    Look up win/loss record for confidence filtering.
-    Pulls live from ESPN via live_records — no manual updates needed.
-    Pass pre-fetched records dict to avoid redundant API calls.
-    """
     return get_record(team_name, league, records)
+
+
+def _format_record(wins: int, losses: int) -> str:
+    if wins == 0 and losses == 0:
+        return "N/A"
+    return f"{wins}-{losses}"
 
 
 def implied_prob(odds: int) -> float:
@@ -321,12 +314,7 @@ def pick_best_bet(home_prob, away_prob, home_ml, away_ml, home_name, away_name):
     return away_name, away_ml, away_prob, away_edge
 
 
-# ─────────────────────────────────────────────
-# INJURY SUMMARY FORMATTER
-# ─────────────────────────────────────────────
-
 def _format_injury_summary(inj_list: list) -> str:
-    """Format injury list into a short string for the alert card."""
     if not inj_list:
         return ""
     significant = [i for i in inj_list if i.impact >= 0.3][:3]
@@ -335,9 +323,9 @@ def _format_injury_summary(inj_list: list) -> str:
     return ", ".join(f"{i.player} ({i.status})" for i in significant)
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # MAIN RUNNER
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 
 def run_league(league: str, stake: float = 100.0):
     constants = _get_constants(league)
@@ -356,22 +344,31 @@ def run_league(league: str, stake: float = 100.0):
         print(f"\n  No {league} games found.")
         return
 
-    predictions  = []
-    suppressed   = []
+    predictions = []
+    suppressed  = []
 
-    # Fetch records once for the whole slate — avoids one API call per game
     live_recs = get_live_records(league)
 
     for game in games:
         game["home_net"] = ratings.get(game["home_team"], game["home_net"])
         game["away_net"] = ratings.get(game["away_team"], game["away_net"])
 
-        home_prob, away_prob = simulate_game(game["home_net"], game["away_net"], constants)
+        # ── Injury adjustments FIRST ──────────────────────────────────
+        intel        = get_matchup_intel(game["home_team"], game["away_team"], league)
+        home_net_adj = game["home_net"] + intel["home_injury_adj"]
+        away_net_adj = game["away_net"] + intel["away_injury_adj"]
 
-        # ── ESPN sanity check + confidence filter ────────────
+        home_prob, away_prob = simulate_game(home_net_adj, away_net_adj, constants)
+        # ─────────────────────────────────────────────────────────────
+
+        # ── Records ───────────────────────────────────────────────────
         home_w, home_l = _get_record(game["home_team"], league, live_recs)
         away_w, away_l = _get_record(game["away_team"], league, live_recs)
+        home_record    = _format_record(home_w, home_l)
+        away_record    = _format_record(away_w, away_l)
+        # ─────────────────────────────────────────────────────────────
 
+        # ── ESPN sanity check + confidence filter ─────────────────────
         validation = validate_pick(
             league          = league,
             home_team       = game["home_team"],
@@ -388,10 +385,10 @@ def run_league(league: str, stake: float = 100.0):
                 "matchup": f"{game['away_team']} @ {game['home_team']}",
                 "reason":  validation["suppress_reason"],
             })
-            print(f"\n  ⚠  SUPPRESSED: {game['away_team']} @ {game['home_team']}")
+            print(f"\n  ⚠   SUPPRESSED: {game['away_team']} @ {game['home_team']}")
             print(f"     Reason: {validation['suppress_reason']}")
             continue
-        # ─────────────────────────────────────────────────────
+        # ─────────────────────────────────────────────────────────────
 
         bet_team, odds, win_prob, edge = pick_best_bet(
             home_prob, away_prob,
@@ -399,7 +396,7 @@ def run_league(league: str, stake: float = 100.0):
             game["home_team"], game["away_team"]
         )
 
-        # ── Minimum win probability filter ───────────────────
+        # ── Minimum win probability filter ────────────────────────────
         if win_prob < MIN_WIN_PROB:
             suppressed.append({
                 "matchup": f"{game['away_team']} @ {game['home_team']}",
@@ -409,19 +406,7 @@ def run_league(league: str, stake: float = 100.0):
             print(f"  SUPPRESSED: {game['away_team']} @ {game['home_team']}")
             print(f"     Reason: {bet_team} win prob {win_pct}% below minimum")
             continue
-        # ─────────────────────────────────────────────────────
-
-        intel        = get_matchup_intel(game["home_team"], game["away_team"], league)
-        home_net_adj = game["home_net"] + intel["home_injury_adj"]
-        away_net_adj = game["away_net"] + intel["away_injury_adj"]
-
-        if intel["home_injury_adj"] != 0 or intel["away_injury_adj"] != 0:
-            home_prob, away_prob = simulate_game(home_net_adj, away_net_adj, constants)
-            bet_team, odds, win_prob, edge = pick_best_bet(
-                home_prob, away_prob,
-                game["home_ml"], game["away_ml"],
-                game["home_team"], game["away_team"]
-            )
+        # ─────────────────────────────────────────────────────────────
 
         if bet_team == game["home_team"]:
             opening_odds = intel.get("opening_home_odds") or game.get("opening_home")
@@ -448,13 +433,14 @@ def run_league(league: str, stake: float = 100.0):
             stake           = stake,
             home_injuries   = home_inj_summary,
             away_injuries   = away_inj_summary,
+            home_record     = home_record,
+            away_record     = away_record,
         )
 
         alert = build_alert(pred_input)
         print(f"\n{alert.formatted_slip}")
         print(format_intel_summary(intel, game["home_team"], game["away_team"]))
 
-        # Show ESPN comparison if available
         if validation["espn_home_prob"] is not None:
             model_pct = round(home_prob * 100, 1)
             espn_pct  = validation["espn_home_prob"]
@@ -463,7 +449,7 @@ def run_league(league: str, stake: float = 100.0):
 
         predictions.append(alert)
 
-    # ── Summary ──────────────────────────────────────────────
+    # ── Summary ───────────────────────────────────────────────────────
     if not predictions and not suppressed:
         print(f"\n  No {league} games to predict.")
         return
@@ -498,14 +484,14 @@ def run_league(league: str, stake: float = 100.0):
     return predictions
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # INTERACTIVE MENU
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 
 def run_interactive():
     print("""
 +--------------------------------------------------------------+
-  SPORTS PREDICTION ENGINE  v2.1  |  Culture & Pulse Analytics
+  SPORTS PREDICTION ENGINE  v2.2  |  Culture & Pulse Analytics
 +--------------------------------------------------------------+
 
   Options:
@@ -538,9 +524,9 @@ def run_interactive():
         print("  Invalid choice.")
 
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # ENTRY POINT
-# ─────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     if len(sys.argv) == 2:

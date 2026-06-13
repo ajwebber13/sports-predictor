@@ -318,10 +318,9 @@ def get_live_ratings(league: str, force_refresh: bool = False) -> dict:
             return NBA_STATIC
 
     else:  # WNBA
-        ratings = fetch_wnba_live()
-        if not ratings:
-            print("  [Ratings] WNBA live fetch failed — using static fallback.")
-            return WNBA_STATIC
+        # ESPN net_rating uses a different scale than point differential.
+        # Static ratings are manually calibrated — use them as the baseline.
+        return WNBA_STATIC
 
     print(f"  [Ratings] {len(ratings)} {league} teams loaded.")
     cache[cache_key] = ratings
