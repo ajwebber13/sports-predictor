@@ -322,6 +322,20 @@ def pick_best_bet(home_prob, away_prob, home_ml, away_ml, home_name, away_name):
 
 
 # ─────────────────────────────────────────────
+# INJURY SUMMARY FORMATTER
+# ─────────────────────────────────────────────
+
+def _format_injury_summary(inj_list: list) -> str:
+    """Format injury list into a short string for the alert card."""
+    if not inj_list:
+        return ""
+    significant = [i for i in inj_list if i.impact >= 0.3][:3]
+    if not significant:
+        return ""
+    return ", ".join(f"{i.player} ({i.status})" for i in significant)
+
+
+# ─────────────────────────────────────────────
 # MAIN RUNNER
 # ─────────────────────────────────────────────
 
@@ -414,6 +428,9 @@ def run_league(league: str, stake: float = 100.0):
         else:
             opening_odds = intel.get("opening_away_odds") or game.get("opening_away")
 
+        home_inj_summary = _format_injury_summary(intel.get("home_injuries", []))
+        away_inj_summary = _format_injury_summary(intel.get("away_injuries", []))
+
         pred_input = PredictionInput(
             sport           = league,
             home_team       = game["home_team"],
@@ -429,6 +446,8 @@ def run_league(league: str, stake: float = 100.0):
             opening_odds    = opening_odds,
             closing_odds    = None,
             stake           = stake,
+            home_injuries   = home_inj_summary,
+            away_injuries   = away_inj_summary,
         )
 
         alert = build_alert(pred_input)
