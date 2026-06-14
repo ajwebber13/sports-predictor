@@ -221,7 +221,6 @@ def format_header(bets: list, sport: str) -> str:
         f"Full slate below 👇"
     )
 
-
 def format_alert(bet: dict, sport: str, game_time: str) -> str:
     emoji      = sport_emoji(sport)
     label      = sport_label(sport)
@@ -233,6 +232,16 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
     implied    = bet.get("implied_prob", 0)
     projected  = bet.get("projected")
 
+    # Records and rest
+    home_record = bet.get("home_record", "")
+    away_record = bet.get("away_record", "")
+    home_rest   = bet.get("home_rest")
+    away_rest   = bet.get("away_rest")
+
+    # Injuries
+    home_injuries = bet.get("home_injuries", "")
+    away_injuries = bet.get("away_injuries", "")
+
     parts       = game.split(" @ ")
     away_team   = parts[0] if len(parts) == 2 else ""
     home_team   = parts[1] if len(parts) == 2 else ""
@@ -242,6 +251,29 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
 
     odds_str  = f" ({fmt_odds(odds)})" if odds else ""
     proj_line = f"\n📊 <b>Projected:</b> {projected}" if projected else ""
+
+    # Records line
+    rec_parts = []
+    if away_record:
+        rec_parts.append(f"{away_team}: {away_record}")
+    if home_record:
+        rec_parts.append(f"{home_team}: {home_record}")
+    records_line = "\n📋 <b>Records:</b> " + " | ".join(rec_parts) if rec_parts else ""
+
+    # Rest days line
+    rest_parts = []
+    if away_rest is not None:
+        rest_parts.append(f"{away_team}: {away_rest}d rest")
+    if home_rest is not None:
+        rest_parts.append(f"{home_team}: {home_rest}d rest")
+    rest_line = "\n💤 <b>Rest:</b> " + " | ".join(rest_parts) if rest_parts else ""
+
+    # Injury lines
+    inj_lines = ""
+    if home_injuries:
+        inj_lines += f"\n🚑 <b>{home_team} Out/Doubtful:</b> {home_injuries}"
+    if away_injuries:
+        inj_lines += f"\n🚑 <b>{away_team} Out/Doubtful:</b> {away_injuries}"
 
     return (
         f"{emoji} <b>{label} — PICK ALERT</b>\n\n"
@@ -254,11 +286,13 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
         f"{away_team}: {away_prob}%\n"
         f"{home_team}: {home_prob}%\n"
         f"Market: {implied}%\n"
+        f"{records_line}"
+        f"{rest_line}"
+        f"{inj_lines}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"<i>Culture &amp; Pulse Analytics</i>\n"
+        f"<i>Culture & Pulse Analytics</i>\n"
         f"<i>For entertainment only. Bet responsibly.</i>"
     )
-
 
 def format_no_games(sport: str) -> str:
     emoji = sport_emoji(sport)
