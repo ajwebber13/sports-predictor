@@ -1,70 +1,140 @@
 """
 services/odds_parser.py
-Fetches and parses live odds from The Odds API.
+Fetches live odds from ESPN free API — no API key needed.
+Replaces The Odds API. Same output format, all sports supported.
 """
-
 import requests
-import os
+from datetime import datetime, timezone, timedelta
 
-API_KEY  = os.getenv("ODDS_API_KEY", "")
-BASE_URL = "https://api.the-odds-api.com/v4"
+CENTRAL_OFFSET = -5  # CDT
 
-SPORT_KEYS = {
-    "nfl":   "americanfootball_nfl",
-    "ncaaf": "americanfootball_ncaaf",
-    "nba":   "basketball_nba",
-    "ncaab": "basketball_ncaab",
-    "ncaaw": "basketball_wncaab",
-    "wnba":  "basketball_wnba",
+ESPN_ENDPOINTS = {
+    "nfl":   "football/nfl",
+    "ncaaf": "football/college-football",
+    "nba":   "basketball/nba",
+    "ncaab": "basketball/mens-college-basketball",
+    "ncaaw": "basketball/womens-college-basketball",
+    "wnba":  "basketball/wnba",
 }
+
+ESPN_BASE = "http://site.api.espn.com/apis/site/v2/sports"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Accept": "application/json",
+    "Referer": "https://www.espn.com/",
+}
+
+
+def _get_today_ct():
+    return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
 
 
 def get_live_odds(sport: str = "nba") -> list:
     """
-    Fetch moneyline odds for a given sport from The Odds API.
-    Returns list of games with home_team, away_team, commence_time,
-    event_id, and bookmakers (with moneyline markets).
+    Fetch today's games with moneyline odds from ESPN free API.
+    Returns same format as The Odds API so all downstream code works unchanged.
     """
-    sport_key = SPORT_KEYS.get(sport, sport)
-    url       = f"{BASE_URL}/sports/{sport_key}/odds"
-    params    = {
-        "apiKey":      API_KEY,
-        "regions":     "us",
-        "markets":     "h2h,spreads,totals",  # h2h = moneyline
-        "bookmakers":  "draftkings,fanduel",
-        "oddsFormat":  "american",
-    }
-
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-    except Exception as e:
-        print(f"Odds API error for {sport}: {e}")
+    endpoint = ESPN_ENDPOINTS.get(sport)
+    if not endpoint:
+        print(f"Unknown sport: {sport}")
         return []
 
-    games = []
-    for game in data:
-        games.append({
-            "home_team":     game.get("home_team", ""),
-            "away_team":     game.get("away_team", ""),
-            "commence_time": game.get("commence_time", ""),
-            "event_id":      game.get("id", ""),
-            "bookmakers":    game.get("bookmakers", []),
-        })
+    url = f"{ESPN_BASE}/{endpoint}/scoreboard"
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"ESPN odds fetch error ({sport}): {e}")
+        return []
 
+    today_ct = _get_today_ct()
+    games    = []
+
+    for event in data.get("events", []):
+        try:
+            # Date filter — today only
+            game_date = event.get("date", "")
+            if game_date:
+                utc_dt     = datetime.fromisoformat(game_date.replace("Z", "+00:00"))
+                central_dt = utc_dt + timedelta(hours=CENTRAL_OFFSET)
+                if central_dt.date() != today_ct:
+                    continue
+
+            # Skip completed games
+            status = event.get("status", {}).get("type", {}).get("name", "")
+            if any(x in status for x in ["Final", "STATUS_FINAL"]):
+                continue
+
+            comp        = event.get("competitions", [{}])[0]
+            competitors = comp.get("competitors", [])
+            home = next((t for t in competitors if t["homeAway"] == "home"), None)
+            away = next((t for t in competitors if t["homeAway"] == "away"), None)
+            if not home or not away:
+                continue
+
+            home_name = home["team"]["displayName"]
+            away_name = away["team"]["displayName"]
+
+            # Pull moneyline odds from ESPN
+            odds_data = comp.get("odds", [{}])
+            odds_obj  = odds_data[0] if odds_data else {}
+            home_ml   = odds_obj.get("homeTeamOdds", {}).get("moneyLine") or -110
+            away_ml   = odds_obj.get("awayTeamOdds", {}).get("moneyLine") or -110
+            spread    = odds_obj.get("spread", 0)
+            over_under = odds_obj.get("overUnder", 0)
+
+            # Format to match Odds API structure exactly
+            games.append({
+                "home_team":     home_name,
+                "away_team":     away_name,
+                "commence_time": game_date,
+                "event_id":      event.get("id", ""),
+                "bookmakers": [{
+                    "key":     "espn",
+                    "title":   "ESPN",
+                    "markets": [
+                        {
+                            "key": "h2h",
+                            "outcomes": [
+                                {"name": home_name, "price": int(home_ml)},
+                                {"name": away_name, "price": int(away_ml)},
+                            ]
+                        },
+                        {
+                            "key": "spreads",
+                            "outcomes": [
+                                {"name": home_name, "point": spread,         "price": -110},
+                                {"name": away_name, "point": -spread if spread else 0, "price": -110},
+                            ]
+                        },
+                        {
+                            "key": "totals",
+                            "outcomes": [
+                                {"name": "Over",  "point": over_under, "price": -110},
+                                {"name": "Under", "point": over_under, "price": -110},
+                            ]
+                        },
+                    ]
+                }]
+            })
+
+        except Exception as e:
+            print(f"  Parse error: {e}")
+            continue
+
+    print(f"ESPN returned {len(games)} game(s) for {sport}")
     return games
 
 
 def parse_moneyline(game: dict) -> dict:
     """
-    Extract moneyline (h2h) implied probabilities for home and away teams.
-    Averages across bookmakers for more accurate implied probability.
+    Extract moneyline implied probabilities.
     Returns { home_team: implied_prob, away_team: implied_prob } or None.
     """
-    home_team = game.get("home_team", "")
-    away_team = game.get("away_team", "")
-
+    home_team  = game.get("home_team", "")
+    away_team  = game.get("away_team", "")
     home_probs = []
     away_probs = []
 
@@ -81,7 +151,6 @@ def parse_moneyline(game: dict) -> dict:
     if not home_probs or not away_probs:
         return None
 
-    # Average across bookmakers, then normalize to remove vig
     raw_home = sum(home_probs) / len(home_probs)
     raw_away = sum(away_probs) / len(away_probs)
     total    = raw_home + raw_away
@@ -93,10 +162,6 @@ def parse_moneyline(game: dict) -> dict:
 
 
 def parse_spread(game: dict):
-    """
-    Extract spread outcomes from a game object.
-    Returns list of {'name', 'point', 'price'} or None.
-    """
     for bookmaker in game.get("bookmakers", []):
         for market in bookmaker.get("markets", []):
             if market["key"] == "spreads":
@@ -105,10 +170,6 @@ def parse_spread(game: dict):
 
 
 def parse_totals(game: dict):
-    """
-    Extract over/under outcomes from a game object.
-    Returns list of {'name', 'point', 'price'} or None.
-    """
     for bookmaker in game.get("bookmakers", []):
         for market in bookmaker.get("markets", []):
             if market["key"] == "totals":
@@ -117,7 +178,6 @@ def parse_totals(game: dict):
 
 
 def american_to_implied(odds: int) -> float:
-    """Convert American odds to implied probability (includes vig)."""
     if odds > 0:
         return 100 / (odds + 100)
     return abs(odds) / (abs(odds) + 100)
