@@ -1,26 +1,17 @@
 """
 backfill.py — Culture & Pulse Analytics
-Pulls 5 years of historical team stats and loads into cp_analytics.db
+Pulls current season team stats and loads into cp_analytics.db
 Sports: NBA, WNBA, NFL, NCAAB, NCAAF
-
-Sources:
-  NBA/WNBA  → ESPN free API
-  NFL       → ESPN free API
-  NCAAF     → College Football Data API (free, no key)
-  NCAAB     → ESPN free API
-
-Run once to backfill. Then nightly updates keep it current.
 """
 
 import requests
-import sqlite3
 import os
 import time
 from datetime import datetime
 from database import get_conn, init_db
 
 CURRENT_YEAR = 2026
-SEASONS      = list(range(CURRENT_YEAR - 5, CURRENT_YEAR + 1))  # 2021-2026
+SEASONS      = list(range(CURRENT_YEAR - 5, CURRENT_YEAR + 1))
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -51,8 +42,6 @@ def backfill_nba(seasons: list):
         "Utah Jazz": "26", "Washington Wizards": "27",
     }
 
-    # ESPN only returns current season data per team
-    # Pull once and store for current season
     current_season = f"{CURRENT_YEAR-1}-{str(CURRENT_YEAR)[2:]}"
     print(f"  Pulling current season stats ({current_season})...")
 
@@ -82,9 +71,7 @@ def backfill_nba(seasons: list):
                     away_w = int(stats.get("wins", 0))
                     away_l = int(stats.get("losses", 0))
 
-            # Only insert if we got real data
             if wins == 0 and pts_for == 0:
-                print(f"  Skipping {team_name} — no stats returned")
                 continue
 
             c.execute("""
@@ -182,45 +169,8 @@ def backfill_wnba(seasons: list):
 
 def backfill_nfl(seasons: list):
     print("\n📊 Backfilling NFL...")
-    conn  = get_conn()
-    c     = conn.cursor()
-    saved = 0
-
-    for year in seasons:
-        url = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams"
-        try:
-            r     = requests.get(url, headers=HEADERS, timeout=10)
-            data  = r.json()
-            teams = data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
-
-            for entry in teams:
-                team         = entry.get("team", {})
-                name         = team.get("displayName", "")
-                record_items = team.get("record", {}).get("items", [])
-                wins = losses = 0
-                for item in record_items:
-                    if item.get("type") == "total":
-                        stats  = {s["name"]: s["value"] for s in item.get("stats", [])}
-                        wins   = int(stats.get("wins", 0))
-                        losses = int(stats.get("losses", 0))
-                if not name:
-                    continue
-                c.execute("""
-                    INSERT OR REPLACE INTO team_stats
-                    (sport, season, team_name, wins, losses, source)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, ("nfl", str(year), name, wins, losses, "espn"))
-                saved += 1
-
-            print(f"  NFL {year}: {len(teams)} teams loaded")
-            time.sleep(1)
-
-        except Exception as e:
-            print(f"  NFL {year} error: {e}")
-
-    conn.commit()
-    conn.close()
-    print(f"NFL backfill complete: {saved} records saved")
+    print("  NFL is offseason — no stats available until September.")
+    print("  Skipping NFL backfill. Run again when season starts.")
 
 
 # ── NCAAF ───────────────────────────────────────────────────────────────
@@ -231,7 +181,7 @@ def backfill_ncaaf(seasons: list):
     c     = conn.cursor()
     saved = 0
 
-    cfbd_key  = os.getenv("CFBD_API_KEY", "")
+    cfbd_key     = os.getenv("CFBD_API_KEY", "")
     cfbd_headers = {**HEADERS, "Authorization": f"Bearer {cfbd_key}"}
 
     for year in seasons:
@@ -285,41 +235,78 @@ def backfill_ncaab(seasons: list):
     c     = conn.cursor()
     saved = 0
 
-    for year in seasons:
-        url = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/teams?limit=200"
+    # Pull team list with IDs from ESPN
+    url = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/teams?limit=200"
+    try:
+        r     = requests.get(url, headers=HEADERS, timeout=10)
+        data  = r.json()
+        teams = data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+    except Exception as e:
+        print(f"  NCAAB team list error: {e}")
+        conn.close()
+        return
+
+    current_season = str(CURRENT_YEAR)
+    print(f"  Pulling current season stats ({current_season})...")
+    print(f"  Found {len(teams)} teams")
+
+    for entry in teams:
+        team    = entry.get("team", {})
+        name    = team.get("displayName", "")
+        team_id = team.get("id", "")
+
+        if not name or not team_id:
+            continue
+
+        team_url = (
+            f"https://site.api.espn.com/apis/site/v2/sports/"
+            f"basketball/mens-college-basketball/teams/{team_id}"
+        )
         try:
-            r     = requests.get(url, headers=HEADERS, timeout=10)
-            data  = r.json()
-            teams = data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+            r         = requests.get(team_url, headers=HEADERS, timeout=10)
+            data      = r.json()
+            team_data = data.get("team", {})
 
-            for entry in teams:
-                team         = entry.get("team", {})
-                name         = team.get("displayName", "")
-                record_items = team.get("record", {}).get("items", [])
-                wins = losses = 0
-                for item in record_items:
-                    if item.get("type") == "total":
-                        stats  = {s["name"]: s["value"] for s in item.get("stats", [])}
-                        wins   = int(stats.get("wins", 0))
-                        losses = int(stats.get("losses", 0))
-                if not name:
-                    continue
-                c.execute("""
-                    INSERT OR REPLACE INTO team_stats
-                    (sport, season, team_name, wins, losses, source)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, ("ncaab", str(year), name, wins, losses, "espn"))
-                saved += 1
+            wins = losses = 0
+            pts_for = pts_against = net = 0.0
+            home_w = home_l = away_w = away_l = 0
 
-            print(f"  NCAAB {year}: {len(teams)} teams loaded")
-            time.sleep(1)
+            for item in team_data.get("record", {}).get("items", []):
+                stats = {s["name"]: s["value"] for s in item.get("stats", [])}
+                if item.get("type") == "total":
+                    wins        = int(stats.get("wins", 0))
+                    losses      = int(stats.get("losses", 0))
+                    pts_for     = round(float(stats.get("avgPointsFor") or 0), 2)
+                    pts_against = round(float(stats.get("avgPointsAgainst") or 0), 2)
+                    net         = round(float(stats.get("differential") or 0), 2)
+                elif item.get("type") == "home":
+                    home_w = int(stats.get("wins", 0))
+                    home_l = int(stats.get("losses", 0))
+                elif item.get("type") == "road":
+                    away_w = int(stats.get("wins", 0))
+                    away_l = int(stats.get("losses", 0))
 
-        except Exception as e:
-            print(f"  NCAAB {year} error: {e}")
+            if wins == 0 and pts_for == 0:
+                continue
+
+            c.execute("""
+                INSERT OR REPLACE INTO team_stats
+                (sport, season, team_name, wins, losses,
+                 pts_per_game, pts_allowed, net_rating,
+                 home_wins, home_losses, away_wins, away_losses, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("ncaab", current_season, name, wins, losses,
+                  pts_for, pts_against, net,
+                  home_w, home_l, away_w, away_l, "espn"))
+            saved += 1
+            time.sleep(0.2)
+
+        except Exception:
+            continue
 
     conn.commit()
     conn.close()
-    print(f"NCAAB backfill complete: {saved} records saved")
+    print(f"NCAAB backfill complete: {saved} teams saved for {current_season}")
 
 
 # ── HEAD TO HEAD ─────────────────────────────────────────────────────────
@@ -423,7 +410,8 @@ def run_backfill(sports: list = None):
         elif sport == "ncaab":
             backfill_ncaab(SEASONS)
 
-        backfill_head_to_head(sport, SEASONS)
+        if sport != "nfl":
+            backfill_head_to_head(sport, SEASONS)
 
     print(f"\n{'='*50}")
     print("Backfill complete.")
