@@ -358,6 +358,18 @@ def run_league(league: str, stake: float = 100.0):
         home_net_adj = game["home_net"] + intel["home_injury_adj"]
         away_net_adj = game["away_net"] + intel["away_injury_adj"]
 
+        # ── Head-to-head historical edge adjustment ──
+        try:
+            from db_ratings import get_head_to_head_edge
+            h2h_edge = get_head_to_head_edge(
+                game["home_team"], game["away_team"], league
+            )
+            home_net_adj += h2h_edge
+            if h2h_edge != 0:
+                print(f"  H2H edge applied: {game['home_team']} {'+' if h2h_edge >= 0 else ''}{h2h_edge}")
+        except Exception as e:
+            pass
+
         home_prob, away_prob = simulate_game(home_net_adj, away_net_adj, constants)
         # ─────────────────────────────────────────────────────────────
 
