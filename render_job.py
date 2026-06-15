@@ -82,6 +82,16 @@ def run_alerts(sport: str) -> bool:
 
     bets = data.get("best_bets", [])
 
+    # ── Auto-log today's odds to your own database ──
+    try:
+        from services.odds_parser import get_live_odds
+        from database import log_odds
+        games = get_live_odds(sport)
+        log_odds(sport, games, source="espn")
+        log(f"Odds logged to database for {sport}")
+    except Exception as e:
+        log(f"Odds logging error: {e}")
+
     if not bets:
         log(f"No {sport.upper()} edges found today.")
         return False
