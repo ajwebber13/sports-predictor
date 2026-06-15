@@ -7,6 +7,8 @@ on:
 jobs:
   retry:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,3 +20,4 @@ jobs:
         run: python render_job.py --retry
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
