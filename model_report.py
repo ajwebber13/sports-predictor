@@ -12,7 +12,13 @@ Usage:
 import os
 import requests
 from datetime import datetime
-from database import get_conn
+from database import get_conn, init_db
+
+# Ensure DB exists on fresh environments (GitHub Actions)
+try:
+    init_db()
+except Exception:
+    pass
 
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
@@ -21,7 +27,6 @@ TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 def get_overall_stats() -> dict:
     conn = get_conn()
     c    = conn.cursor()
-
     c.execute("""
         SELECT
             COUNT(*)                        as total_picks,
@@ -41,7 +46,6 @@ def get_overall_stats() -> dict:
 def get_sport_breakdown() -> list:
     conn = get_conn()
     c    = conn.cursor()
-
     c.execute("""
         SELECT
             sport,
@@ -61,10 +65,8 @@ def get_sport_breakdown() -> list:
 
 
 def get_edge_breakdown() -> list:
-    """Break down win rate by edge tier."""
     conn = get_conn()
     c    = conn.cursor()
-
     c.execute("""
         SELECT
             CASE
@@ -88,10 +90,8 @@ def get_edge_breakdown() -> list:
 
 
 def get_recent_form(days: int = 7) -> dict:
-    """Win rate over last N days."""
     conn = get_conn()
     c    = conn.cursor()
-
     c.execute("""
         SELECT
             COUNT(*)                        as picks,
@@ -101,29 +101,20 @@ def get_recent_form(days: int = 7) -> dict:
         WHERE correct IS NOT NULL
         AND date >= date('now', ?)
     """, (f"-{days} days",))
-
     row = c.fetchone()
     conn.close()
     return dict(row) if row else {}
 
 
 def calculate_roi(avg_odds: float, win_rate: float) -> float:
-    """
-    Calculate ROI on flat $100 bets.
-    Positive odds: profit = odds/100 * stake
-    Negative odds: profit = 100/abs(odds) * stake
-    """
     if not avg_odds or not win_rate:
         return 0.0
-
-    win_rate_dec = win_rate / 100
-    loss_rate    = 1 - win_rate_dec
-
+    win_rate_dec   = win_rate / 100
+    loss_rate      = 1 - win_rate_dec
     if avg_odds > 0:
         profit_per_win = avg_odds / 100
     else:
         profit_per_win = 100 / abs(avg_odds)
-
     roi = (win_rate_dec * profit_per_win) - (loss_rate * 1.0)
     return round(roi * 100, 1)
 
@@ -143,7 +134,6 @@ def print_report(sport: str = None):
     print(f"  {datetime.now().strftime('%B %d, %Y')}")
     print(f"{'='*55}")
 
-    # Overall
     total = overall.get("total_picks", 0)
     wins  = overall.get("total_wins", 0)
     rate  = overall.get("win_rate", 0)
@@ -157,14 +147,12 @@ def print_report(sport: str = None):
     print(f"  Avg Edge:   +{edge}%")
     print(f"  Period:     {first} → {last}")
 
-    # Recent form
     if recent.get("picks"):
         r_picks = recent.get("picks", 0)
         r_wins  = recent.get("wins", 0)
         r_rate  = recent.get("win_rate", 0)
         print(f"  Last 7 days: {r_wins}-{r_picks-r_wins} ({r_rate}%)")
 
-    # By sport
     if sports:
         print(f"\n  BY SPORT")
         print(f"  {'─'*45}")
@@ -173,17 +161,16 @@ def print_report(sport: str = None):
         for s in sports:
             if sport and s["sport"] != sport:
                 continue
-            w      = s["wins"] or 0
-            p      = s["picks"]
-            l      = p - w
-            rate_s = s["win_rate"] or 0
-            edge_s = s["avg_edge"] or 0
-            odds_s = s["avg_odds"] or -110
-            roi    = calculate_roi(odds_s, rate_s)
+            w       = s["wins"] or 0
+            p       = s["picks"]
+            l       = p - w
+            rate_s  = s["win_rate"] or 0
+            edge_s  = s["avg_edge"] or 0
+            odds_s  = s["avg_odds"] or -110
+            roi     = calculate_roi(odds_s, rate_s)
             roi_str = f"+{roi}%" if roi >= 0 else f"{roi}%"
             print(f"  {s['sport'].upper():<10} {w}-{l:<10} {rate_s}%{'':<6} +{edge_s}%{'':<8} {roi_str}")
 
-    # By edge tier
     if edges:
         print(f"\n  BY EDGE TIER")
         print(f"  {'─'*45}")
@@ -198,12 +185,12 @@ def print_report(sport: str = None):
 
 
 def send_telegram_report():
-    """Send performance report to Telegram channel."""
     overall = get_overall_stats()
     sports  = get_sport_breakdown()
     recent  = get_recent_form(7)
 
     if not overall.get("total_picks"):
+        print("No results yet — skipping Telegram report.")
         return
 
     total = overall.get("total_picks", 0)
@@ -219,7 +206,7 @@ def send_telegram_report():
     ]
 
     if recent.get("picks"):
-        r_wins = int(recent.get("wins", 0))
+        r_wins  = int(recent.get("wins", 0))
         r_picks = recent.get("picks", 0)
         r_rate  = recent.get("win_rate", 0)
         lines.append(f"<b>Last 7 Days:</b> {r_wins}-{r_picks-r_wins} ({r_rate}%)")
@@ -227,9 +214,9 @@ def send_telegram_report():
     if sports:
         lines.append("\n<b>BY SPORT</b>")
         for s in sports:
-            w   = int(s["wins"] or 0)
-            p   = s["picks"]
-            roi = calculate_roi(s["avg_odds"] or -110, s["win_rate"] or 0)
+            w       = int(s["wins"] or 0)
+            p       = s["picks"]
+            roi     = calculate_roi(s["avg_odds"] or -110, s["win_rate"] or 0)
             roi_str = f"+{roi}%" if roi >= 0 else f"{roi}%"
             lines.append(
                 f"{s['sport'].upper()}: {w}-{p-w} "

@@ -8,6 +8,13 @@ Sports: NBA, WNBA, NFL, NCAAF, NCAAB
 
 import requests
 import os
+from database import get_conn, init_db
+
+# Ensure DB exists on fresh environments (GitHub Actions)
+try:
+    init_db()
+except Exception:
+    pass
 from datetime import datetime, timezone, timedelta
 from database import get_conn
 
