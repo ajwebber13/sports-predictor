@@ -74,7 +74,7 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
     engine = WNBAPredictionEngine()
     events = get_wnba_events()
 
-    # ── Build real moneyline implied prob lookup from The Odds API ──
+    # ── Build real moneyline implied prob lookup ──
     odds_games  = get_live_odds("wnba")
     odds_lookup = {}
     for og in odds_games:
@@ -82,6 +82,13 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         if ml:
             odds_lookup[og.get("home_team", "")] = ml
             odds_lookup[og.get("away_team", "")] = ml
+
+    # ── Pull injury data once for all games ──
+    try:
+        from injury_check import get_injuries
+        injuries = get_injuries("wnba")
+    except Exception:
+        injuries = {}
 
     results = []
     for event in events:
@@ -95,7 +102,6 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
             continue
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
 
-        # Use real moneyline implied prob — fall back to 52.4% if not available
         ml_probs = odds_lookup.get(home) or odds_lookup.get(away)
         fallback = round(american_to_implied(-110) * 100, 1)
         i_home   = ml_probs.get(home, fallback) if ml_probs else fallback
@@ -105,18 +111,27 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         e_away = round(pred.away_win_prob - i_away, 2)
         label  = f"{away} @ {home}"
 
+        home_inj = ", ".join(injuries.get(home, []))
+        away_inj = ", ".join(injuries.get(away, []))
+
         if e_home >= min_edge:
-            results.append({"game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
+            results.append({
+                "game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
                 "implied_prob": i_home, "edge": round(e_home / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
-                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
+                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
+                "home_injuries": home_inj, "away_injuries": away_inj,
+            })
         if e_away >= min_edge:
-            results.append({"game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
+            results.append({
+                "game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
                 "implied_prob": i_away, "edge": round(e_away / 100, 4),
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
-                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days})
+                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
+                "home_injuries": home_inj, "away_injuries": away_inj,
+            })
 
     results.sort(key=lambda x: x["edge"], reverse=True)
     return {"count": len(results), "best_bets": results}
@@ -267,7 +282,6 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
     engine = NCAABPredictionEngine()
     events = get_ncaab_events()
 
-    # ── Build real moneyline implied prob lookup from The Odds API ──
     odds_games  = get_live_odds("ncaab")
     odds_lookup = {}
     for og in odds_games:
@@ -286,7 +300,6 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
             continue
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
 
-        # Use real moneyline implied prob — fall back to 52.4% if not available
         ml_probs = odds_lookup.get(home) or odds_lookup.get(away)
         fallback = round(american_to_implied(-110) * 100, 1)
         i_home   = ml_probs.get(home, fallback) if ml_probs else fallback

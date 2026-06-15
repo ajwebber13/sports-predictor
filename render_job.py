@@ -87,7 +87,7 @@ def run_alerts(sport: str) -> bool:
         from services.odds_parser import get_live_odds
         from database import log_odds
         games = get_live_odds(sport)
-        log_odds(sport, games, source="espn")
+        log_odds(sport, games, source="odds_api" if games else "espn")
         log(f"Odds logged to database for {sport}")
     except Exception as e:
         log(f"Odds logging error: {e}")
