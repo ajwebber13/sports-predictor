@@ -11,7 +11,7 @@ from datetime import datetime
 from database import get_conn, init_db
 
 CURRENT_YEAR = 2026
-SEASONS      = list(range(CURRENT_YEAR - 5, CURRENT_YEAR + 1))
+SEASONS      = list(range(CURRENT_YEAR - 10, CURRENT_YEAR + 1))  # 2016-2026
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -168,10 +168,69 @@ def backfill_wnba(seasons: list):
 # ── NFL ─────────────────────────────────────────────────────────────────
 
 def backfill_nfl(seasons: list):
-    print("\n📊 Backfilling NFL...")
-    print("  NFL is offseason — no stats available until September.")
-    print("  Skipping NFL backfill. Run again when season starts.")
+    print("\n📊 Backfilling NFL (ESPN Core API - historical by season)...")
+    conn  = get_conn()
+    c     = conn.cursor()
+    saved = 0
 
+    NFL_TEAM_IDS = {
+        "Atlanta Falcons": "1", "Buffalo Bills": "2", "Chicago Bears": "3",
+        "Cincinnati Bengals": "4", "Cleveland Browns": "5", "Dallas Cowboys": "6",
+        "Denver Broncos": "7", "Detroit Lions": "8", "Green Bay Packers": "9",
+        "Tennessee Titans": "10", "Indianapolis Colts": "11", "Kansas City Chiefs": "12",
+        "Las Vegas Raiders": "13", "Los Angeles Rams": "14", "Miami Dolphins": "15",
+        "Minnesota Vikings": "16", "New England Patriots": "17", "New Orleans Saints": "18",
+        "New York Giants": "19", "New York Jets": "20", "Philadelphia Eagles": "21",
+        "Arizona Cardinals": "22", "Pittsburgh Steelers": "23", "Los Angeles Chargers": "24",
+        "San Francisco 49ers": "25", "Seattle Seahawks": "26", "Tampa Bay Buccaneers": "27",
+        "Washington Commanders": "28", "Carolina Panthers": "29", "Jacksonville Jaguars": "30",
+        "Baltimore Ravens": "33", "Houston Texans": "34",
+    }
+
+    for year in seasons:
+        loaded = 0
+        print(f"  NFL {year}...")
+
+        for team_name, team_id in NFL_TEAM_IDS.items():
+            url = (
+                f"https://sports.core.api.espn.com/v2/sports/football/"
+                f"leagues/nfl/seasons/{year}/types/2/teams/{team_id}/records/0"
+            )
+            try:
+                r    = requests.get(url, headers=HEADERS, timeout=10)
+                if r.status_code != 200:
+                    continue
+                data  = r.json()
+                stats = {s["name"]: s["value"] for s in data.get("stats", [])}
+
+                wins        = int(stats.get("wins", 0))
+                losses      = int(stats.get("losses", 0))
+                pts_for     = round(float(stats.get("avgPointsFor") or 0), 2)
+                pts_against = round(float(stats.get("avgPointsAgainst") or 0), 2)
+                net         = round(float(stats.get("differential") or 0), 2)
+
+                if wins == 0 and pts_for == 0:
+                    continue
+
+                c.execute("""
+                    INSERT OR REPLACE INTO team_stats
+                    (sport, season, team_name, wins, losses,
+                     pts_per_game, pts_allowed, net_rating, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, ("nfl", str(year), team_name, wins, losses,
+                      pts_for, pts_against, net, "espn_core"))
+                saved  += 1
+                loaded += 1
+                time.sleep(0.2)
+
+            except Exception as e:
+                print(f"  NFL {team_name} {year} error: {e}")
+
+        print(f"  NFL {year}: {loaded} teams loaded")
+
+    conn.commit()
+    conn.close()
+    print(f"NFL backfill complete: {saved} records saved")
 
 # ── NCAAF ───────────────────────────────────────────────────────────────
 

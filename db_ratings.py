@@ -55,14 +55,23 @@ def get_db_net_rating(team_name: str, sport: str) -> float:
             continue
 
         # Use stored net rating if available, otherwise derive from pts
-        if net_rating and net_rating != 0.0:
-            rating = net_rating
-        elif pts_per_game and pts_allowed:
-            rating = pts_per_game - pts_allowed
+        if sport.lower() == "nfl":
+            # NFL net_rating is total point differential — convert to per game
+            if pts_per_game and pts_allowed:
+                rating = round(pts_per_game - pts_allowed, 2)
+            elif net_rating and games > 0:
+                rating = round(net_rating / games, 2)
+            else:
+                win_pct = wins / games if games > 0 else 0.5
+                rating  = (win_pct - 0.5) * 20
         else:
-            # Derive from win % as proxy
-            win_pct = wins / games if games > 0 else 0.5
-            rating  = (win_pct - 0.5) * 20  # scale to approx net rating range
+            if net_rating and net_rating != 0.0:
+                rating = net_rating
+            elif pts_per_game and pts_allowed:
+                rating = pts_per_game - pts_allowed
+            else:
+                win_pct = wins / games if games > 0 else 0.5
+                rating  = (win_pct - 0.5) * 20  # scale to approx net rating range
             
         w = weights[i] if i < len(weights) else 0.05
         weighted_sum  += rating * w
