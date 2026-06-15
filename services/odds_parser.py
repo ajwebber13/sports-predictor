@@ -1,12 +1,25 @@
 """
 services/odds_parser.py
-Fetches live odds from ESPN free API — no API key needed.
-Replaces The Odds API. Same output format, all sports supported.
+Primary: The Odds API (real DraftKings/FanDuel lines)
+Fallback: ESPN free API (no key needed)
+Same output format for all downstream code.
 """
 import requests
+import os
 from datetime import datetime, timezone, timedelta
 
 CENTRAL_OFFSET = -5  # CDT
+API_KEY        = os.getenv("ODDS_API_KEY", "")
+ODDS_API_BASE  = "https://api.the-odds-api.com/v4"
+
+ODDS_API_SPORT_KEYS = {
+    "nfl":   "americanfootball_nfl",
+    "ncaaf": "americanfootball_ncaaf",
+    "nba":   "basketball_nba",
+    "ncaab": "basketball_ncaab",
+    "ncaaw": "basketball_wncaab",
+    "wnba":  "basketball_wnba",
+}
 
 ESPN_ENDPOINTS = {
     "nfl":   "football/nfl",
@@ -21,8 +34,8 @@ ESPN_BASE = "http://site.api.espn.com/apis/site/v2/sports"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Accept": "application/json",
-    "Referer": "https://www.espn.com/",
+    "Accept":     "application/json",
+    "Referer":    "https://www.espn.com/",
 }
 
 
@@ -30,31 +43,71 @@ def _get_today_ct():
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
 
 
-def get_live_odds(sport: str = "nba") -> list:
-    """
-    Fetch today's games with moneyline odds from ESPN free API.
-    Returns same format as The Odds API so all downstream code works unchanged.
-    """
-    endpoint = ESPN_ENDPOINTS.get(sport)
-    if not endpoint:
-        print(f"Unknown sport: {sport}")
+# ── THE ODDS API (Primary) ───────────────────────────────────────────────
+
+def get_odds_api(sport: str) -> list:
+    """Pull live moneyline odds from The Odds API — DraftKings/FanDuel lines."""
+    if not API_KEY:
         return []
 
-    url = f"{ESPN_BASE}/{endpoint}/scoreboard"
+    sport_key = ODDS_API_SPORT_KEYS.get(sport)
+    if not sport_key:
+        return []
+
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(
+            f"{ODDS_API_BASE}/sports/{sport_key}/odds",
+            params={
+                "apiKey":     API_KEY,
+                "regions":    "us",
+                "markets":    "h2h,spreads,totals",
+                "bookmakers": "draftkings,fanduel",
+                "oddsFormat": "american",
+            },
+            timeout=10
+        )
         r.raise_for_status()
         data = r.json()
     except Exception as e:
-        print(f"ESPN odds fetch error ({sport}): {e}")
+        print(f"Odds API error ({sport}): {e}")
         return []
 
-    today_ct = _get_today_ct()
-    games    = []
+    games = []
+    for game in data:
+        games.append({
+            "home_team":     game.get("home_team", ""),
+            "away_team":     game.get("away_team", ""),
+            "commence_time": game.get("commence_time", ""),
+            "event_id":      game.get("id", ""),
+            "bookmakers":    game.get("bookmakers", []),
+        })
 
+    print(f"Odds API returned {len(games)} game(s) for {sport}")
+    return games
+
+
+# ── ESPN FALLBACK ────────────────────────────────────────────────────────
+
+def get_espn_odds(sport: str) -> list:
+    """Pull today's games from ESPN free API — fallback when Odds API unavailable."""
+    endpoint = ESPN_ENDPOINTS.get(sport)
+    if not endpoint:
+        return []
+
+    url      = f"{ESPN_BASE}/{endpoint}/scoreboard"
+    today_ct = _get_today_ct()
+
+    try:
+        r    = requests.get(url, headers=HEADERS, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        print(f"ESPN fallback error ({sport}): {e}")
+        return []
+
+    games = []
     for event in data.get("events", []):
         try:
-            # Date filter — today only
             game_date = event.get("date", "")
             if game_date:
                 utc_dt     = datetime.fromisoformat(game_date.replace("Z", "+00:00"))
@@ -62,7 +115,6 @@ def get_live_odds(sport: str = "nba") -> list:
                 if central_dt.date() != today_ct:
                     continue
 
-            # Skip completed games
             status = event.get("status", {}).get("type", {}).get("name", "")
             if any(x in status for x in ["Final", "STATUS_FINAL"]):
                 continue
@@ -77,15 +129,13 @@ def get_live_odds(sport: str = "nba") -> list:
             home_name = home["team"]["displayName"]
             away_name = away["team"]["displayName"]
 
-            # Pull moneyline odds from ESPN
-            odds_data = comp.get("odds", [{}])
-            odds_obj  = odds_data[0] if odds_data else {}
-            home_ml   = odds_obj.get("homeTeamOdds", {}).get("moneyLine") or -110
-            away_ml   = odds_obj.get("awayTeamOdds", {}).get("moneyLine") or -110
-            spread    = odds_obj.get("spread", 0)
+            odds_data  = comp.get("odds", [{}])
+            odds_obj   = odds_data[0] if odds_data else {}
+            home_ml    = odds_obj.get("homeTeamOdds", {}).get("moneyLine") or -110
+            away_ml    = odds_obj.get("awayTeamOdds", {}).get("moneyLine") or -110
+            spread     = odds_obj.get("spread", 0)
             over_under = odds_obj.get("overUnder", 0)
 
-            # Format to match Odds API structure exactly
             games.append({
                 "home_team":     home_name,
                 "away_team":     away_name,
@@ -105,7 +155,7 @@ def get_live_odds(sport: str = "nba") -> list:
                         {
                             "key": "spreads",
                             "outcomes": [
-                                {"name": home_name, "point": spread,         "price": -110},
+                                {"name": home_name, "point": spread, "price": -110},
                                 {"name": away_name, "point": -spread if spread else 0, "price": -110},
                             ]
                         },
@@ -119,20 +169,34 @@ def get_live_odds(sport: str = "nba") -> list:
                     ]
                 }]
             })
-
-        except Exception as e:
-            print(f"  Parse error: {e}")
+        except Exception:
             continue
 
-    print(f"ESPN returned {len(games)} game(s) for {sport}")
+    print(f"ESPN fallback returned {len(games)} game(s) for {sport}")
     return games
 
 
+# ── MAIN FUNCTION ────────────────────────────────────────────────────────
+
+def get_live_odds(sport: str = "nba") -> list:
+    """
+    Primary: The Odds API (real DraftKings/FanDuel lines)
+    Fallback: ESPN free API
+    """
+    # Try Odds API first
+    if API_KEY:
+        games = get_odds_api(sport)
+        if games:
+            return games
+        print(f"  Odds API empty for {sport} — falling back to ESPN")
+
+    # Fall back to ESPN
+    return get_espn_odds(sport)
+
+
+# ── HELPERS ──────────────────────────────────────────────────────────────
+
 def parse_moneyline(game: dict) -> dict:
-    """
-    Extract moneyline implied probabilities.
-    Returns { home_team: implied_prob, away_team: implied_prob } or None.
-    """
     home_team  = game.get("home_team", "")
     away_team  = game.get("away_team", "")
     home_probs = []
