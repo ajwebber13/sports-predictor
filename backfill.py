@@ -36,42 +36,75 @@ def backfill_nba(seasons: list):
     c     = conn.cursor()
     saved = 0
 
-    for year in seasons:
-        season_str = f"{year-1}-{str(year)[2:]}"
-        url        = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams"
+    NBA_TEAM_IDS = {
+        "Atlanta Hawks": "1", "Boston Celtics": "2", "Brooklyn Nets": "17",
+        "Charlotte Hornets": "30", "Chicago Bulls": "4", "Cleveland Cavaliers": "5",
+        "Dallas Mavericks": "6", "Denver Nuggets": "7", "Detroit Pistons": "8",
+        "Golden State Warriors": "9", "Houston Rockets": "10", "Indiana Pacers": "11",
+        "Los Angeles Clippers": "12", "Los Angeles Lakers": "13",
+        "Memphis Grizzlies": "29", "Miami Heat": "14", "Milwaukee Bucks": "15",
+        "Minnesota Timberwolves": "16", "New Orleans Pelicans": "3",
+        "New York Knicks": "18", "Oklahoma City Thunder": "25",
+        "Orlando Magic": "19", "Philadelphia 76ers": "20", "Phoenix Suns": "21",
+        "Portland Trail Blazers": "22", "Sacramento Kings": "23",
+        "San Antonio Spurs": "24", "Toronto Raptors": "28",
+        "Utah Jazz": "26", "Washington Wizards": "27",
+    }
+
+    # ESPN only returns current season data per team
+    # Pull once and store for current season
+    current_season = f"{CURRENT_YEAR-1}-{str(CURRENT_YEAR)[2:]}"
+    print(f"  Pulling current season stats ({current_season})...")
+
+    for team_name, team_id in NBA_TEAM_IDS.items():
+        url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{team_id}"
         try:
-            r     = requests.get(url, headers=HEADERS, timeout=10)
-            data  = r.json()
-            teams = data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+            r    = requests.get(url, headers=HEADERS, timeout=10)
+            data = r.json()
+            team = data.get("team", {})
 
-            for entry in teams:
-                team         = entry.get("team", {})
-                name         = team.get("displayName", "")
-                record_items = team.get("record", {}).get("items", [])
-                wins = losses = 0
-                for item in record_items:
-                    if item.get("type") == "total":
-                        stats  = {s["name"]: s["value"] for s in item.get("stats", [])}
-                        wins   = int(stats.get("wins", 0))
-                        losses = int(stats.get("losses", 0))
-                if not name:
-                    continue
-                c.execute("""
-                    INSERT OR REPLACE INTO team_stats
-                    (sport, season, team_name, wins, losses, source)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, ("nba", season_str, name, wins, losses, "espn"))
-                saved += 1
+            wins = losses = 0
+            pts_for = pts_against = net = 0.0
+            home_w = home_l = away_w = away_l = 0
 
-            print(f"  NBA {season_str}: {len(teams)} teams loaded")
-            time.sleep(1)
+            for item in team.get("record", {}).get("items", []):
+                stats = {s["name"]: s["value"] for s in item.get("stats", [])}
+                if item.get("type") == "total":
+                    wins        = int(stats.get("wins", 0))
+                    losses      = int(stats.get("losses", 0))
+                    pts_for     = round(float(stats.get("avgPointsFor") or 0), 2)
+                    pts_against = round(float(stats.get("avgPointsAgainst") or 0), 2)
+                    net         = round(float(stats.get("differential") or 0), 2)
+                elif item.get("type") == "home":
+                    home_w = int(stats.get("wins", 0))
+                    home_l = int(stats.get("losses", 0))
+                elif item.get("type") == "road":
+                    away_w = int(stats.get("wins", 0))
+                    away_l = int(stats.get("losses", 0))
+
+            # Only insert if we got real data
+            if wins == 0 and pts_for == 0:
+                print(f"  Skipping {team_name} — no stats returned")
+                continue
+
+            c.execute("""
+                INSERT OR REPLACE INTO team_stats
+                (sport, season, team_name, wins, losses,
+                 pts_per_game, pts_allowed, net_rating,
+                 home_wins, home_losses, away_wins, away_losses, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("nba", current_season, team_name, wins, losses,
+                  pts_for, pts_against, net,
+                  home_w, home_l, away_w, away_l, "espn"))
+            saved += 1
+            time.sleep(0.3)
 
         except Exception as e:
-            print(f"  NBA {season_str} error: {e}")
+            print(f"  NBA {team_name} error: {e}")
 
     conn.commit()
     conn.close()
-    print(f"NBA backfill complete: {saved} records saved")
+    print(f"NBA backfill complete: {saved} teams saved for {current_season}")
 
 
 # ── WNBA ────────────────────────────────────────────────────────────────
@@ -82,41 +115,67 @@ def backfill_wnba(seasons: list):
     c     = conn.cursor()
     saved = 0
 
-    for year in seasons:
-        url = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams"
+    WNBA_TEAM_IDS = {
+        "Atlanta Dream": "3", "Chicago Sky": "5", "Connecticut Sun": "6",
+        "Dallas Wings": "8", "Golden State Valkyries": "16",
+        "Indiana Fever": "11", "Las Vegas Aces": "14",
+        "Los Angeles Sparks": "13", "Minnesota Lynx": "9",
+        "New York Liberty": "20", "Phoenix Mercury": "23",
+        "Portland Fire": "17", "Seattle Storm": "26",
+        "Toronto Tempo": "18", "Washington Mystics": "30",
+    }
+
+    current_season = str(CURRENT_YEAR)
+    print(f"  Pulling current season stats ({current_season})...")
+
+    for team_name, team_id in WNBA_TEAM_IDS.items():
+        url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{team_id}"
         try:
-            r     = requests.get(url, headers=HEADERS, timeout=10)
-            data  = r.json()
-            teams = data.get("sports", [{}])[0].get("leagues", [{}])[0].get("teams", [])
+            r    = requests.get(url, headers=HEADERS, timeout=10)
+            data = r.json()
+            team = data.get("team", {})
 
-            for entry in teams:
-                team         = entry.get("team", {})
-                name         = team.get("displayName", "")
-                record_items = team.get("record", {}).get("items", [])
-                wins = losses = 0
-                for item in record_items:
-                    if item.get("type") == "total":
-                        stats  = {s["name"]: s["value"] for s in item.get("stats", [])}
-                        wins   = int(stats.get("wins", 0))
-                        losses = int(stats.get("losses", 0))
-                if not name:
-                    continue
-                c.execute("""
-                    INSERT OR REPLACE INTO team_stats
-                    (sport, season, team_name, wins, losses, source)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, ("wnba", str(year), name, wins, losses, "espn"))
-                saved += 1
+            wins = losses = 0
+            pts_for = pts_against = net = 0.0
+            home_w = home_l = away_w = away_l = 0
 
-            print(f"  WNBA {year}: {len(teams)} teams loaded")
-            time.sleep(1)
+            for item in team.get("record", {}).get("items", []):
+                stats = {s["name"]: s["value"] for s in item.get("stats", [])}
+                if item.get("type") == "total":
+                    wins        = int(stats.get("wins", 0))
+                    losses      = int(stats.get("losses", 0))
+                    pts_for     = round(float(stats.get("avgPointsFor") or 0), 2)
+                    pts_against = round(float(stats.get("avgPointsAgainst") or 0), 2)
+                    net         = round(float(stats.get("differential") or 0), 2)
+                elif item.get("type") == "home":
+                    home_w = int(stats.get("wins", 0))
+                    home_l = int(stats.get("losses", 0))
+                elif item.get("type") == "road":
+                    away_w = int(stats.get("wins", 0))
+                    away_l = int(stats.get("losses", 0))
+
+            if wins == 0 and pts_for == 0:
+                print(f"  Skipping {team_name} — no stats returned")
+                continue
+
+            c.execute("""
+                INSERT OR REPLACE INTO team_stats
+                (sport, season, team_name, wins, losses,
+                 pts_per_game, pts_allowed, net_rating,
+                 home_wins, home_losses, away_wins, away_losses, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, ("wnba", current_season, team_name, wins, losses,
+                  pts_for, pts_against, net,
+                  home_w, home_l, away_w, away_l, "espn"))
+            saved += 1
+            time.sleep(0.3)
 
         except Exception as e:
-            print(f"  WNBA {year} error: {e}")
+            print(f"  WNBA {team_name} error: {e}")
 
     conn.commit()
     conn.close()
-    print(f"WNBA backfill complete: {saved} records saved")
+    print(f"WNBA backfill complete: {saved} teams saved for {current_season}")
 
 
 # ── NFL ─────────────────────────────────────────────────────────────────
