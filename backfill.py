@@ -96,6 +96,8 @@ def backfill_nba(seasons: list):
 
 # ── WNBA ────────────────────────────────────────────────────────────────
 
+# ── WNBA ────────────────────────────────────────────────────────────────
+
 def backfill_wnba(seasons: list):
     print("\n📊 Backfilling WNBA...")
     conn  = get_conn()
@@ -103,13 +105,21 @@ def backfill_wnba(seasons: list):
     saved = 0
 
     WNBA_TEAM_IDS = {
-        "Atlanta Dream": "3", "Chicago Sky": "5", "Connecticut Sun": "6",
-        "Dallas Wings": "8", "Golden State Valkyries": "16",
-        "Indiana Fever": "11", "Las Vegas Aces": "14",
-        "Los Angeles Sparks": "13", "Minnesota Lynx": "9",
-        "New York Liberty": "20", "Phoenix Mercury": "23",
-        "Portland Fire": "17", "Seattle Storm": "26",
-        "Toronto Tempo": "18", "Washington Mystics": "30",
+        "Atlanta Dream":          "20",
+        "Chicago Sky":            "19",
+        "Connecticut Sun":        "18",
+        "Dallas Wings":           "3",
+        "Golden State Valkyries": "129689",
+        "Indiana Fever":          "5",
+        "Las Vegas Aces":         "17",
+        "Los Angeles Sparks":     "6",
+        "Minnesota Lynx":         "8",
+        "New York Liberty":       "9",
+        "Phoenix Mercury":        "11",
+        "Portland Fire":          "132052",
+        "Seattle Storm":          "14",
+        "Toronto Tempo":          "131935",
+        "Washington Mystics":     "16",
     }
 
     current_season = str(CURRENT_YEAR)
@@ -163,7 +173,6 @@ def backfill_wnba(seasons: list):
     conn.commit()
     conn.close()
     print(f"WNBA backfill complete: {saved} teams saved for {current_season}")
-
 
 # ── NFL ─────────────────────────────────────────────────────────────────
 
