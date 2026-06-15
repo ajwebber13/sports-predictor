@@ -44,7 +44,7 @@ def get_injuries(sport: str) -> dict:
 
     injuries = {}
     for team_entry in data.get("injuries", []):
-        team_name = team_entry.get("team", {}).get("displayName", "")
+        team_name = team_entry.get("displayName", "") or team_entry.get("team", {}).get("displayName", "")
         players   = []
         for item in team_entry.get("injuries", []):
             status = item.get("status", "")
