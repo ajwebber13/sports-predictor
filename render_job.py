@@ -126,6 +126,12 @@ def run_alerts(sport: str) -> bool:
         time.sleep(1)
 
         for bet in clean_bets:
+            # ── Log prediction to DB ──
+            try:
+                from database import log_prediction
+                log_prediction(bet, sport)
+            except Exception as e:
+                log(f"Prediction log error: {e}")
             game      = bet.get("game", "")
             game_time = game_times.get(game, "Time TBD")
 
