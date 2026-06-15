@@ -21,3 +21,7 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+      - name: Score yesterday's predictions
+        run: python auto_results.py yesterday
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
