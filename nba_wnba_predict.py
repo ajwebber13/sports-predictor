@@ -365,6 +365,25 @@ def run_league(league: str, stake: float = 100.0):
                 game["home_team"], game["away_team"], league
             )
             home_net_adj += h2h_edge
+            # ── Situational factors adjustment ──
+        try:
+            from database import get_conn
+            conn = get_conn()
+            c    = conn.cursor()
+            from datetime import datetime
+            today = datetime.now().strftime("%Y-%m-%d")
+            c.execute("""
+                SELECT total_adj FROM situational_factors
+                WHERE date = ? AND sport = ?
+                AND home_team = ? AND away_team = ?
+            """, (today, league, game["home_team"], game["away_team"]))
+            row = c.fetchone()
+            conn.close()
+            if row and row["total_adj"] != 0:
+                away_net_adj += row["total_adj"]
+                print(f"  Situational adj applied: {game['away_team']} {row['total_adj']}")
+        except Exception:
+            pass
             if h2h_edge != 0:
                 print(f"  H2H edge applied: {game['home_team']} {'+' if h2h_edge >= 0 else ''}{h2h_edge}")
         except Exception as e:
