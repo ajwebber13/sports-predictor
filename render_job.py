@@ -83,12 +83,26 @@ def run_alerts(sport: str) -> bool:
     bets = data.get("best_bets", [])
 
     # ── Auto-log today's odds to your own database ──
+  # ── Auto-log today's odds to your own database ──
     try:
         from services.odds_parser import get_live_odds
-        from database import log_odds
+        from database import log_odds, log_injuries, log_situational_factors
         games = get_live_odds(sport)
         log_odds(sport, games, source="odds_api" if games else "espn")
         log(f"Odds logged to database for {sport}")
+
+        # Update WNBA player stats daily
+        if sport == "wnba":
+            try:
+                from wnba_player_stats import update_recent
+                update_recent(days=2)
+                log("WNBA player stats updated")
+            except Exception as e:
+                log(f"WNBA player stats error: {e}")
+
+        # Log situational factors
+        log_situational_factors(sport, games)
+        log(f"Situational factors logged for {sport}")
     except Exception as e:
         log(f"Odds logging error: {e}")
 
@@ -192,7 +206,6 @@ def run(retry: bool = False):
             continue
 
         if retry:
-            # Only re-check sports that may have had no data at 9 AM
             try:
                 r = requests.get(SPORT_ENDPOINTS[sport], timeout=60)
                 data = r.json()
@@ -203,6 +216,18 @@ def run(retry: bool = False):
                     run_alerts(sport)
                 else:
                     log(f"{sport.upper()}: still no edges on retry — skipping")
+
+                # ── Capture closing line movement at noon ──
+                try:
+                    from services.odds_parser import get_live_odds
+                    from database import log_line_movement, update_closing_odds
+                    games = get_live_odds(sport)
+                    update_closing_odds(sport, games)
+                    log_line_movement(sport, games)
+                    log(f"Line movement captured for {sport}")
+                except Exception as e:
+                    log(f"Line movement error for {sport}: {e}")
+
             except Exception as e:
                 log(f"Retry check error for {sport}: {e}")
         else:
