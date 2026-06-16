@@ -72,18 +72,41 @@ INJURY_SEVERITY = {
 
 class InjuryReport:
     def __init__(self, team: str, player: str, position: str,
-                 status: str, description: str):
+                 status: str, description: str, league: str = "nba"):
         self.team        = team
         self.player      = player
         self.position    = position
         self.status      = status
         self.description = description
-        self.impact      = self._calc_impact()
+        self.league      = league.lower()
+        self.impact      = self._calc_impact()  # must be last
 
     def _calc_impact(self) -> float:
         pos_weight = POSITION_IMPACT.get(self.position.upper(), 0.5)
         sev_weight = INJURY_SEVERITY.get(self.status, 0.3)
-        return round(pos_weight * sev_weight, 3)
+        base_impact = round(pos_weight * sev_weight, 3)
+
+        try:
+            from player_profiles import get_player_impact
+            from database import get_conn
+            conn = get_conn()
+            c    = conn.cursor()
+            # Use LIKE for fuzzy name match to handle accents
+            c.execute("""
+                SELECT impact_score FROM player_profiles
+                WHERE sport = ? AND player_name LIKE ?
+                ORDER BY season DESC LIMIT 1
+            """, (self.league, f"%{self.player[:8]}%"))
+            row = c.fetchone()
+            conn.close()
+            if row and row["impact_score"] and row["impact_score"] > 0:
+                # Scale: impact 10 = 1.0 adj, impact 15 = 1.5 adj
+                scaled = round((row["impact_score"] / 10) * sev_weight, 3)
+                return max(scaled, base_impact)
+        except Exception:
+            pass
+
+        return base_impact
 
     def __repr__(self):
         return f"{self.player} ({self.position}) — {self.status}: {self.description}"
@@ -153,7 +176,7 @@ def fetch_injuries(league: str) -> dict[str, list[InjuryReport]]:
             status    = item.get("status", "Unknown")
             desc      = item.get("shortComment", item.get("longComment", ""))
 
-            report = InjuryReport(team_name, player, pos, status, desc)
+            report = InjuryReport(team_name, player, pos, status, desc, league)
             injuries.setdefault(team_name, []).append(report)
 
     return injuries
