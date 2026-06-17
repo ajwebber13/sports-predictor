@@ -195,6 +195,19 @@ def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
             )
             m_home = pred.team_a_win_prob
             m_away = pred.team_b_win_prob
+
+            # ── Ensemble blend ──
+            try:
+                from ensemble_model import predict_game
+                ens = predict_game(home, away, "nfl")
+                if ens and ens.get("ensemble_home_prob"):
+                    ens_home = ens["ensemble_home_prob"]
+                    ens_away = ens["ensemble_away_prob"]
+                    m_home   = round((m_home * 0.5) + (ens_home * 0.5), 1)
+                    m_away   = round((m_away * 0.5) + (ens_away * 0.5), 1)
+            except Exception:
+                pass
+
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
             if e_home >= min_edge:
@@ -305,8 +318,21 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
         i_home   = ml_probs.get(home, fallback) if ml_probs else fallback
         i_away   = ml_probs.get(away, fallback) if ml_probs else fallback
 
-        e_home = round(pred.home_win_prob - i_home, 2)
-        e_away = round(pred.away_win_prob - i_away, 2)
+        home_prob = pred.home_win_prob
+        away_prob = pred.away_win_prob
+
+        # ── Ensemble blend ──
+        try:
+            from ensemble_model import predict_game
+            ens = predict_game(home, away, "ncaab")
+            if ens and ens.get("ensemble_home_prob"):
+                home_prob = round((home_prob * 0.5) + (ens["ensemble_home_prob"] * 0.5), 1)
+                away_prob = round((away_prob * 0.5) + (ens["ensemble_away_prob"] * 0.5), 1)
+        except Exception:
+            pass
+
+        e_home = round(home_prob - i_home, 2)
+        e_away = round(away_prob - i_away, 2)
         label  = f"{away} @ {home}"
 
         if e_home >= min_edge:
