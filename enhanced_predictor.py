@@ -123,8 +123,8 @@ class EnhancedRatingEngine:
 
         raw = pts_r + hist_r + epa_r + success_r + ypp_r + to_r + pace_r
 
-        sos_adj    = 1.0 + (p.sos - 0.5) * self.sos_weight
-        inj_adj    = 1.0 + p.injury_adj * 0.08
+        sos_adj     = 1.0 + (p.sos - 0.5) * self.sos_weight
+        inj_adj     = 1.0 + p.injury_adj * 0.08
         trend_bonus = 1.0 + (p.history.trend_off / 100.0) * 0.02
 
         return round(raw * sos_adj * inj_adj * trend_bonus, 4)
@@ -216,13 +216,13 @@ class EnhancedPrediction:
     confidence:           ConfidenceScore = None
 
     def edge_label(self, edge):
-        if edge >= 10:  return "★★★ STRONG EDGE"
-        if edge >= 6:   return "★★  MODERATE EDGE"
-        if edge >= 3:   return "★   SLIGHT EDGE"
-        if edge <= -10: return "✗✗✗ STRONG FADE"
-        if edge <= -6:  return "✗✗  MODERATE FADE"
-        if edge <= -3:  return "✗   SLIGHT FADE"
-        return "─   NEUTRAL"
+        if edge >= 10:  return "STRONG EDGE"
+        if edge >= 6:   return "MODERATE EDGE"
+        if edge >= 3:   return "SLIGHT EDGE"
+        if edge <= -10: return "STRONG FADE"
+        if edge <= -6:  return "MODERATE FADE"
+        if edge <= -3:  return "SLIGHT FADE"
+        return "NEUTRAL"
 
     def to_dict(self):
         return {
@@ -257,9 +257,9 @@ class EnhancedPredictionEngine:
         roster_b=None,
     ) -> EnhancedPrediction:
 
-        league  = profile_a.league
-        engine  = EnhancedRatingEngine(league)
-        c       = _get_constants(league)
+        league = profile_a.league
+        engine = EnhancedRatingEngine(league)
+        c      = _get_constants(league)
 
         if context is None:
             context = GameContext()
@@ -269,14 +269,43 @@ class EnhancedPredictionEngine:
         off_b = engine.offensive_rating(profile_b)
         def_b = engine.defensive_rating(profile_b)
 
-        raw_a = engine.expected_score(profile_a, profile_b, is_home=a_is_home,    neutral_site=neutral_site)
+        raw_a = engine.expected_score(profile_a, profile_b, is_home=a_is_home, neutral_site=neutral_site)
         raw_b = engine.expected_score(profile_b, profile_a, is_home=not a_is_home, neutral_site=neutral_site)
 
         exp_a, exp_b = apply_context_adjustments(raw_a, raw_b, context)
-
         market_adj_a, market_adj_b = line_movement_signal(context)
         exp_a += market_adj_a * 0.3
         exp_b += market_adj_b * 0.3
+
+        # ── Advanced metrics adjustment for NFL ──────────────────
+        if league == "NFL":
+            try:
+                from database import get_conn
+                conn  = get_conn()
+                c_db  = conn.cursor()
+                c_db.execute("""
+                    SELECT off_rating, def_rating, pace FROM advanced_metrics
+                    WHERE sport = 'nfl' AND team_name = ?
+                    ORDER BY season DESC LIMIT 1
+                """, (profile_a.team_name,))
+                adv_a = c_db.fetchone()
+                c_db.execute("""
+                    SELECT off_rating, def_rating, pace FROM advanced_metrics
+                    WHERE sport = 'nfl' AND team_name = ?
+                    ORDER BY season DESC LIMIT 1
+                """, (profile_b.team_name,))
+                adv_b = c_db.fetchone()
+                conn.close()
+
+                if adv_a and adv_b and adv_a["off_rating"] > 0:
+                    pace      = (adv_a["pace"] + adv_b["pace"]) / 2
+                    adv_pts_a = round(((adv_a["off_rating"] + adv_b["def_rating"]) / 2 / 100) * pace, 1)
+                    adv_pts_b = round(((adv_b["off_rating"] + adv_a["def_rating"]) / 2 / 100) * pace, 1)
+                    # Blend 40% advanced metrics, 60% existing model
+                    exp_a = round((exp_a * 0.6) + (adv_pts_a * 0.4), 1)
+                    exp_b = round((exp_b * 0.6) + (adv_pts_b * 0.4), 1)
+            except Exception:
+                pass
 
         std      = c["score_std_dev"]
         scores_a = np.maximum(np.random.normal(exp_a, std, simulations), 0)
@@ -286,8 +315,8 @@ class EnhancedPredictionEngine:
 
         win_a   = np.sum(scores_a > scores_b) / n * 100
         win_b   = np.sum(scores_b > scores_a) / n * 100
-        cover_a = np.sum(margin > spread_line)  / n * 100
-        cover_b = np.sum(margin < spread_line)  / n * 100
+        cover_a = np.sum(margin > spread_line) / n * 100
+        cover_b = np.sum(margin < spread_line) / n * 100
         over_p  = np.sum((scores_a + scores_b) > over_under) / n * 100
         under_p = np.sum((scores_a + scores_b) < over_under) / n * 100
 
