@@ -306,6 +306,23 @@ class EnhancedPredictionEngine:
                     exp_b = round((exp_b * 0.6) + (adv_pts_b * 0.4), 1)
             except Exception:
                 pass
+            # ── Weather adjustment for NFL/CFB (outdoor games only) ──
+        if league in ("NFL", "CFB"):
+            try:
+                from weather_model import get_game_weather_impact
+                weather_sport = "nfl" if league == "NFL" else "ncaaf"
+                weather = get_game_weather_impact(profile_a.team_name, weather_sport)
+                if not weather.get("is_dome"):
+                    pts_adj  = weather.get("total_pts_adj", 0.0)
+                    pass_pen = weather.get("passing_penalty", 0.0)
+                    # Split total points adjustment between both teams
+                    exp_a += pts_adj / 2
+                    exp_b += pts_adj / 2
+                    # Passing penalty hits both teams' offense slightly
+                    exp_a *= (1.0 + pass_pen)
+                    exp_b *= (1.0 + pass_pen)
+            except Exception:
+                pass
 
         std      = c["score_std_dev"]
         scores_a = np.maximum(np.random.normal(exp_a, std, simulations), 0)
