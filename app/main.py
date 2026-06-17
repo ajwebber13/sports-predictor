@@ -225,6 +225,18 @@ def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
             except Exception:
                 pass
 
+            # ── Home/away splits adjustment ──
+            try:
+                from home_away_splits import get_split_adjustment
+                home_split = get_split_adjustment(home, "nfl", is_home=True)
+                away_split = get_split_adjustment(away, "nfl", is_home=False)
+                if home_split != 0 or away_split != 0:
+                    net_split = (home_split - away_split) * 0.01
+                    m_home = round(min(max(m_home / 100 + net_split, 0.01), 0.99) * 100, 1)
+                    m_away = round(100 - m_home, 1)
+            except Exception:
+                pass
+
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
             if e_home >= min_edge:
@@ -303,6 +315,18 @@ def ncaaf_edges(simulations: int = Query(default=10000), min_edge: float = Query
             except Exception:
                 pass
 
+            # ── Home/away splits adjustment ──
+            try:
+                from home_away_splits import get_split_adjustment
+                home_split = get_split_adjustment(home, "ncaaf", is_home=True)
+                away_split = get_split_adjustment(away, "ncaaf", is_home=False)
+                if home_split != 0 or away_split != 0:
+                    net_split = (home_split - away_split) * 0.01
+                    m_home = round(min(max(m_home / 100 + net_split, 0.01), 0.99) * 100, 1)
+                    m_away = round(100 - m_home, 1)
+            except Exception:
+                pass
+
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
             if e_home >= min_edge:
@@ -374,6 +398,18 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
             elo_pred  = predict_with_elo(home, away, "ncaab")
             home_prob = round((home_prob * 0.7) + (elo_pred["home_win_prob"] * 0.3), 1)
             away_prob = round((away_prob * 0.7) + (elo_pred["away_win_prob"] * 0.3), 1)
+        except Exception:
+            pass
+
+        # ── Home/away splits adjustment ──
+        try:
+            from home_away_splits import get_split_adjustment
+            home_split = get_split_adjustment(home, "ncaab", is_home=True)
+            away_split = get_split_adjustment(away, "ncaab", is_home=False)
+            if home_split != 0 or away_split != 0:
+                net_split = (home_split - away_split) * 0.01
+                home_prob = round(min(max(home_prob / 100 + net_split, 0.01), 0.99) * 100, 1)
+                away_prob = round(100 - home_prob, 1)
         except Exception:
             pass
 
