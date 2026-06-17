@@ -293,16 +293,56 @@ def implied_prob(odds: int) -> float:
     return abs(odds) / (abs(odds) + 100)
 
 
-def simulate_game(home_net: float, away_net: float, constants: dict, sims: int = 10000) -> tuple:
-    home_scores = np.random.normal(
-        constants["league_avg_pts"] + home_net + constants["home_adv_pts"],
-        constants["score_std_dev"], sims
-    )
-    away_scores = np.random.normal(
-        constants["league_avg_pts"] + away_net,
-        constants["score_std_dev"], sims
-    )
-    home_prob = round(np.sum(home_scores > away_scores) / sims, 3)
+def simulate_game(home_net: float, away_net: float, constants: dict, sims: int = 10000,
+                  home_team: str = "", away_team: str = "", league: str = "") -> tuple:
+    # Try to use advanced metrics for NBA and WNBA
+    home_pts = constants["league_avg_pts"] + home_net + constants["home_adv_pts"]
+    away_pts = constants["league_avg_pts"] + away_net
+
+    if home_team and away_team and league in ("NBA", "WNBA"):
+        try:
+            from database import get_conn
+            conn = get_conn()
+            c    = conn.cursor()
+            sport = league.lower()
+
+            c.execute("""
+                SELECT off_rating, def_rating, pace FROM advanced_metrics
+                WHERE sport = ? AND team_name = ?
+                ORDER BY season DESC LIMIT 1
+            """, (sport, home_team))
+            home_adv = c.fetchone()
+
+            c.execute("""
+                SELECT off_rating, def_rating, pace FROM advanced_metrics
+                WHERE sport = ? AND team_name = ?
+                ORDER BY season DESC LIMIT 1
+            """, (sport, away_team))
+            away_adv = c.fetchone()
+            conn.close()
+
+            if home_adv and away_adv and home_adv["off_rating"] > 0:
+                # Use real off/def ratings per 100 possessions
+                pace         = (home_adv["pace"] + away_adv["pace"]) / 2
+                home_off     = home_adv["off_rating"]
+                home_def     = home_adv["def_rating"]
+                away_off     = away_adv["off_rating"]
+                away_def     = away_adv["def_rating"]
+
+                # Expected pts = (team off + opp def) / 2 scaled by pace
+                home_pts = round(((home_off + away_def) / 2 / 100) * pace + constants["home_adv_pts"], 1)
+                away_pts = round(((away_off + home_def) / 2 / 100) * pace, 1)
+
+                # Apply net rating adjustments on top
+                home_pts += home_net
+                away_pts += away_net
+
+        except Exception:
+            pass
+
+    home_scores = np.random.normal(home_pts, constants["score_std_dev"], sims)
+    away_scores = np.random.normal(away_pts, constants["score_std_dev"], sims)
+    home_prob   = round(np.sum(home_scores > away_scores) / sims, 3)
     return home_prob, round(1 - home_prob, 3)
 
 
@@ -390,7 +430,12 @@ def run_league(league: str, stake: float = 100.0):
             pass
 
         # ── Monte Carlo simulation ────────────────────────────────
-        home_prob, away_prob = simulate_game(home_net_adj, away_net_adj, constants)
+        home_prob, away_prob = simulate_game(
+            home_net_adj, away_net_adj, constants,
+            home_team=game["home_team"],
+            away_team=game["away_team"],
+            league=league,
+        )
 
         # ── Ensemble model blend ──────────────────────────────────
         try:
