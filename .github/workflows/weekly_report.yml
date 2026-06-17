@@ -15,8 +15,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Retrain ensemble models
+        run: |
+          python ensemble_model.py train wnba
+          python ensemble_model.py train nba
+          python ensemble_model.py train ncaab
+          python ensemble_model.py train nfl
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+
+      - name: Commit updated models
+        run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git add models/
+          git diff --staged --quiet || git commit -m "Weekly ensemble retrain - $(date +'%Y-%m-%d')"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Send weekly model report
         run: python model_report.py telegram
         env:
