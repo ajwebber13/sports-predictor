@@ -231,15 +231,30 @@ def backfill_elo(sport: str):
     print(f"Elo backfill complete: {processed} games processed")
 
 
-def print_elo_leaderboard(sport: str, limit: int = 20):
+def print_elo_leaderboard(sport: str, limit: int = 20, hbcu_only: bool = False):
     conn = get_conn()
     c    = conn.cursor()
-    c.execute("""
-        SELECT team_name, elo, games_played FROM elo_ratings
-        WHERE sport = ?
-        ORDER BY elo DESC
-        LIMIT ?
-    """, (sport, limit))
+
+    if hbcu_only and sport.startswith("hbcu_"):
+        from hbcu_teams import get_team_registry
+        registry_key = sport
+        registry = get_team_registry(registry_key)
+        hbcu_names = list(registry.keys())
+        placeholders = ",".join("?" * len(hbcu_names))
+        c.execute(f"""
+            SELECT team_name, elo, games_played FROM elo_ratings
+            WHERE sport = ? AND team_name IN ({placeholders})
+            ORDER BY elo DESC
+            LIMIT ?
+        """, (sport, *hbcu_names, limit))
+    else:
+        c.execute("""
+            SELECT team_name, elo, games_played FROM elo_ratings
+            WHERE sport = ?
+            ORDER BY elo DESC
+            LIMIT ?
+        """, (sport, limit))
+
     rows = c.fetchall()
     conn.close()
 
@@ -286,11 +301,11 @@ if __name__ == "__main__":
                     print_elo_leaderboard(s, limit=10)
             else:
                 backfill_elo(sport)
-                print_elo_leaderboard(sport, limit=20)
+                print_elo_leaderboard(sport, limit=20, hbcu_only=sport.startswith("hbcu_"))
 
         elif cmd == "top":
             sport = sys.argv[2].lower() if len(sys.argv) > 2 else "wnba"
-            print_elo_leaderboard(sport, limit=20)
+            print_elo_leaderboard(sport, limit=20, hbcu_only=sport.startswith("hbcu_"))
 
         elif cmd == "predict":
             if len(sys.argv) < 5:
