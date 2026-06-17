@@ -104,10 +104,40 @@ class WNBAPredictionEngine:
         Calculate expected score using offensive/defensive ratings.
         Pace-adjusted with rest and home court modifiers.
         """
-        # Base: blend offensive output vs defensive suppression
-        off_factor = offense.pts_per_game / LEAGUE_AVG_PPG
-        def_factor = LEAGUE_AVG_PPG / max(defense.opp_pts_per_game, 60.0)
-        base = LEAGUE_AVG_PPG * off_factor * def_factor
+        # Try to use advanced metrics (off/def rating) from DB
+        try:
+            from database import get_conn
+            conn = get_conn()
+            c    = conn.cursor()
+            c.execute("""
+                SELECT off_rating, def_rating, pace
+                FROM advanced_metrics
+                WHERE sport = 'wnba' AND team_name = ?
+                ORDER BY season DESC LIMIT 1
+            """, (offense.team_name,))
+            off_row = c.fetchone()
+            c.execute("""
+                SELECT off_rating, def_rating, pace
+                FROM advanced_metrics
+                WHERE sport = 'wnba' AND team_name = ?
+                ORDER BY season DESC LIMIT 1
+            """, (defense.team_name,))
+            def_row = c.fetchone()
+            conn.close()
+
+            if off_row and def_row and off_row["off_rating"] > 0 and def_row["def_rating"] > 0:
+                # Use real off/def ratings per 100 possessions
+                pace       = (off_row["pace"] + def_row["pace"]) / 2
+                base_per100 = (off_row["off_rating"] + def_row["def_rating"]) / 2
+                base       = round((base_per100 / 100) * (pace / 100) * 100, 1)
+            else:
+                raise ValueError("No advanced metrics")
+
+        except Exception:
+            # Fallback to basic pts per game model
+            off_factor = offense.pts_per_game / LEAGUE_AVG_PPG
+            def_factor = LEAGUE_AVG_PPG / max(defense.opp_pts_per_game, 60.0)
+            base = LEAGUE_AVG_PPG * off_factor * def_factor
 
         # Home court
         if is_home:
