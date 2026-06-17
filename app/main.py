@@ -107,31 +107,37 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         i_home   = ml_probs.get(home, fallback) if ml_probs else fallback
         i_away   = ml_probs.get(away, fallback) if ml_probs else fallback
 
-        e_home = round(pred.home_win_prob - i_home, 2)
-        e_away = round(pred.away_win_prob - i_away, 2)
+          e_home = round(pred.home_win_prob - i_home, 2)
+          e_away = round(pred.away_win_prob - i_away, 2)
+
+          # Never recommend the underdog by model probability
+          if pred.home_win_prob < pred.away_win_prob:
+              e_home = -999  # disqualify home pick
+          else:
+              e_away = -999  # disqualify away pick
         label  = f"{away} @ {home}"
 
         home_inj = ", ".join(injuries.get(home, []))
         away_inj = ", ".join(injuries.get(away, []))
 
-        if e_home >= min_edge:
-            results.append({
-                "game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
-                "implied_prob": i_home, "edge": round(e_home / 100, 4),
-                "projected": f"{pred.projected_home}-{pred.projected_away}",
-                "home_record": pred.home_record, "away_record": pred.away_record,
-                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-                "home_injuries": home_inj, "away_injuries": away_inj,
-            })
-        if e_away >= min_edge:
-            results.append({
-                "game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
-                "implied_prob": i_away, "edge": round(e_away / 100, 4),
-                "projected": f"{pred.projected_home}-{pred.projected_away}",
-                "home_record": pred.home_record, "away_record": pred.away_record,
-                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-                "home_injuries": home_inj, "away_injuries": away_inj,
-            })
+      MAX_SANE_EDGE = 25.0  # Edge above this signals model/market disagreement, not value
+
+          if e_home >= min_edge and e_home <= MAX_SANE_EDGE:
+              results.append({
+                  "game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
+                  "implied_prob": i_home, "edge": round(e_home / 100, 4),
+                  "projected": f"{pred.projected_home}-{pred.projected_away}",
+                  "home_record": pred.home_record, "away_record": pred.away_record,
+                  "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
+                  "home_injuries": home_inj, "away_injuries": away_inj,
+              })
+          if e_away >= min_edge and e_away <= MAX_SANE_EDGE:
+              results.append({
+                  "game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
+                  "implied_prob": i_away, "edge": round(e_away / 100, 4),
+                  "projected": f"{pred.projected_home}-{pred.projected_away}",
+                  "home_record": pred.home_record, "away_record": pred.away_record,
+                  "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
 
     results.sort(key=lambda x: x["edge"], reverse=True)
     return {"count": len(results), "best_bets": results}
@@ -266,6 +272,17 @@ def ncaaf_edges(simulations: int = Query(default=10000), min_edge: float = Query
             )
             m_home = pred.team_a_win_prob
             m_away = pred.team_b_win_prob
+
+            # ── Ensemble blend ──
+            try:
+                from ensemble_model import predict_game
+                ens = predict_game(home, away, "ncaaf")
+                if ens and ens.get("ensemble_home_prob"):
+                    m_home = round((m_home * 0.5) + (ens["ensemble_home_prob"] * 0.5), 1)
+                    m_away = round((m_away * 0.5) + (ens["ensemble_away_prob"] * 0.5), 1)
+            except Exception:
+                pass
+
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
             if e_home >= min_edge:
