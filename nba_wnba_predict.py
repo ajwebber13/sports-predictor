@@ -450,6 +450,20 @@ def run_league(league: str, stake: float = 100.0):
                       f"| {game['away_team']} {round(away_prob*100,1)}%")
         except Exception:
             pass
+        # ── Elo rating blend ──────────────────────────────────────
+        try:
+            from elo_ratings import predict_with_elo
+            elo_pred = predict_with_elo(game["home_team"], game["away_team"], league.lower())
+            elo_home = elo_pred["home_win_prob"] / 100
+            elo_away = elo_pred["away_win_prob"] / 100
+            # Blend 70% current model, 30% Elo
+            home_prob = round((home_prob * 0.7) + (elo_home * 0.3), 3)
+            away_prob = round((away_prob * 0.7) + (elo_away * 0.3), 3)
+            print(f"  Elo blend: {game['home_team']} ({elo_pred['home_elo']}) "
+                  f"{round(home_prob*100,1)}% | {game['away_team']} ({elo_pred['away_elo']}) "
+                  f"{round(away_prob*100,1)}%")
+        except Exception:
+            pass
 
         # ── Records ───────────────────────────────────────────────────
         home_w, home_l = _get_record(game["home_team"], league, live_recs)
