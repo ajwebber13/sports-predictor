@@ -464,6 +464,22 @@ def run_league(league: str, stake: float = 100.0):
                   f"{round(away_prob*100,1)}%")
         except Exception:
             pass
+        # ── Home/away splits adjustment ─────────────────────────
+        try:
+            from home_away_splits import get_split_adjustment
+            home_split_adj = get_split_adjustment(game["home_team"], league.lower(), is_home=True)
+            away_split_adj = get_split_adjustment(game["away_team"], league.lower(), is_home=False)
+            if home_split_adj != 0 or away_split_adj != 0:
+                # Apply as a small probability nudge, scaled down since
+                # this is a secondary signal on top of everything else
+                net_split = (home_split_adj - away_split_adj) * 0.01
+                home_prob = round(min(max(home_prob + net_split, 0.01), 0.99), 3)
+                away_prob = round(1 - home_prob, 3)
+                print(f"  Split adj: {game['home_team']} home {home_split_adj:+.1f} | "
+                      f"{game['away_team']} away {away_split_adj:+.1f} -> "
+                      f"{round(home_prob*100,1)}%/{round(away_prob*100,1)}%")
+        except Exception:
+            pass
 
         # ── Records ───────────────────────────────────────────────────
         home_w, home_l = _get_record(game["home_team"], league, live_recs)
