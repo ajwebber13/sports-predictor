@@ -353,24 +353,28 @@ def run_league(league: str, stake: float = 100.0):
         game["home_net"] = ratings.get(game["home_team"], game["home_net"])
         game["away_net"] = ratings.get(game["away_team"], game["away_net"])
 
-        # ── Injury adjustments FIRST ──────────────────────────────────
+        # ── Injury adjustments ───────────────────────────────────
         intel        = get_matchup_intel(game["home_team"], game["away_team"], league)
         home_net_adj = game["home_net"] + intel["home_injury_adj"]
         away_net_adj = game["away_net"] + intel["away_injury_adj"]
 
-        # ── Head-to-head historical edge adjustment ──
+        # ── Head-to-head historical edge adjustment ──────────────
         try:
             from db_ratings import get_head_to_head_edge
             h2h_edge = get_head_to_head_edge(
                 game["home_team"], game["away_team"], league
             )
             home_net_adj += h2h_edge
-            # ── Situational factors adjustment ──
+            if h2h_edge != 0:
+                print(f"  H2H edge applied: {game['home_team']} {'+' if h2h_edge >= 0 else ''}{h2h_edge}")
+        except Exception:
+            pass
+
+        # ── Situational factors adjustment ───────────────────────
         try:
             from database import get_conn
-            conn = get_conn()
-            c    = conn.cursor()
-            from datetime import datetime
+            conn  = get_conn()
+            c     = conn.cursor()
             today = datetime.now().strftime("%Y-%m-%d")
             c.execute("""
                 SELECT total_adj FROM situational_factors
@@ -384,13 +388,23 @@ def run_league(league: str, stake: float = 100.0):
                 print(f"  Situational adj applied: {game['away_team']} {row['total_adj']}")
         except Exception:
             pass
-            if h2h_edge != 0:
-                print(f"  H2H edge applied: {game['home_team']} {'+' if h2h_edge >= 0 else ''}{h2h_edge}")
-        except Exception as e:
-            pass
 
+        # ── Monte Carlo simulation ────────────────────────────────
         home_prob, away_prob = simulate_game(home_net_adj, away_net_adj, constants)
-        # ─────────────────────────────────────────────────────────────
+
+        # ── Ensemble model blend ──────────────────────────────────
+        try:
+            from ensemble_model import predict_game
+            ens = predict_game(game["home_team"], game["away_team"], league.lower())
+            if ens and ens.get("ensemble_home_prob"):
+                ens_home  = ens["ensemble_home_prob"] / 100
+                ens_away  = ens["ensemble_away_prob"] / 100
+                home_prob = round((home_prob * 0.5) + (ens_home * 0.5), 3)
+                away_prob = round((away_prob * 0.5) + (ens_away * 0.5), 3)
+                print(f"  Ensemble blend: {game['home_team']} {round(home_prob*100,1)}% "
+                      f"| {game['away_team']} {round(away_prob*100,1)}%")
+        except Exception:
+            pass
 
         # ── Records ───────────────────────────────────────────────────
         home_w, home_l = _get_record(game["home_team"], league, live_recs)
