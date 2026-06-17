@@ -216,6 +216,15 @@ def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
             except Exception:
                 pass
 
+            # ── Elo blend ──
+            try:
+                from elo_ratings import predict_with_elo
+                elo_pred = predict_with_elo(home, away, "nfl")
+                m_home   = round((m_home * 0.7) + (elo_pred["home_win_prob"] * 0.3), 1)
+                m_away   = round((m_away * 0.7) + (elo_pred["away_win_prob"] * 0.3), 1)
+            except Exception:
+                pass
+
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
             if e_home >= min_edge:
@@ -285,6 +294,15 @@ def ncaaf_edges(simulations: int = Query(default=10000), min_edge: float = Query
             except Exception:
                 pass
 
+            # ── Elo blend ──
+            try:
+                from elo_ratings import predict_with_elo
+                elo_pred = predict_with_elo(home, away, "ncaaf")
+                m_home   = round((m_home * 0.7) + (elo_pred["home_win_prob"] * 0.3), 1)
+                m_away   = round((m_away * 0.7) + (elo_pred["away_win_prob"] * 0.3), 1)
+            except Exception:
+                pass
+
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
             if e_home >= min_edge:
@@ -347,6 +365,15 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
             if ens and ens.get("ensemble_home_prob"):
                 home_prob = round((home_prob * 0.5) + (ens["ensemble_home_prob"] * 0.5), 1)
                 away_prob = round((away_prob * 0.5) + (ens["ensemble_away_prob"] * 0.5), 1)
+        except Exception:
+            pass
+
+        # ── Elo blend ──
+        try:
+            from elo_ratings import predict_with_elo
+            elo_pred  = predict_with_elo(home, away, "ncaab")
+            home_prob = round((home_prob * 0.7) + (elo_pred["home_win_prob"] * 0.3), 1)
+            away_prob = round((away_prob * 0.7) + (elo_pred["away_win_prob"] * 0.3), 1)
         except Exception:
             pass
 
