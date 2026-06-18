@@ -31,15 +31,18 @@ LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_log.txt
 # NFL:  Preseason Aug, Regular Sep–Jan, Playoffs Jan, Super Bowl Feb
 # CFB:  Preseason Aug, Regular Aug–Dec, Bowls Dec–Jan
 SPORT_ACTIVE_MONTHS = {
-    "NBA":  [1, 2, 3, 4, 5, 6, 10, 11, 12],
-    "WNBA": [5, 6, 7, 8, 9, 10],
-    "NFL":  [1, 2, 8, 9, 10, 11, 12],
-    "CFB":  [1, 8, 9, 10, 11, 12],
+    "NBA":          [1, 2, 3, 4, 5, 6, 10, 11, 12],
+    "WNBA":         [5, 6, 7, 8, 9, 10],
+    "NFL":          [1, 2, 8, 9, 10, 11, 12],
+    "CFB":          [1, 8, 9, 10, 11, 12],
+    "HBCU_FB":      [8, 9, 10, 11],
+    "HBCU_MBB":     [11, 12, 1, 2, 3],
+    "HBCU_WBB":     [11, 12, 1, 2, 3],
 }
 
 # All supported leagues
-ALL_LEAGUES = ["NBA", "WNBA", "NFL", "CFB"]
-
+ALL_LEAGUES = ["NBA", "WNBA", "NFL", "CFB", "HBCU_FB", "HBCU_MBB", "HBCU_WBB"]
+ENABLED_LEAGUES = ["WNBA", "HBCU_FB", "HBCU_MBB", "HBCU_WBB"]
 # Leagues with working runners right now
 # NFL and CFB re-enable once debug session is done
 ENABLED_LEAGUES = ["WNBA"]
@@ -91,12 +94,25 @@ def run_cfb(stake: float):
     # _run_cfb(week="auto")
     log("CFB runner not yet enabled — pending debug session.")
 
+def run_hbcu_fb(stake: float):
+    from hbcu_predict import run_hbcu_sport
+    run_hbcu_sport("hbcu_football", send_telegram=True)
 
+def run_hbcu_mbb(stake: float):
+    from hbcu_predict import run_hbcu_sport
+    run_hbcu_sport("hbcu_mbb", send_telegram=True)
+
+def run_hbcu_wbb(stake: float):
+    from hbcu_predict import run_hbcu_sport
+    run_hbcu_sport("hbcu_wbb", send_telegram=True)
 RUNNERS = {
-    "NBA":  run_nba,
-    "WNBA": run_wnba,
-    "NFL":  run_nfl,
-    "CFB":  run_cfb,
+    "NBA":      run_nba,
+    "WNBA":     run_wnba,
+    "NFL":      run_nfl,
+    "CFB":      run_cfb,
+    "HBCU_FB":  run_hbcu_fb,
+    "HBCU_MBB": run_hbcu_mbb,
+    "HBCU_WBB": run_hbcu_wbb,
 }
 
 
