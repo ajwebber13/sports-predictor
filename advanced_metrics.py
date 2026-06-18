@@ -51,7 +51,13 @@ WNBA_TEAMS = {
 
 def fetch_team_stats(sport: str, team_id: str) -> dict:
     """Pull team statistics from ESPN."""
-    sport_path = "basketball/wnba" if sport == "wnba" else "basketball/nba"
+    sport_paths = {
+        "wnba": "basketball/wnba",
+        "nba": "basketball/nba",
+        "hbcu_mbb": "basketball/mens-college-basketball",
+        "hbcu_wbb": "basketball/womens-college-basketball",
+    }
+    sport_path = sport_paths.get(sport, "basketball/nba")
     url = f"https://site.api.espn.com/apis/site/v2/sports/{sport_path}/teams/{team_id}/statistics"
 
     try:
@@ -140,7 +146,13 @@ def fetch_opponent_pts(sport: str, team_id: str) -> float:
     Get opponent points per game for defensive rating.
     Uses ESPN team schedule results.
     """
-    sport_path = "basketball/wnba" if sport == "wnba" else "basketball/nba"
+    sport_paths = {
+        "wnba": "basketball/wnba",
+        "nba": "basketball/nba",
+        "hbcu_mbb": "basketball/mens-college-basketball",
+        "hbcu_wbb": "basketball/womens-college-basketball",
+    }
+    sport_path = sport_paths.get(sport, "basketball/nba")
     url = f"https://site.api.espn.com/apis/site/v2/sports/{sport_path}/teams/{team_id}/schedule"
 
     opp_pts_list = []
@@ -177,7 +189,16 @@ def backfill_advanced_metrics(sport: str):
     """Pull and store advanced metrics for all teams."""
     init_db()
 
-    team_map = WNBA_TEAMS if sport == "wnba" else NBA_TEAMS
+    if sport == "wnba":
+        team_map = WNBA_TEAMS
+    elif sport == "hbcu_mbb":
+        from hbcu_teams import HBCU_MBB_TEAMS
+        team_map = {info["id"]: name for name, info in HBCU_MBB_TEAMS.items()}
+    elif sport == "hbcu_wbb":
+        from hbcu_teams import HBCU_WBB_TEAMS
+        team_map = {info["id"]: name for name, info in HBCU_WBB_TEAMS.items()}
+    else:
+        team_map = NBA_TEAMS
     conn     = get_conn()
     c        = conn.cursor()
     saved    = 0
@@ -267,7 +288,6 @@ def print_advanced_metrics(sport: str):
 
 if __name__ == "__main__":
     import sys
-
     if len(sys.argv) > 1:
         arg = sys.argv[1].lower()
         if arg == "nba":
@@ -276,10 +296,16 @@ if __name__ == "__main__":
         elif arg == "wnba":
             backfill_advanced_metrics("wnba")
             print_advanced_metrics("wnba")
+        elif arg == "hbcu_mbb":
+            backfill_advanced_metrics("hbcu_mbb")
+            print_advanced_metrics("hbcu_mbb")
+        elif arg == "hbcu_wbb":
+            backfill_advanced_metrics("hbcu_wbb")
+            print_advanced_metrics("hbcu_wbb")
         elif arg == "all":
             backfill_advanced_metrics("wnba")
             backfill_advanced_metrics("nba")
             print_advanced_metrics("wnba")
             print_advanced_metrics("nba")
     else:
-        print("Usage: python advanced_metrics.py [nba|wnba|all]")
+        print("Usage: python advanced_metrics.py [nba|wnba|hbcu_mbb|hbcu_wbb|all]")
