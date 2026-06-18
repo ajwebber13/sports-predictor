@@ -42,7 +42,7 @@ ALL_LEAGUES = ["NBA", "WNBA", "NFL", "CFB"]
 
 # Leagues with working runners right now
 # NFL and CFB re-enable once debug session is done
-ENABLED_LEAGUES = ["NBA", "WNBA"]
+ENABLED_LEAGUES = ["WNBA"]
 
 
 # ─────────────────────────────────────────────
