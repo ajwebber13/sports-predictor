@@ -13,6 +13,22 @@ from datetime import datetime, timedelta
 PREDICTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "predictions")
 CENTRAL_OFFSET  = -5  # CDT
 
+# ─────────────────────────────────────────────────────────────
+# MODEL VERSION
+# Bump this when a major layer is added to the prediction engine.
+# v1 = basic Elo + power ratings
+# v2 = + ensemble (XGBoost/RF/LR) + injury + home/away splits + situational
+# v3 = + Elo recalibration + CLV tracker + HBCU factor (2026-06-19+)
+# ─────────────────────────────────────────────────────────────
+CURRENT_MODEL_VERSION = "v3"
+
+# Version boundary dates — used to tag existing prediction files
+VERSION_DATES = {
+    "v1": ("2026-01-01", "2026-06-09"),   # before ensemble
+    "v2": ("2026-06-10", "2026-06-18"),   # ensemble live, pre-CLV/Elo/HBCU
+    "v3": ("2026-06-19", "9999-12-31"),   # current: Elo + CLV + HBCU
+}
+
 ESPN_ENDPOINTS = {
     "nfl":   "http://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
     "ncaaf": "http://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
@@ -32,6 +48,20 @@ SEASON_TYPE_MAP = {
 
 def ensure_dir():
     os.makedirs(PREDICTIONS_DIR, exist_ok=True)
+
+
+def infer_version_from_date(date_str: str) -> str:
+    """Infer model version from game date for backfilling existing files."""
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        for version, (start, end) in VERSION_DATES.items():
+            s = datetime.strptime(start, "%Y-%m-%d").date()
+            e = datetime.strptime(end, "%Y-%m-%d").date()
+            if s <= d <= e:
+                return version
+    except Exception:
+        pass
+    return "v1"
 
 
 def extract_game_date(bet: dict) -> str:
@@ -63,12 +93,10 @@ def get_game_type(sport: str, event_id: str = "", home_team: str = "", away_team
         data   = r.json()
         events = data.get("events", [])
 
-        # Check season type at the top level first
-        season_type = data.get("season", {}).get("type", 2)
+        season_type  = data.get("season", {}).get("type", 2)
         default_type = SEASON_TYPE_MAP.get(season_type, "regular_season")
 
         for event in events:
-            # Match by event_id if available
             matched = False
             if event_id and event.get("id", "") == event_id:
                 matched = True
@@ -79,7 +107,6 @@ def get_game_type(sport: str, event_id: str = "", home_team: str = "", away_team
                     matched = True
 
             if matched:
-                # Get season type from the event itself
                 event_season_type = event.get("season", {}).get("type", season_type)
                 return SEASON_TYPE_MAP.get(event_season_type, default_type)
 
@@ -100,39 +127,35 @@ def save_prediction(bet: dict, sport: str):
     date_str  = extract_game_date(bet)
     event_id  = bet.get("event_id", "")
 
-    # Parse teams
     parts     = game.split(" @ ")
     away_team = parts[0] if len(parts) == 2 else ""
     home_team = parts[1] if len(parts) == 2 else ""
 
-    # Detect game type from ESPN
     game_type = get_game_type(sport, event_id, home_team, away_team)
 
-    # Extract predicted winner from bet label
     predicted_winner = bet_label.replace(" ML", "").replace(" +", "").replace(" -", "").strip()
 
-    # Build filename: date_sport_game.json
     safe_game = game.replace(" @ ", "_vs_").replace(" ", "_").replace("/", "-")
     filename  = f"{date_str}_{sport}_{safe_game}.json"
     filepath  = os.path.join(PREDICTIONS_DIR, filename)
 
-    # Don't overwrite if already saved
     if os.path.exists(filepath):
         print(f"  Already saved: {filename}")
         return
 
     data = {
-        "game":         game,
-        "sport":        sport,
-        "date":         date_str,
-        "event_id":     event_id,
-        "game_type":    game_type,
-        "bet":          bet_label,
-        "odds":         odds,
-        "model_prob":   bet.get("model_prob", 0),
-        "implied_prob": bet.get("implied_prob", 0),
-        "edge":         round(bet.get("edge", 0) * 100, 2),
-        "confidence":   bet.get("confidence", "N/A"),
+        "game":          game,
+        "sport":         sport,
+        "date":          date_str,
+        "event_id":      event_id,
+        "game_type":     game_type,
+        "model_version": CURRENT_MODEL_VERSION,   # ← NEW
+        "bet":           bet_label,
+        "odds":          odds,
+        "model_prob":    bet.get("model_prob", 0),
+        "implied_prob":  bet.get("implied_prob", 0),
+        "edge":          round(bet.get("edge", 0) * 100, 2),
+        "confidence":    bet.get("confidence", "N/A"),
         "prediction": {
             "predicted_winner": predicted_winner
         },
@@ -144,7 +167,7 @@ def save_prediction(bet: dict, sport: str):
     with open(filepath, "w") as f:
         json.dump(data, f, indent=2)
 
-    print(f"  Saved prediction: {filename} [{game_type}]")
+    print(f"  Saved prediction: {filename} [{game_type}] [{CURRENT_MODEL_VERSION}]")
 
 
 def save_all_predictions(bets: list, sport: str):
@@ -155,6 +178,37 @@ def save_all_predictions(bets: list, sport: str):
         save_prediction(bet, sport)
         saved += 1
     print(f"Saved {saved} predictions to data/predictions/")
+
+
+def backfill_versions():
+    """
+    One-time utility: adds model_version to existing prediction files
+    that don't have it, inferred from their game date.
+    Run once: python prediction_logger.py backfill
+    """
+    ensure_dir()
+    updated = 0
+    skipped = 0
+    for filename in sorted(os.listdir(PREDICTIONS_DIR)):
+        if not filename.endswith(".json"):
+            continue
+        filepath = os.path.join(PREDICTIONS_DIR, filename)
+        with open(filepath) as f:
+            data = json.load(f)
+
+        if data.get("model_version"):
+            skipped += 1
+            continue
+
+        date_str = data.get("date", "")
+        version  = infer_version_from_date(date_str)
+        data["model_version"] = version
+
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2)
+        updated += 1
+
+    print(f"  Backfill complete: {updated} files updated, {skipped} already tagged.")
 
 
 def list_pending_results() -> list:
@@ -196,6 +250,10 @@ def update_result(game: str, date: str, actual_winner: str) -> bool:
 if __name__ == "__main__":
     import sys
 
+    if len(sys.argv) >= 2 and sys.argv[1] == "backfill":
+        backfill_versions()
+        sys.exit(0)
+
     if len(sys.argv) >= 4 and sys.argv[1] == "update":
         game_name     = sys.argv[2]
         date_str      = sys.argv[3]
@@ -211,6 +269,6 @@ if __name__ == "__main__":
     else:
         print(f"\n{len(pending)} predictions need results:\n")
         for p in pending:
-            print(f"  {p['date']} | {p['game']} | [{p.get('game_type', 'unknown')}] | Bet: {p['bet']}")
+            print(f"  {p['date']} | {p['game']} | [{p.get('game_type', 'unknown')}] | [{p.get('model_version', 'untagged')}] | Bet: {p['bet']}")
         print("\nTo update a result manually, run:")
         print('  python prediction_logger.py update "Game Name" "2026-06-11" "Actual Winner"')

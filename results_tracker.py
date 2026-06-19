@@ -26,6 +26,20 @@ BASE_DIR        = os.path.dirname(__file__)
 PREDICTIONS_DIR = os.path.join(BASE_DIR, "data", "predictions")
 RESULTS_LOG     = os.path.join(BASE_DIR, "results_log.json")
 
+# Version boundary dates — mirrors prediction_logger.py
+# Update these whenever you bump CURRENT_MODEL_VERSION
+VERSION_DATES = {
+    "v1": ("2026-01-01", "2026-06-09"),   # basic Elo + power ratings
+    "v2": ("2026-06-10", "2026-06-18"),   # + ensemble + injury + home/away + situational
+    "v3": ("2026-06-19", "9999-12-31"),   # + Elo recalibration + CLV + HBCU (current)
+}
+
+VERSION_LABELS = {
+    "v1": "v1  Basic Elo + Power Ratings      [retired]",
+    "v2": "v2  Ensemble + Injury + Splits     [retired]",
+    "v3": "v3  Elo + CLV + HBCU              [current]",
+}
+
 
 # ─────────────────────────────────────────────────────────────
 # ESPN ENDPOINTS
@@ -45,7 +59,6 @@ ESPN_HEADERS = {
     "Accept": "application/json",
 }
 
-# Cache ESPN results per sport per date to avoid repeat calls
 _espn_cache: dict = {}
 
 
@@ -54,11 +67,6 @@ _espn_cache: dict = {}
 # ─────────────────────────────────────────────────────────────
 
 def fetch_espn_results(sport: str, date_str: str) -> list:
-    """
-    Fetch completed game results from ESPN for a given sport and date.
-    date_str format: YYYY-MM-DD
-    Returns list of { event_id, home_team, away_team, home_score, away_score, winner }
-    """
     cache_key = f"{sport}_{date_str}"
     if cache_key in _espn_cache:
         return _espn_cache[cache_key]
@@ -125,7 +133,6 @@ def fetch_espn_results(sport: str, date_str: str) -> list:
 
 
 def match_team_name(name: str, candidates: list) -> str:
-    """Fuzzy match a team name against ESPN results."""
     if not name or not candidates:
         return ""
     name_lower  = name.lower()
@@ -139,22 +146,15 @@ def match_team_name(name: str, candidates: list) -> str:
 
 
 def find_actual_winner(sport: str, date_str: str, home_team: str, away_team: str, event_id: str = "") -> str:
-    """
-    Look up the actual winner for a game from ESPN.
-    Uses event_id for exact match when available, falls back to fuzzy team name match.
-    Returns team name string or empty string if not found/not completed.
-    """
     games = fetch_espn_results(sport, date_str)
     if not games:
         return ""
 
-    # ── Exact match by event_id (preferred) ──
     if event_id:
         for g in games:
             if g.get("event_id") == event_id:
                 return g["winner"]
 
-    # ── Fallback: fuzzy team name match ──
     all_teams    = []
     for g in games:
         all_teams.extend([g["home_team"], g["away_team"]])
@@ -168,6 +168,24 @@ def find_actual_winner(sport: str, date_str: str, home_team: str, away_team: str
             return g["winner"]
 
     return ""
+
+
+# ─────────────────────────────────────────────────────────────
+# VERSION HELPER
+# ─────────────────────────────────────────────────────────────
+
+def infer_version_from_date(date_str: str) -> str:
+    """Infer model version from game date for results that predate version tagging."""
+    try:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        for version, (start, end) in VERSION_DATES.items():
+            s = datetime.strptime(start, "%Y-%m-%d").date()
+            e = datetime.strptime(end, "%Y-%m-%d").date()
+            if s <= d <= e:
+                return version
+    except Exception:
+        pass
+    return "v1"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -196,11 +214,6 @@ def result_exists(game: str, date_str: str, results: list) -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def auto_pull_results(results: list) -> list:
-    """
-    Scans all prediction JSONs in data/predictions/.
-    For each game missing actual_winner, fetches result from ESPN.
-    Updates the prediction JSON and appends to results_log.
-    """
     pattern = os.path.join(PREDICTIONS_DIR, "*.json")
     files   = sorted(glob.glob(pattern))
 
@@ -222,16 +235,16 @@ def auto_pull_results(results: list) -> list:
             except Exception:
                 continue
 
-        game       = pred.get("game", "")
-        sport      = pred.get("sport", "").lower()
-        date_str   = pred.get("date", "")
-        bet_label  = pred.get("bet", "")
-        model_prob = pred.get("model_prob", 50)
-        edge       = pred.get("edge", 0)
-        odds       = pred.get("odds", "N/A")
-        event_id   = pred.get("event_id", "")
+        game           = pred.get("game", "")
+        sport          = pred.get("sport", "").lower()
+        date_str       = pred.get("date", "")
+        bet_label      = pred.get("bet", "")
+        model_prob     = pred.get("model_prob", 50)
+        edge           = pred.get("edge", 0)
+        odds           = pred.get("odds", "N/A")
+        event_id       = pred.get("event_id", "")
+        model_version  = pred.get("model_version") or infer_version_from_date(date_str)
 
-        # Skip if actual result already filled in
         actual_winner = pred.get("actual_result", {}).get("actual_winner", "")
         if actual_winner:
             if not result_exists(game, date_str, results):
@@ -243,11 +256,10 @@ def auto_pull_results(results: list) -> list:
                 won = (predicted_winner.lower() in actual_winner.lower() or
                        actual_winner.lower() in predicted_winner.lower())
                 _append_result(results, pred, game, sport, date_str, bet_label,
-                               odds, model_prob, edge, actual_winner, won)
+                               odds, model_prob, edge, actual_winner, won, model_version)
                 new_count += 1
             continue
 
-        # Skip future games
         try:
             game_date = datetime.strptime(date_str, "%Y-%m-%d").date()
             if game_date >= today:
@@ -256,7 +268,6 @@ def auto_pull_results(results: list) -> list:
         except Exception:
             pass
 
-        # Parse teams
         parts     = game.split(" @ ")
         away_team = parts[0] if len(parts) == 2 else ""
         home_team = parts[1] if len(parts) == 2 else ""
@@ -265,7 +276,6 @@ def auto_pull_results(results: list) -> list:
             not_found += 1
             continue
 
-        # Fetch from ESPN (event_id used for exact match when available)
         winner = find_actual_winner(sport, date_str, home_team, away_team, event_id)
 
         if not winner:
@@ -273,12 +283,13 @@ def auto_pull_results(results: list) -> list:
             not_found += 1
             continue
 
-        # Update prediction JSON with actual result
         pred["actual_result"]["actual_winner"] = winner
         with open(filepath, "w") as f:
             json.dump(pred, f, indent=2)
 
-        # Determine W/L
+        parts            = game.split(" @ ")
+        away_team        = parts[0] if len(parts) == 2 else ""
+        home_team        = parts[1] if len(parts) == 2 else ""
         bet_on_home      = home_team in bet_label
         predicted_winner = home_team if bet_on_home else away_team
         won = (predicted_winner.lower() in winner.lower() or
@@ -289,7 +300,7 @@ def auto_pull_results(results: list) -> list:
 
         if not result_exists(game, date_str, results):
             _append_result(results, pred, game, sport, date_str, bet_label,
-                           odds, model_prob, edge, winner, won)
+                           odds, model_prob, edge, winner, won, model_version)
             new_count += 1
 
     print(f"\n  {new_count} new result(s) logged.")
@@ -302,13 +313,13 @@ def auto_pull_results(results: list) -> list:
 
 
 def _append_result(results, pred, game, sport, date_str, bet_label,
-                   odds, model_prob, edge, actual_winner, won):
-    """Build and append a result entry to results list."""
+                   odds, model_prob, edge, actual_winner, won, model_version="v1"):
     results.append({
         "game":          game,
         "sport":         sport.upper(),
         "date":          date_str,
         "event_id":      pred.get("event_id", ""),
+        "model_version": model_version,
         "bet":           bet_label,
         "odds":          odds,
         "model_prob":    model_prob,
@@ -320,6 +331,84 @@ def _append_result(results, pred, game, sport, date_str, bet_label,
 
 
 # ─────────────────────────────────────────────────────────────
+# ROI / UNITS CALCULATOR
+# ─────────────────────────────────────────────────────────────
+
+def parse_odds(odds_str) -> float:
+    """
+    Convert American odds string to decimal multiplier.
+    Returns None if unparseable.
+    Examples: '-110' → 0.909, '+150' → 1.5, 'N/A' → None
+    """
+    try:
+        odds = int(str(odds_str).replace(" ", ""))
+        if odds > 0:
+            return odds / 100.0
+        else:
+            return 100.0 / abs(odds)
+    except Exception:
+        return None
+
+
+def calc_roi(results: list) -> dict:
+    """
+    Calculate units won/lost and ROI assuming 1 unit flat bet per pick.
+    Uses American odds from each result. Falls back to -110 if missing.
+    Returns dict with units_won, units_lost, net_units, roi_pct, bets_with_odds.
+    """
+    DEFAULT_ODDS_RETURN = 100 / 110  # -110 juice standard
+
+    net_units      = 0.0
+    bets_with_odds = 0
+    bets_no_odds   = 0
+
+    for r in results:
+        odds_raw   = r.get("odds", "N/A")
+        multiplier = parse_odds(odds_raw)
+
+        if multiplier is None:
+            multiplier   = DEFAULT_ODDS_RETURN
+            bets_no_odds += 1
+        else:
+            bets_with_odds += 1
+
+        if r["won"]:
+            net_units += multiplier       # win: collect payout
+        else:
+            net_units -= 1.0              # loss: lose 1 unit staked
+
+    total    = len(results)
+    roi_pct  = (net_units / total * 100) if total > 0 else 0
+
+    return {
+        "net_units":      round(net_units, 2),
+        "roi_pct":        round(roi_pct, 2),
+        "bets_with_odds": bets_with_odds,
+        "bets_no_odds":   bets_no_odds,
+        "total":          total,
+    }
+
+
+def format_roi_block(results: list, label: str = "") -> str:
+    """Return a formatted ROI block string for a result set."""
+    if not results:
+        return ""
+
+    roi     = calc_roi(results)
+    net     = roi["net_units"]
+    sign    = "+" if net >= 0 else ""
+    arrow   = "📈" if net >= 0 else "📉"
+    caveat  = f"  ({roi['bets_no_odds']} picks used -110 default)" if roi["bets_no_odds"] else ""
+
+    lines = [
+        f"  {arrow} ROI:       {sign}{roi['roi_pct']:.1f}%  ({sign}{net:.2f} units on {roi['total']} bets)",
+    ]
+    if caveat:
+        lines.append(f"  ℹ️  {caveat.strip()}")
+    return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────
 # REPORT
 # ─────────────────────────────────────────────────────────────
 
@@ -327,6 +416,11 @@ def print_report(results: list):
     if not results:
         print("\n  No results logged yet. Run: python results_tracker.py")
         return
+
+    # Backfill version on any result that's missing it
+    for r in results:
+        if not r.get("model_version"):
+            r["model_version"] = infer_version_from_date(r.get("date", ""))
 
     print(f"\n{'═'*60}")
     print(f"  📊 RESULTS REPORT  |  Culture & Pulse Analytics")
@@ -338,44 +432,106 @@ def print_report(results: list):
     losses  = total - wins
     win_pct = (wins / total * 100) if total > 0 else 0
 
-    print(f"\n  OVERALL")
+    print(f"\n  OVERALL (all versions)")
     print(f"  {'─'*40}")
     print(f"  Record:    {wins}W - {losses}L  ({win_pct:.1f}%)")
     print(f"  Total:     {total} bets logged")
+    print(format_roi_block(results))
 
-    # By sport
-    sports = sorted(set(r["sport"] for r in results))
-    if len(sports) > 1:
-        print(f"\n  BY SPORT")
-        print(f"  {'─'*40}")
-        for sport in sports:
-            sr = [r for r in results if r["sport"] == sport]
-            sw = sum(1 for r in sr if r["won"])
-            sp = (sw / len(sr) * 100)
-            print(f"  {sport:<6}  {sw}W-{len(sr)-sw}L  ({sp:.0f}%)")
-
-    # By edge tier
-    print(f"\n  BY EDGE TIER")
+    # By model version
+    print(f"\n  BY MODEL VERSION")
     print(f"  {'─'*40}")
-    tiers = [
-        ("★★★ STRONG  (8%+)",  lambda r: r.get("edge", 0) >= 8),
-        ("★★ MODERATE (5-8%)", lambda r: 5 <= r.get("edge", 0) < 8),
-        ("★ SLIGHT    (<5%)",  lambda r: r.get("edge", 0) < 5),
-    ]
-    for label, fn in tiers:
-        tr = [r for r in results if fn(r)]
-        if not tr:
+    for version in ["v1", "v2", "v3"]:
+        vr = [r for r in results if r.get("model_version") == version]
+        if not vr:
             continue
-        tw = sum(1 for r in tr if r["won"])
-        tp = (tw / len(tr) * 100)
-        print(f"  {label}  {tw}W-{len(tr)-tw}L  ({tp:.0f}%)")
+        vw  = sum(1 for r in vr if r["won"])
+        vp  = (vw / len(vr) * 100)
+        tag = VERSION_LABELS.get(version, version)
+        roi = calc_roi(vr)
+        sign = "+" if roi["net_units"] >= 0 else ""
+        print(f"  {tag}")
+        print(f"  {'':4}{vw}W-{len(vr)-vw}L  ({vp:.0f}%)  |  {sign}{roi['net_units']:.2f}u  {sign}{roi['roi_pct']:.1f}% ROI  —  {len(vr)} games")
 
-    # Recent results
+    # Current version only summary
+    v3 = [r for r in results if r.get("model_version") == "v3"]
+    if v3:
+        v3w = sum(1 for r in v3 if r["won"])
+        v3p = (v3w / len(v3) * 100) if v3 else 0
+        print(f"\n  ★ CURRENT MODEL (v3) RECORD")
+        print(f"  {'─'*40}")
+        print(f"  Record:    {v3w}W - {len(v3)-v3w}L  ({v3p:.1f}%)")
+        print(f"  Total:     {len(v3)} games tracked")
+        print(format_roi_block(v3))
+
+        # By sport — v3 only
+        sports = sorted(set(r["sport"] for r in v3))
+        if len(sports) > 1:
+            print(f"\n  BY SPORT (v3 only)")
+            print(f"  {'─'*40}")
+            for sport in sports:
+                sr   = [r for r in v3 if r["sport"] == sport]
+                sw   = sum(1 for r in sr if r["won"])
+                sp   = (sw / len(sr) * 100)
+                roi  = calc_roi(sr)
+                sign = "+" if roi["net_units"] >= 0 else ""
+                print(f"  {sport:<6}  {sw}W-{len(sr)-sw}L  ({sp:.0f}%)  |  {sign}{roi['net_units']:.2f}u")
+
+        # By edge tier — v3 only
+        print(f"\n  BY EDGE TIER (v3 only)")
+        print(f"  {'─'*40}")
+        tiers = [
+            ("★★★ STRONG  (8%+)",  lambda r: r.get("edge", 0) >= 8),
+            ("★★ MODERATE (5-8%)", lambda r: 5 <= r.get("edge", 0) < 8),
+            ("★ SLIGHT    (<5%)",  lambda r: r.get("edge", 0) < 5),
+        ]
+        for label, fn in tiers:
+            tr = [r for r in v3 if fn(r)]
+            if not tr:
+                continue
+            tw   = sum(1 for r in tr if r["won"])
+            tp   = (tw / len(tr) * 100)
+            roi  = calc_roi(tr)
+            sign = "+" if roi["net_units"] >= 0 else ""
+            print(f"  {label}  {tw}W-{len(tr)-tw}L  ({tp:.0f}%)  |  {sign}{roi['net_units']:.2f}u")
+    else:
+        # Fall back to full history if v3 has no results yet
+        sports = sorted(set(r["sport"] for r in results))
+        if len(sports) > 1:
+            print(f"\n  BY SPORT")
+            print(f"  {'─'*40}")
+            for sport in sports:
+                sr   = [r for r in results if r["sport"] == sport]
+                sw   = sum(1 for r in sr if r["won"])
+                sp   = (sw / len(sr) * 100)
+                roi  = calc_roi(sr)
+                sign = "+" if roi["net_units"] >= 0 else ""
+                print(f"  {sport:<6}  {sw}W-{len(sr)-sw}L  ({sp:.0f}%)  |  {sign}{roi['net_units']:.2f}u")
+
+        print(f"\n  BY EDGE TIER")
+        print(f"  {'─'*40}")
+        tiers = [
+            ("★★★ STRONG  (8%+)",  lambda r: r.get("edge", 0) >= 8),
+            ("★★ MODERATE (5-8%)", lambda r: 5 <= r.get("edge", 0) < 8),
+            ("★ SLIGHT    (<5%)",  lambda r: r.get("edge", 0) < 5),
+        ]
+        for label, fn in tiers:
+            tr = [r for r in results if fn(r)]
+            if not tr:
+                continue
+            tw   = sum(1 for r in tr if r["won"])
+            tp   = (tw / len(tr) * 100)
+            roi  = calc_roi(tr)
+            sign = "+" if roi["net_units"] >= 0 else ""
+            print(f"  {label}  {tw}W-{len(tr)-tw}L  ({tp:.0f}%)  |  {sign}{roi['net_units']:.2f}u")
+
+    # Last 5 — always from full history
     print(f"\n  LAST 5 BETS")
     print(f"  {'─'*40}")
     for r in results[-5:][::-1]:
         icon = "✅" if r["won"] else "❌"
-        print(f"  {icon} {r['date']}  {r['game'][:35]:<35}  {r['bet']}")
+        ver  = r.get("model_version", "??")
+        print(f"  {icon} {r['date']}  [{ver}]  {r['game'][:32]:<32}  {r['bet']}")
 
     print(f"\n{'═'*60}\n")
 
