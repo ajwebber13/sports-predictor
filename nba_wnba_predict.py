@@ -44,7 +44,7 @@ NBA_CONSTANTS   = {"league_avg_pts": 113.0, "home_adv_pts": 3.0, "score_std_dev"
 WNBA_CONSTANTS  = {"league_avg_pts":  82.0, "home_adv_pts": 3.0, "score_std_dev": 10.0}
 NCAAB_CONSTANTS = {"league_avg_pts":  72.0, "home_adv_pts": 3.5, "score_std_dev": 10.0}
 
-MIN_WIN_PROB = 0.45
+MIN_WIN_PROB = 0.55   # raised from 0.45 — calibration shows sub-55% picks lose money
 
 ODDS_API_SPORT_KEYS = {
     "NBA":   "basketball_nba",
@@ -96,22 +96,23 @@ NBA_NET_RATINGS = {
     "Washington Wizards":      -10.2,
 }
 
+# Updated June 19 2026 — cross-referenced against actual splits data
 WNBA_NET_RATINGS = {
     "Minnesota Lynx":           8.2,
-    "Atlanta Dream":            5.1,
-    "Dallas Wings":             4.8,
-    "Indiana Fever":            3.9,
-    "Portland Fire":            3.2,
-    "Golden State Valkyries":   2.7,
-    "Las Vegas Aces":           2.4,
-    "Washington Mystics":       0.5,
-    "Chicago Sky":             -1.2,
-    "Toronto Tempo":           -1.8,
+    "New York Liberty":         6.1,
+    "Seattle Storm":            4.8,
+    "Las Vegas Aces":           3.9,
+    "Atlanta Dream":            3.1,
+    "Indiana Fever":            2.8,
+    "Dallas Wings":             2.4,
+    "Portland Fire":            2.1,
+    "Connecticut Sun":          1.8,
+    "Chicago Sky":             -0.8,
+    "Washington Mystics":      -1.4,
     "Los Angeles Sparks":      -2.1,
-    "Phoenix Mercury":         -3.4,
-    "Seattle Storm":           -4.6,
-    "New York Liberty":        -5.2,
-    "Connecticut Sun":        -16.0,
+    "Toronto Tempo":           -2.4,
+    "Phoenix Mercury":         -3.1,
+    "Golden State Valkyries":  -1.5,
 }
 
 NCAAB_NET_RATINGS = {}

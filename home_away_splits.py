@@ -49,8 +49,7 @@ def build_splits(sport: str):
     conn = get_conn()
     c    = conn.cursor()
 
-    # Clear old data for this sport before rebuilding, so removed/filtered
-    # teams (exhibitions, junk entries) don't linger from previous runs
+    # Clear old data for this sport before rebuilding
     c.execute("DELETE FROM home_away_splits WHERE sport = ?", (sport,))
     conn.commit()
 
@@ -68,7 +67,6 @@ def build_splits(sport: str):
 
     rows = [r for r in raw_rows if not is_exhibition(r["home_team"]) and not is_exhibition(r["away_team"])]
 
-    # Build per-team home and away margin lists
     team_data = {}
 
     for row in rows:
@@ -99,7 +97,7 @@ def build_splits(sport: str):
         away_games = d["away_games"]
 
         if home_games == 0 or away_games == 0:
-            continue  # need both splits to compute a meaningful gap
+            continue
 
         home_avg = round(sum(d["home_margins"]) / home_games, 2)
         away_avg = round(sum(d["away_margins"]) / away_games, 2)
@@ -133,11 +131,13 @@ def get_split_adjustment(team_name: str, sport: str, is_home: bool) -> float:
     Returns a point adjustment based on how this team performs
     relative to a neutral expectation when home vs away.
 
-    A positive home_away_gap means the team plays much better at
-    home than away (or vice versa if negative). We apply half the
-    gap as an adjustment since generic home court advantage already
-    captures part of this signal -- this layer adds the team-specific
-    extra/deficit on top.
+    FIX 1: Minimum sample raised from 5 to 15 games per split.
+            Prevents expansion teams (Golden State Valkyries) from
+            getting outsized adjustments on tiny samples.
+
+    FIX 2: Confidence weight scales adjustment by sample size.
+            15-29 games = partial weight. 30+ games = full weight.
+            Stops noisy early-season data from dominating the signal.
     """
     conn = get_conn()
     c    = conn.cursor()
@@ -152,18 +152,22 @@ def get_split_adjustment(team_name: str, sport: str, is_home: bool) -> float:
     if not row:
         return 0.0
 
-    # Require a minimum sample size before trusting the split
-    if row["home_games"] < 5 or row["away_games"] < 5:
+    # Raised from 5 to 15 — need meaningful sample before trusting split
+    if row["home_games"] < 15 or row["away_games"] < 15:
         return 0.0
 
     gap = row["home_away_gap"]
 
-    # Half-weight the gap as the adjustment, applied in the
-    # direction of whichever split is relevant for this game
+    # Scale by sample size — full weight at 30+ games per split
+    sample = min(row["home_games"], row["away_games"])
+    confidence_weight = min(1.0, sample / 30)
+
+    adjustment = gap * 0.5 * confidence_weight
+
     if is_home:
-        return round(gap * 0.5, 2)
+        return round(adjustment, 2)
     else:
-        return round(-gap * 0.5, 2)
+        return round(-adjustment, 2)
 
 
 def print_leaderboard(sport: str, limit: int = 20):
@@ -183,15 +187,17 @@ def print_leaderboard(sport: str, limit: int = 20):
     print(f"\n{'='*85}")
     print(f"  {sport.upper()} HOME/AWAY SPLITS — biggest gaps first")
     print(f"{'='*85}")
-    print(f"  {'Team':<26} {'Home Avg':<10} {'Away Avg':<10} {'Gap':<8} {'Home%':<8} {'Away%'}")
-    print(f"  {'-'*80}")
+    print(f"  {'Team':<26} {'Home Avg':<10} {'Away Avg':<10} {'Gap':<8} {'Home%':<8} {'Away%':<8} {'H.Games':<9} {'A.Games'}")
+    print(f"  {'-'*85}")
     for r in rows:
         print(f"  {r['team_name']:<26} "
               f"{r['home_avg_margin']:<10} "
               f"{r['away_avg_margin']:<10} "
               f"{r['home_away_gap']:<8} "
               f"{round(r['home_win_pct']*100,1):<8} "
-              f"{round(r['away_win_pct']*100,1)}")
+              f"{round(r['away_win_pct']*100,1):<8} "
+              f"{r['home_games']:<9} "
+              f"{r['away_games']}")
     print(f"{'='*85}\n")
 
 
@@ -225,5 +231,6 @@ if __name__ == "__main__":
                 print(f"\n{team} ({sport.upper()})")
                 print(f"  Home adjustment: {home_adj:+.2f}")
                 print(f"  Away adjustment: {away_adj:+.2f}")
+                print(f"  Note: Returns 0.0 if team has <15 home or away games")
     else:
         print("Usage: python home_away_splits.py [build|top|check] [sport] [args]")
