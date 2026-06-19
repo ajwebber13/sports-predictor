@@ -221,6 +221,40 @@ def format_header(bets: list, sport: str) -> str:
         f"Full slate below 👇"
     )
 
+
+def format_slate_summary(bets: list, sport: str, suppressed: list = None) -> str:
+    """
+    Builds a single message showing every game on today's slate
+    with the pick, edge, and decision — sent before individual alerts.
+    """
+    emoji = sport_emoji(sport)
+    label = sport_label(sport)
+    today = get_today_ct().strftime("%B %d, %Y")
+
+    lines = [
+        f"{emoji} <b>Culture &amp; Pulse Picks</b>",
+        f"📅 {today} — {label} Slate\n",
+    ]
+
+    if bets:
+        for b in sorted(bets, key=lambda x: x.get("edge", 0), reverse=True):
+            game      = b.get("game", "")
+            bet_label = b.get("bet", "")
+            edge_pct  = round(b.get("edge", 0) * 100, 1)
+            stars     = "★★★" if edge_pct >= 15 else "★★" if edge_pct >= 8 else "★"
+            lines.append(f"✅ {game}")
+            lines.append(f"   {bet_label} | Edge +{edge_pct}% {stars}\n")
+    else:
+        lines.append("No qualifying edges found today.\n")
+
+    if suppressed:
+        lines.append(f"<i>{len(suppressed)} game(s) passed — below confidence threshold</i>")
+
+    lines.append("\nFull breakdown for each pick coming up 👇")
+
+    return "\n".join(lines)
+
+
 def format_alert(bet: dict, sport: str, game_time: str) -> str:
     emoji      = sport_emoji(sport)
     label      = sport_label(sport)
@@ -274,6 +308,21 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
         inj_lines += f"\n🚑 <b>{home_team} Out/Doubtful:</b> {home_injuries}"
     if away_injuries:
         inj_lines += f"\n🚑 <b>{away_team} Out/Doubtful:</b> {away_injuries}"
+
+    # ── Log opening odds for CLV tracking ──────────────────
+    try:
+        from clv_tracker import log_pick
+        bet_team = bet_label.replace(" ML", "").strip()
+        log_pick(
+            sport      = sport,
+            home_team  = home_team,
+            away_team  = away_team,
+            bet_team   = bet_team,
+            model_prob = model_prob,
+            edge       = edge_pct,
+        )
+    except Exception:
+        pass
 
     return (
         f"{emoji} <b>{label} — PICK ALERT</b>\n\n"
@@ -372,10 +421,12 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
 
     # ── FILTER CONTRADICTORY ALERTS ──
     clean_bets = []
+    suppressed = []
     for bet in bets:
         recommended_prob = get_recommended_prob(bet)
         if recommended_prob < 45:
             print(f"Skipping contradictory: {bet.get('game')} — {recommended_prob}%")
+            suppressed.append(bet)
             continue
         clean_bets.append(bet)
 
@@ -388,10 +439,11 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         )
         return
 
-    # ── SEND ALERTS ──
-    send_message(format_header(clean_bets, sport))
+    # ── SEND SLATE SUMMARY FIRST ──
+    send_message(format_slate_summary(clean_bets, sport, suppressed=suppressed))
     time.sleep(1)
 
+    # ── SEND INDIVIDUAL DETAILED ALERTS ──
     for bet in clean_bets:
         game      = bet.get("game", "")
         game_time = game_times.get(game, "Time TBD")
