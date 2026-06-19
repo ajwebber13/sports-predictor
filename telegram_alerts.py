@@ -175,13 +175,21 @@ def edge_label(edge_pct: float) -> str:
 
 
 def get_recommended_prob(bet: dict) -> float:
+    """
+    Returns the model's confidence in the PICKED team winning.
+    model_prob is always the HOME team win probability.
+    If we're betting away, confidence = 100 - model_prob.
+    """
     model_prob  = bet.get("model_prob", 50)
     game        = bet.get("game", "")
     bet_label   = bet.get("bet", "")
     parts       = game.split(" @ ")
     home_team   = parts[1] if len(parts) == 2 else ""
-    bet_on_home = home_team in bet_label
-    return model_prob if bet_on_home else round(100 - model_prob, 1)
+    bet_on_home = home_team.lower() in bet_label.lower()
+
+    # Confidence in the team we're actually betting on
+    pick_confidence = model_prob if bet_on_home else round(100 - model_prob, 1)
+    return pick_confidence
 
 
 def fmt_odds(odds) -> str:
@@ -422,10 +430,14 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
     # ── FILTER CONTRADICTORY ALERTS ──
     clean_bets = []
     suppressed = []
+    # Minimum confidence threshold — based on calibration data
+    # Sub-65% picks win at 28.6% historically. Not worth firing.
+    MIN_CONFIDENCE = 65
+
     for bet in bets:
         recommended_prob = get_recommended_prob(bet)
-        if recommended_prob < 45:
-            print(f"Skipping contradictory: {bet.get('game')} — {recommended_prob}%")
+        if recommended_prob < MIN_CONFIDENCE:
+            print(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}% (min {MIN_CONFIDENCE}%)")
             suppressed.append(bet)
             continue
         clean_bets.append(bet)
