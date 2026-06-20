@@ -3,6 +3,11 @@ render_job.py — Culture & Pulse Analytics
 Runs on Render cron schedule daily.
 Fires alerts for all active sports based on season gates.
 No PC required — runs entirely in the cloud.
+
+Flags:
+  --sport wnba       Run one specific sport only
+  --exclude wnba     Run all sports except the specified one
+  --retry            Noon retry run for missed morning picks
 """
 
 import os
@@ -18,7 +23,7 @@ API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
-SPORTS = ["nba", "wnba", "nfl", "ncaaf", "ncaab"]
+ALL_SPORTS = ["nba", "wnba", "nfl", "ncaaf", "ncaab"]
 
 SPORT_ENDPOINTS = {
     "nba":   f"{API_BASE}/nba/edges",
@@ -67,7 +72,6 @@ def send_telegram(text: str):
 
 # ─────────────────────────────────────────────────────────────
 # ALERT RUNNER
-# Returns True if alerts were sent, False if nothing fired
 # ─────────────────────────────────────────────────────────────
 
 def run_alerts(sport: str) -> bool:
@@ -82,16 +86,14 @@ def run_alerts(sport: str) -> bool:
 
     bets = data.get("best_bets", [])
 
-    # ── Auto-log today's odds to your own database ──
-  # ── Auto-log today's odds to your own database ──
+    # Auto-log today's odds to database
     try:
         from services.odds_parser import get_live_odds
         from database import log_odds, log_injuries, log_situational_factors
         games = get_live_odds(sport)
         log_odds(sport, games, source="odds_api" if games else "espn")
-        log(f"Odds logged to database for {sport}")
+        log(f"Odds logged for {sport}")
 
-        # Update WNBA player stats daily
         if sport == "wnba":
             try:
                 from wnba_player_stats import update_recent
@@ -100,7 +102,6 @@ def run_alerts(sport: str) -> bool:
             except Exception as e:
                 log(f"WNBA player stats error: {e}")
 
-        # Log situational factors
         log_situational_factors(sport, games)
         log(f"Situational factors logged for {sport}")
     except Exception as e:
@@ -119,33 +120,45 @@ def run_alerts(sport: str) -> bool:
 
     try:
         from telegram_alerts import (
-            format_header, format_alert, get_game_times
+            format_header, format_alert, get_game_times,
+            get_recommended_prob, format_slate_summary
         )
 
         game_times, game_times_raw = get_game_times(sport)
 
+        # ── Date filter: only today's games ──
+        from telegram_alerts import get_raw_time_for_bet, is_today_ct
         clean_bets = []
+        suppressed = []
         for bet in bets:
-            prob = bet.get("model_prob", 50)
-            if prob >= 55:
-                clean_bets.append(bet)
-            else:
-                log(f"Skipping low confidence: {bet.get('game')} — {prob}%")
+            raw_time = get_raw_time_for_bet(bet, game_times_raw)
+            if raw_time and not is_today_ct(raw_time):
+                log(f"Skipping stale game: {bet.get('game')} — {raw_time}")
+                continue
+
+            # Confidence filter — 65% minimum based on calibration data
+            recommended_prob = get_recommended_prob(bet)
+            if recommended_prob < 65:
+                log(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}%")
+                suppressed.append(bet)
+                continue
+
+            clean_bets.append(bet)
 
         if not clean_bets:
-            log("No bets met confidence threshold.")
+            log(f"No {sport.upper()} bets met confidence threshold.")
             return False
 
-        send_telegram(format_header(clean_bets, sport))
+        send_telegram(format_slate_summary(clean_bets, sport, suppressed=suppressed))
         time.sleep(1)
 
         for bet in clean_bets:
-            # ── Log prediction to DB ──
             try:
                 from database import log_prediction
                 log_prediction(bet, sport)
             except Exception as e:
                 log(f"Prediction log error: {e}")
+
             game      = bet.get("game", "")
             game_time = game_times.get(game, "Time TBD")
 
@@ -186,10 +199,11 @@ def run_results():
 # MAIN
 # ─────────────────────────────────────────────────────────────
 
-def run(retry: bool = False):
+def run(sports: list, retry: bool = False):
     log("══════════════════════════════════════════════")
     label = "Noon Retry" if retry else "Daily Run"
     log(f"Culture & Pulse — {label} — {datetime.now().strftime('%A %B %d, %Y')}")
+    log(f"Sports: {', '.join(s.upper() for s in sports)}")
     log("══════════════════════════════════════════════")
 
     wake_api()
@@ -200,24 +214,23 @@ def run(retry: bool = False):
         log(f"Could not import season gates: {e}")
         return
 
-    for sport in SPORTS:
+    for sport in sports:
         if not is_in_season(sport):
             log(f"{sport.upper()}: out of season — skipping")
             continue
 
         if retry:
             try:
-                r = requests.get(SPORT_ENDPOINTS[sport], timeout=60)
+                r    = requests.get(SPORT_ENDPOINTS[sport], timeout=60)
                 data = r.json()
                 bets = data.get("best_bets", [])
-                clean = [b for b in bets if b.get("model_prob", 0) >= 55]
-                if clean:
-                    log(f"{sport.upper()}: {len(clean)} pick(s) found on retry — sending alerts")
+                if any(b.get("model_prob", 0) >= 65 for b in bets):
+                    log(f"{sport.upper()}: picks found on retry — sending alerts")
                     run_alerts(sport)
                 else:
                     log(f"{sport.upper()}: still no edges on retry — skipping")
 
-                # ── Capture closing line movement at noon ──
+                # Capture closing line movement
                 try:
                     from services.odds_parser import get_live_odds
                     from database import log_line_movement, update_closing_odds
@@ -246,6 +259,20 @@ def run(retry: bool = False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--retry", action="store_true", help="Noon retry run for missed morning picks")
+    parser.add_argument("--sport",   type=str, default=None,
+                        help="Run one specific sport only (e.g. --sport wnba)")
+    parser.add_argument("--exclude", type=str, default=None,
+                        help="Exclude one sport from the run (e.g. --exclude wnba)")
+    parser.add_argument("--retry",   action="store_true",
+                        help="Noon retry run for missed morning picks")
     args = parser.parse_args()
-    run(retry=args.retry)
+
+    # Build sport list from flags
+    if args.sport:
+        sports = [args.sport.lower()]
+    elif args.exclude:
+        sports = [s for s in ALL_SPORTS if s != args.exclude.lower()]
+    else:
+        sports = ALL_SPORTS
+
+    run(sports=sports, retry=args.retry)
