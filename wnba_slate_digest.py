@@ -26,6 +26,12 @@ import requests
 import argparse
 from datetime import datetime, timezone, timedelta
 
+try:
+    from wnba_news_feed import fetch_all_headlines, get_game_news, get_general_news
+    NEWS_ENABLED = True
+except ImportError:
+    NEWS_ENABLED = False
+
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
@@ -461,15 +467,30 @@ def format_rest(rest_days) -> str:
     return f"{rest_days} days rest"
 
 
-def format_digest(games: list, predictions: dict, streaks: dict, star_notices: dict) -> str:
+def format_digest(games: list, predictions: dict, streaks: dict, star_notices: dict, all_news: list = None) -> str:
     today = get_today_ct().strftime("%B %d, %Y")
+    all_news    = all_news or []
+    used_titles = set()
+
     lines = [
-        "🏀 <b>C&amp;P Picks — WNBA Daily Slate</b>",
+        "🏀 <b>C&amp;P Picks — WNBA Morning Briefing</b>",
         f"📅 {today}",
         f"<b>{len(games)} game(s) today</b>",
-        "━━━━━━━━━━━━━━━━━━━━━━━━",
         "",
     ]
+
+    # ── GENERAL WNBA NEWS HEADER ──
+    if NEWS_ENABLED and all_news:
+        general_headlines = get_general_news(all_news, used_titles)
+        if general_headlines:
+            lines.append("📡 <b>Around the W</b>")
+            for h in general_headlines:
+                lines.append(h)
+                used_titles.add(h)
+            lines.append("")
+
+    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
+    lines.append("")
 
     if not games:
         lines.append("No WNBA games scheduled today.")
@@ -528,8 +549,16 @@ def format_digest(games: list, predictions: dict, streaks: dict, star_notices: d
 
         # Star player notices
         all_notices = away_notices + home_notices
-        for notice in all_notices[:3]:  # cap at 3 per game
+        for notice in all_notices[:3]:
             lines.append(notice)
+
+        # Game-specific news
+        if NEWS_ENABLED and all_news:
+            game_headlines = get_game_news(home, away, all_news)
+            for h in game_headlines:
+                if h not in used_titles:
+                    lines.append(h)
+                    used_titles.add(h)
 
         # Model prediction
         if pred:
@@ -622,9 +651,15 @@ def run_digest(dry_run: bool = False):
             star_notices[team_name] = notices
             print(f"  {team_name}: {len(notices)} notice(s)")
 
-    # 5. Format and send
+    # 5. Fetch news headlines
+    all_news = []
+    if NEWS_ENABLED:
+        print("Fetching news headlines...")
+        all_news = fetch_all_headlines()
+
+    # 6. Format and send
     print("Formatting digest...")
-    digest = format_digest(games, predictions, streaks, star_notices)
+    digest = format_digest(games, predictions, streaks, star_notices, all_news=all_news)
 
     if dry_run:
         print("\n--- DRY RUN OUTPUT ---")
