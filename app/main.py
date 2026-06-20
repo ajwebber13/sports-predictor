@@ -64,7 +64,11 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
 
 
 @app.get("/wnba/edges")
-def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
+def wnba_edges(
+    simulations:    int   = Query(default=10000),
+    min_edge:       float = Query(default=3.0),
+    include_totals: bool  = Query(default=True),
+):
     import sys, os
     sys.path.insert(0, os.path.abspath("."))
     from wnba_data import get_team_stats, TEAM_IDS, get_wnba_events
@@ -74,25 +78,36 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
     engine = WNBAPredictionEngine()
     events = get_wnba_events()
 
-    # ── Build real moneyline implied prob lookup ──
+    # ── Live moneyline + over/under from Odds API ──
     odds_games  = get_live_odds("wnba")
     odds_lookup = {}
+    ou_lookup   = {}
     for og in odds_games:
+        home_name = og.get("home_team", "")
+        away_name = og.get("away_team", "")
         ml = parse_moneyline(og)
         if ml:
-            odds_lookup[og.get("home_team", "")] = ml
-            odds_lookup[og.get("away_team", "")] = ml
+            odds_lookup[home_name] = ml
+            odds_lookup[away_name] = ml
+        # Pull over/under line from bookmakers
+        for bm in og.get("bookmakers", []):
+            for market in bm.get("markets", []):
+                if market["key"] == "totals":
+                    for outcome in market.get("outcomes", []):
+                        if outcome["name"] == "Over":
+                            game_key = f"{away_name}@{home_name}"
+                            ou_lookup[game_key] = outcome.get("point", None)
 
-    # ── Pull injury data once for all games ──
+    # ── Injury data ──
     try:
         from injury_check import get_injuries
         injuries = get_injuries("wnba")
     except Exception:
         injuries = {}
 
-    MAX_SANE_EDGE = 25.0  # Edge above this signals model/market disagreement, not value
-
+    MAX_SANE_EDGE = 25.0
     results = []
+
     for event in events:
         home = event.get("home_team", "")
         away = event.get("away_team", "")
@@ -102,7 +117,17 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         away_stats = get_team_stats(away)
         if not home_stats or not away_stats:
             continue
-        pred = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
+
+        # Get live over/under if available
+        game_key   = f"{away}@{home}"
+        book_total = ou_lookup.get(game_key, None)
+
+        pred = engine.predict(
+            home_stats  = home_stats,
+            away_stats  = away_stats,
+            simulations = simulations,
+            over_under  = book_total if book_total else 164.0,
+        )
 
         ml_probs = odds_lookup.get(home) or odds_lookup.get(away)
         fallback = round(american_to_implied(-110) * 100, 1)
@@ -112,7 +137,7 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         e_home = round(pred.home_win_prob - i_home, 2)
         e_away = round(pred.away_win_prob - i_away, 2)
 
-        # Never recommend the underdog by model probability
+        # Never recommend model underdog
         if pred.home_win_prob < pred.away_win_prob:
             e_home = -999
         else:
@@ -122,24 +147,60 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         home_inj = ", ".join(injuries.get(home, []))
         away_inj = ", ".join(injuries.get(away, []))
 
+        shared = {
+            "game":          label,
+            "projected":     f"{pred.projected_home}-{pred.projected_away}",
+            "home_record":   pred.home_record,
+            "away_record":   pred.away_record,
+            "home_rest":     pred.home_rest_days,
+            "away_rest":     pred.away_rest_days,
+            "home_injuries": home_inj,
+            "away_injuries": away_inj,
+            "event_id":      event.get("event_id", ""),
+        }
+
+        # ── Moneyline edges ──
         if e_home >= min_edge and e_home <= MAX_SANE_EDGE:
-            results.append({
-                "game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
-                "implied_prob": i_home, "edge": round(e_home / 100, 4),
-                "projected": f"{pred.projected_home}-{pred.projected_away}",
-                "home_record": pred.home_record, "away_record": pred.away_record,
-                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-                "home_injuries": home_inj, "away_injuries": away_inj,
+            results.append({**shared,
+                "bet": f"{home} ML", "bet_type": "ML",
+                "model_prob": pred.home_win_prob, "implied_prob": i_home,
+                "edge": round(e_home / 100, 4),
             })
+
         if e_away >= min_edge and e_away <= MAX_SANE_EDGE:
-            results.append({
-                "game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
-                "implied_prob": i_away, "edge": round(e_away / 100, 4),
-                "projected": f"{pred.projected_home}-{pred.projected_away}",
-                "home_record": pred.home_record, "away_record": pred.away_record,
-                "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-                "home_injuries": home_inj, "away_injuries": away_inj,
+            results.append({**shared,
+                "bet": f"{away} ML", "bet_type": "ML",
+                "model_prob": pred.away_win_prob, "implied_prob": i_away,
+                "edge": round(e_away / 100, 4),
             })
+
+        # ── Totals edges (only when live book line available) ──
+        if include_totals and book_total:
+            implied_ou = round(american_to_implied(-110) * 100, 1)
+            over_edge  = round(pred.over_prob - implied_ou, 2)
+            under_edge = round(pred.under_prob - implied_ou, 2)
+
+            if over_edge >= min_edge and over_edge <= MAX_SANE_EDGE:
+                results.append({**shared,
+                    "bet":          f"OVER {book_total}",
+                    "bet_type":     "OU",
+                    "model_prob":   pred.over_prob,
+                    "implied_prob": implied_ou,
+                    "edge":         round(over_edge / 100, 4),
+                    "book_total":   book_total,
+                    "proj_total":   round(pred.projected_total, 1),
+                })
+
+            if under_edge >= min_edge and under_edge <= MAX_SANE_EDGE:
+                results.append({**shared,
+                    "bet":          f"UNDER {book_total}",
+                    "bet_type":     "OU",
+                    "model_prob":   pred.under_prob,
+                    "implied_prob": implied_ou,
+                    "edge":         round(under_edge / 100, 4),
+                    "book_total":   book_total,
+                    "proj_total":   round(pred.projected_total, 1),
+                })
 
     results.sort(key=lambda x: x["edge"], reverse=True)
     return {"count": len(results), "best_bets": results}
@@ -203,20 +264,14 @@ def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
             )
             m_home = pred.team_a_win_prob
             m_away = pred.team_b_win_prob
-
-            # ── Ensemble blend ──
             try:
                 from ensemble_model import predict_game
                 ens = predict_game(home, away, "nfl")
                 if ens and ens.get("ensemble_home_prob"):
-                    ens_home = ens["ensemble_home_prob"]
-                    ens_away = ens["ensemble_away_prob"]
-                    m_home   = round((m_home * 0.5) + (ens_home * 0.5), 1)
-                    m_away   = round((m_away * 0.5) + (ens_away * 0.5), 1)
+                    m_home = round((m_home * 0.5) + (ens["ensemble_home_prob"] * 0.5), 1)
+                    m_away = round((m_away * 0.5) + (ens["ensemble_away_prob"] * 0.5), 1)
             except Exception:
                 pass
-
-            # ── Elo blend ──
             try:
                 from elo_ratings import predict_with_elo
                 elo_pred = predict_with_elo(home, away, "nfl")
@@ -224,8 +279,6 @@ def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
                 m_away   = round((m_away * 0.7) + (elo_pred["away_win_prob"] * 0.3), 1)
             except Exception:
                 pass
-
-            # ── Home/away splits adjustment ──
             try:
                 from home_away_splits import get_split_adjustment
                 home_split = get_split_adjustment(home, "nfl", is_home=True)
@@ -236,7 +289,6 @@ def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
                     m_away = round(100 - m_home, 1)
             except Exception:
                 pass
-
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
             if e_home >= min_edge:
@@ -295,8 +347,6 @@ def ncaaf_edges(simulations: int = Query(default=10000), min_edge: float = Query
             )
             m_home = pred.team_a_win_prob
             m_away = pred.team_b_win_prob
-
-            # ── Ensemble blend ──
             try:
                 from ensemble_model import predict_game
                 ens = predict_game(home, away, "ncaaf")
@@ -305,8 +355,6 @@ def ncaaf_edges(simulations: int = Query(default=10000), min_edge: float = Query
                     m_away = round((m_away * 0.5) + (ens["ensemble_away_prob"] * 0.5), 1)
             except Exception:
                 pass
-
-            # ── Elo blend ──
             try:
                 from elo_ratings import predict_with_elo
                 elo_pred = predict_with_elo(home, away, "ncaaf")
@@ -314,8 +362,6 @@ def ncaaf_edges(simulations: int = Query(default=10000), min_edge: float = Query
                 m_away   = round((m_away * 0.7) + (elo_pred["away_win_prob"] * 0.3), 1)
             except Exception:
                 pass
-
-            # ── Home/away splits adjustment ──
             try:
                 from home_away_splits import get_split_adjustment
                 home_split = get_split_adjustment(home, "ncaaf", is_home=True)
@@ -326,7 +372,6 @@ def ncaaf_edges(simulations: int = Query(default=10000), min_edge: float = Query
                     m_away = round(100 - m_home, 1)
             except Exception:
                 pass
-
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
             if e_home >= min_edge:
@@ -382,7 +427,6 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
         home_prob = pred.home_win_prob
         away_prob = pred.away_win_prob
 
-        # ── Ensemble blend ──
         try:
             from ensemble_model import predict_game
             ens = predict_game(home, away, "ncaab")
@@ -391,8 +435,6 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
                 away_prob = round((away_prob * 0.5) + (ens["ensemble_away_prob"] * 0.5), 1)
         except Exception:
             pass
-
-        # ── Elo blend ──
         try:
             from elo_ratings import predict_with_elo
             elo_pred  = predict_with_elo(home, away, "ncaab")
@@ -400,8 +442,6 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
             away_prob = round((away_prob * 0.7) + (elo_pred["away_win_prob"] * 0.3), 1)
         except Exception:
             pass
-
-        # ── Home/away splits adjustment ──
         try:
             from home_away_splits import get_split_adjustment
             home_split = get_split_adjustment(home, "ncaab", is_home=True)
