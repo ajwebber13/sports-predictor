@@ -378,6 +378,16 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         print(f"{label} is not in season. Skipping.")
         return
 
+    # ── SLATE DIGEST (WNBA only) — fires before edge alerts ──
+    if sport == "wnba":
+        try:
+            from wnba_slate_digest import run_digest
+            print("Running WNBA slate digest...")
+            run_digest(dry_run=False)
+            time.sleep(2)
+        except Exception as e:
+            print(f"Slate digest error (non-fatal): {e}")
+
     print(f"Fetching edges for {sport}...")
     game_times, game_times_raw = get_game_times(sport)
     print(f"Game times loaded: {len(game_times)} entries")
