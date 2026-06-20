@@ -1,6 +1,6 @@
 """
 alert_engine.py — Culture & Pulse Analytics
-Phase 1: Smarter Alert System with EV + CLV + Bet Quality Rating
+Phase 1: Smarter Alert System with EV + CLV + Bet Quality Rating + Kelly Sizing
 """
 
 from dataclasses import dataclass, field
@@ -32,6 +32,7 @@ class PredictionInput:
     away_injuries: str = ""
     home_record: str = ""
     away_record: str = ""
+    bankroll: float = 1000.0   # default bankroll for Kelly sizing
 
 
 @dataclass
@@ -57,6 +58,9 @@ class AlertOutput:
     away_injuries: str
     home_record: str
     away_record: str
+    kelly_pct: float
+    kelly_stake: float
+    kelly_verdict: str
     formatted_slip: str
 
 
@@ -124,6 +128,20 @@ def build_alert(pred: PredictionInput) -> AlertOutput:
     bet_quality, star_rating, ev_verdict = rate_bet_quality(ev, win_prob, implied_prob, pred.stake)
     clv_status, clv_detail = calculate_clv(pred.opening_odds, pred.closing_odds, pred.odds)
 
+    # ── Kelly sizing ──
+    try:
+        from kelly import kelly_stake, format_kelly_line
+        k_pct, k_stake, k_verdict = kelly_stake(
+            win_prob  = win_prob,
+            odds      = pred.odds,
+            edge_pct  = model_edge,
+            bankroll  = pred.bankroll,
+        )
+        kelly_line = format_kelly_line(win_prob, pred.odds, model_edge, pred.bankroll)
+    except Exception:
+        k_pct, k_stake, k_verdict = 0.0, 0.0, "N/A"
+        kelly_line = ""
+
     if pred.odds > 0:
         payout = (pred.odds / 100) * pred.stake
     else:
@@ -132,13 +150,13 @@ def build_alert(pred: PredictionInput) -> AlertOutput:
     matchup     = f"{pred.away_team} @ {pred.home_team}"
     sport_emoji = {"NBA": "🏀", "NFL": "🏈", "CFB": "🏈", "WNBA": "🏀"}.get(pred.sport, "🏀")
 
-    # Injury lines
     home_inj_line = f"  {pred.home_team}: {pred.home_injuries}" if pred.home_injuries else f"  {pred.home_team}: None reported"
     away_inj_line = f"  {pred.away_team}: {pred.away_injuries}" if pred.away_injuries else f"  {pred.away_team}: None reported"
 
-    # Record lines
     home_rec_line = f"  {pred.home_team}: {pred.home_record}" if pred.home_record else f"  {pred.home_team}: N/A"
     away_rec_line = f"  {pred.away_team}: {pred.away_record}" if pred.away_record else f"  {pred.away_team}: N/A"
+
+    kelly_section = f"\n{kelly_line}" if kelly_line else ""
 
     slip = f"""
 {sport_emoji} {pred.sport} ALERT — Culture & Pulse Analytics
@@ -156,7 +174,7 @@ EXPECTED VALUE
 
 PAYOUT IF WIN:    +${payout:.0f}
 LOSS IF WRONG:    -${pred.stake:.0f}
-
+{kelly_section}
 CLOSING LINE VALUE
   Status: {clv_status}
   {clv_detail}
@@ -198,30 +216,34 @@ For entertainment only. Bet responsibly.
         away_injuries       = pred.away_injuries,
         home_record         = pred.home_record,
         away_record         = pred.away_record,
+        kelly_pct           = k_pct,
+        kelly_stake         = k_stake,
+        kelly_verdict       = k_verdict,
         formatted_slip      = slip,
     )
 
 
 if __name__ == "__main__":
     test = PredictionInput(
-        sport="NBA",
-        home_team="San Antonio Spurs",
-        away_team="New York Knicks",
-        game_time="Fri Jun 5 · 07:40 PM CT",
-        home_win_prob=0.714,
-        away_win_prob=0.286,
-        bet_team="New York Knicks",
-        bet_type="ML",
-        odds=180,
-        home_net_rating=-5.2,
-        away_net_rating=5.1,
-        opening_odds=175,
-        closing_odds=None,
-        stake=200,
-        home_injuries="Keldon Johnson (Questionable)",
-        away_injuries="None reported",
-        home_record="18-24",
-        away_record="32-10",
+        sport          = "WNBA",
+        home_team      = "Atlanta Dream",
+        away_team      = "Minnesota Lynx",
+        game_time      = "Fri Jun 20 · 06:30 PM CT",
+        home_win_prob  = 0.72,
+        away_win_prob  = 0.28,
+        bet_team       = "Atlanta Dream",
+        bet_type       = "ML",
+        odds           = -130,
+        home_net_rating= 5.1,
+        away_net_rating= 8.2,
+        opening_odds   = -125,
+        closing_odds   = None,
+        stake          = 100,
+        bankroll       = 1000,
+        home_injuries  = "None reported",
+        away_injuries  = "Napheesa Collier (Questionable)",
+        home_record    = "8-2",
+        away_record    = "7-3",
     )
     result = build_alert(test)
     print(result.formatted_slip)
