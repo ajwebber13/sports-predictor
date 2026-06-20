@@ -23,9 +23,21 @@ services:
         sync: false
 
   - type: cron
-    name: daily-alerts-wnba
+    name: noon-retry
     runtime: python
-    schedule: "0 21 * * *"   # 4 PM CT — WNBA only (tips at 6:30 PM CT)
+    schedule: "0 19 * * *"   # 2 PM CT — retry missed morning picks (no WNBA)
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py --retry --exclude wnba
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
+    name: daily-alerts-wnba-morning
+    runtime: python
+    schedule: "0 15 * * *"   # 10 AM CT — WNBA noon tip-offs
     buildCommand: pip install -r requirements.txt
     startCommand: python render_job.py --sport wnba
     envVars:
@@ -35,11 +47,11 @@ services:
         sync: false
 
   - type: cron
-    name: noon-retry
+    name: daily-alerts-wnba-afternoon
     runtime: python
-    schedule: "0 19 * * *"   # 2 PM CT — retry missed morning picks
+    schedule: "0 21 * * *"   # 4 PM CT — WNBA evening tip-offs
     buildCommand: pip install -r requirements.txt
-    startCommand: python render_job.py --retry --exclude wnba
+    startCommand: python render_job.py --sport wnba
     envVars:
       - key: ODDS_API_KEY
         sync: false
