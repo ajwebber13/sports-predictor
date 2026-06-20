@@ -7,6 +7,7 @@ Sports: NFL, CFB, WNBA, NBA, College Basketball
 Season gates prevent alerts during inactive periods.
 Date filtering ensures only today's games (Central Time) are sent.
 Game times pulled from ESPN (free, no API key needed).
+Alert throttle caps picks per slate and removes correlated bets.
 """
 
 import requests
@@ -29,7 +30,7 @@ CENTRAL_OFFSET   = -5  # CDT
 
 
 # ─────────────────────────────────────────────────────────────
-# ESPN SCHEDULE ENDPOINTS (free, no API key)
+# ESPN SCHEDULE ENDPOINTS
 # ─────────────────────────────────────────────────────────────
 
 ESPN_SCHEDULE_ENDPOINTS = {
@@ -47,23 +48,20 @@ ESPN_SCHEDULE_ENDPOINTS = {
 # ─────────────────────────────────────────────────────────────
 
 SEASON_WINDOWS = {
-    "nfl":   (9, 2),   # Sept – Feb
-    "ncaaf": (8, 1),   # Aug – Jan
-    "ncaab": (11, 4),  # Nov – Apr
-    "ncaaw": (11, 4),  # Nov – Apr
-    "wnba":  (5, 10),  # May – Oct
-    "nba":   (10, 6),  # Oct – Jun
+    "nfl":   (9, 2),
+    "ncaaf": (8, 1),
+    "ncaab": (11, 4),
+    "ncaaw": (11, 4),
+    "wnba":  (5, 10),
+    "nba":   (10, 6),
 }
 
 def is_in_season(sport: str) -> bool:
-    """Returns True if the sport is currently in season."""
     window = SEASON_WINDOWS.get(sport)
     if not window:
         return True
-
     start_month, end_month = window
     current_month = datetime.now().month
-
     if start_month <= end_month:
         return start_month <= current_month <= end_month
     else:
@@ -75,18 +73,16 @@ def is_in_season(sport: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 
 def get_today_ct() -> datetime.date:
-    """Returns today's date in Central Time."""
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
 
 
 def is_today_ct(utc_str: str) -> bool:
-    """Returns True if the UTC game time falls on today in Central Time."""
     try:
         utc_dt     = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
         central_dt = utc_dt + timedelta(hours=CENTRAL_OFFSET)
         return central_dt.date() == get_today_ct()
     except:
-        return True  # if parse fails, let it through
+        return True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -106,7 +102,6 @@ def format_game_time(utc_str: str) -> str:
 
 
 def get_game_times(sport: str) -> tuple:
-    """Returns (formatted_times dict, raw_utc_times dict) from ESPN — free, no API key."""
     endpoint = ESPN_SCHEDULE_ENDPOINTS.get(sport)
     if not endpoint:
         return {}, {}
@@ -178,7 +173,7 @@ def get_recommended_prob(bet: dict) -> float:
     """
     Returns the model's confidence in the PICKED team winning.
     model_prob is always the HOME team win probability.
-    If we're betting away, confidence = 100 - model_prob.
+    If we're betting the away team, confidence = 100 - model_prob.
     """
     model_prob  = bet.get("model_prob", 50)
     game        = bet.get("game", "")
@@ -186,10 +181,7 @@ def get_recommended_prob(bet: dict) -> float:
     parts       = game.split(" @ ")
     home_team   = parts[1] if len(parts) == 2 else ""
     bet_on_home = home_team.lower() in bet_label.lower()
-
-    # Confidence in the team we're actually betting on
-    pick_confidence = model_prob if bet_on_home else round(100 - model_prob, 1)
-    return pick_confidence
+    return model_prob if bet_on_home else round(100 - model_prob, 1)
 
 
 def fmt_odds(odds) -> str:
@@ -203,7 +195,6 @@ def fmt_odds(odds) -> str:
 
 
 def get_raw_time_for_bet(bet: dict, times_raw: dict) -> str:
-    """Looks up the raw UTC commence_time for a bet using multiple key formats."""
     game  = bet.get("game", "")
     parts = game.split(" @ ")
     for key in [game] + parts:
@@ -231,10 +222,6 @@ def format_header(bets: list, sport: str) -> str:
 
 
 def format_slate_summary(bets: list, sport: str, suppressed: list = None) -> str:
-    """
-    Builds a single message showing every game on today's slate
-    with the pick, edge, and decision — sent before individual alerts.
-    """
     emoji = sport_emoji(sport)
     label = sport_label(sport)
     today = get_today_ct().strftime("%B %d, %Y")
@@ -256,10 +243,13 @@ def format_slate_summary(bets: list, sport: str, suppressed: list = None) -> str
         lines.append("No qualifying edges found today.\n")
 
     if suppressed:
-        lines.append(f"<i>{len(suppressed)} game(s) passed — below confidence threshold</i>")
+        try:
+            from alert_throttle import format_throttle_summary
+            lines.append(format_throttle_summary(bets, suppressed, sport))
+        except Exception:
+            lines.append(f"<i>{len(suppressed)} pick(s) filtered by throttle</i>")
 
     lines.append("\nFull breakdown for each pick coming up 👇")
-
     return "\n".join(lines)
 
 
@@ -274,27 +264,23 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
     implied    = bet.get("implied_prob", 0)
     projected  = bet.get("projected")
 
-    # Records and rest
-    home_record = bet.get("home_record", "")
-    away_record = bet.get("away_record", "")
-    home_rest   = bet.get("home_rest")
-    away_rest   = bet.get("away_rest")
-
-    # Injuries
+    home_record   = bet.get("home_record", "")
+    away_record   = bet.get("away_record", "")
+    home_rest     = bet.get("home_rest")
+    away_rest     = bet.get("away_rest")
     home_injuries = bet.get("home_injuries", "")
     away_injuries = bet.get("away_injuries", "")
 
     parts       = game.split(" @ ")
     away_team   = parts[0] if len(parts) == 2 else ""
     home_team   = parts[1] if len(parts) == 2 else ""
-    bet_on_home = home_team in bet_label
+    bet_on_home = home_team.lower() in bet_label.lower()
     home_prob   = model_prob if bet_on_home else round(100 - model_prob, 1)
     away_prob   = round(100 - model_prob, 1) if bet_on_home else model_prob
 
     odds_str  = f" ({fmt_odds(odds)})" if odds else ""
     proj_line = f"\n📊 <b>Projected:</b> {projected}" if projected else ""
 
-    # Records line
     rec_parts = []
     if away_record:
         rec_parts.append(f"{away_team}: {away_record}")
@@ -302,7 +288,6 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
         rec_parts.append(f"{home_team}: {home_record}")
     records_line = "\n📋 <b>Records:</b> " + " | ".join(rec_parts) if rec_parts else ""
 
-    # Rest days line
     rest_parts = []
     if away_rest is not None:
         rest_parts.append(f"{away_team}: {away_rest}d rest")
@@ -310,14 +295,12 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
         rest_parts.append(f"{home_team}: {home_rest}d rest")
     rest_line = "\n💤 <b>Rest:</b> " + " | ".join(rest_parts) if rest_parts else ""
 
-    # Injury lines
     inj_lines = ""
     if home_injuries:
         inj_lines += f"\n🚑 <b>{home_team} Out/Doubtful:</b> {home_injuries}"
     if away_injuries:
         inj_lines += f"\n🚑 <b>{away_team} Out/Doubtful:</b> {away_injuries}"
 
-    # ── Log opening odds for CLV tracking ──────────────────
     try:
         from clv_tracker import log_pick
         bet_team = bet_label.replace(" ML", "").strip()
@@ -350,6 +333,7 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
         f"<i>Culture & Pulse Analytics</i>\n"
         f"<i>For entertainment only. Bet responsibly.</i>"
     )
+
 
 def format_no_games(sport: str) -> str:
     emoji = sport_emoji(sport)
@@ -390,7 +374,6 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
     label       = sport_label(sport)
     today_label = get_today_ct().strftime("%B %d, %Y")
 
-    # Season gate
     if not is_in_season(sport):
         print(f"{label} is not in season. Skipping.")
         return
@@ -409,7 +392,7 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
 
     bets_raw = data.get("best_bets", [])
 
-    # ── DATE FILTER: only keep today's games (Central Time) ──
+    # ── DATE FILTER ──
     bets = []
     for bet in bets_raw:
         raw_time = get_raw_time_for_bet(bet, game_times_raw)
@@ -418,7 +401,6 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
             continue
         bets.append(bet)
 
-    # ── NO GAMES TODAY ──
     if not bets:
         print(f"No {label} games today ({today_label}).")
         send_message(format_no_games(sport))
@@ -427,20 +409,21 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
     if LOGGING_ENABLED:
         save_all_predictions(bets, sport)
 
-    # ── FILTER CONTRADICTORY ALERTS ──
-    clean_bets = []
-    suppressed = []
-    # Minimum confidence threshold — based on calibration data
-    # Sub-65% picks win at 28.6% historically. Not worth firing.
-    MIN_CONFIDENCE = 65
-
-    for bet in bets:
-        recommended_prob = get_recommended_prob(bet)
-        if recommended_prob < MIN_CONFIDENCE:
-            print(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}% (min {MIN_CONFIDENCE}%)")
-            suppressed.append(bet)
-            continue
-        clean_bets.append(bet)
+    # ── THROTTLE: edge filter + correlation filter + slate cap ──
+    try:
+        from alert_throttle import throttle_bets
+        clean_bets, suppressed, throttle_log = throttle_bets(bets, sport)
+        print(throttle_log)
+    except Exception as e:
+        print(f"Throttle error — falling back to confidence filter: {e}")
+        # Fallback to basic confidence filter if throttle fails
+        clean_bets = []
+        suppressed = []
+        for bet in bets:
+            if get_recommended_prob(bet) >= 65:
+                clean_bets.append(bet)
+            else:
+                suppressed.append(bet)
 
     if not clean_bets:
         print("All alerts filtered. Nothing sent.")
@@ -451,11 +434,11 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         )
         return
 
-    # ── SEND SLATE SUMMARY FIRST ──
+    # ── SEND SLATE SUMMARY ──
     send_message(format_slate_summary(clean_bets, sport, suppressed=suppressed))
     time.sleep(1)
 
-    # ── SEND INDIVIDUAL DETAILED ALERTS ──
+    # ── SEND INDIVIDUAL ALERTS ──
     for bet in clean_bets:
         game      = bet.get("game", "")
         game_time = game_times.get(game, "Time TBD")
