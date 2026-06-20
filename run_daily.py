@@ -45,7 +45,7 @@ ALL_LEAGUES = ["NBA", "WNBA", "NFL", "CFB", "HBCU_FB", "HBCU_MBB", "HBCU_WBB"]
 ENABLED_LEAGUES = ["WNBA", "HBCU_FB", "HBCU_MBB", "HBCU_WBB"]
 # Leagues with working runners right now
 # NFL and CFB re-enable once debug session is done
-ENABLED_LEAGUES = ["WNBA"]
+ENABLED_LEAGUES = ["WNBA", "NFL", "CFB"]  # NFL/CFB activate September
 
 
 # ─────────────────────────────────────────────
@@ -82,17 +82,13 @@ def run_wnba(stake: float):
 
 
 def run_nfl(stake: float):
-    # Uncomment after NFL/CFB debug session
-    # from auto_predict import run_nfl as _run_nfl
-    # _run_nfl(week="auto")
-    log("NFL runner not yet enabled — pending debug session.")
+    from auto_predict import run_nfl as _run_nfl
+    _run_nfl(week="auto")
 
 
 def run_cfb(stake: float):
-    # Uncomment after NFL/CFB debug session
-    # from auto_predict import run_cfb as _run_cfb
-    # _run_cfb(week="auto")
-    log("CFB runner not yet enabled — pending debug session.")
+    from auto_predict import run_cfb as _run_cfb
+    _run_cfb(week="auto")
 
 def run_hbcu_fb(stake: float):
     from hbcu_predict import run_hbcu_sport

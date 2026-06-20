@@ -136,9 +136,9 @@ def run_alerts(sport: str) -> bool:
                 log(f"Skipping stale game: {bet.get('game')} — {raw_time}")
                 continue
 
-            # Confidence filter — 65% minimum based on calibration data
+            # Confidence filter — 55% minimum based on calibration data
             recommended_prob = get_recommended_prob(bet)
-            if recommended_prob < 65:
+            if recommended_prob < 55:
                 log(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}%")
                 suppressed.append(bet)
                 continue
@@ -224,7 +224,7 @@ def run(sports: list, retry: bool = False):
                 r    = requests.get(SPORT_ENDPOINTS[sport], timeout=60)
                 data = r.json()
                 bets = data.get("best_bets", [])
-                if any(b.get("model_prob", 0) >= 65 for b in bets):
+                if any(b.get("model_prob", 0) >= 55 for b in bets):
                     log(f"{sport.upper()}: picks found on retry — sending alerts")
                     run_alerts(sport)
                 else:
