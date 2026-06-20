@@ -10,12 +10,14 @@ services:
       - key: TELEGRAM_TOKEN
         sync: false
 
+  # ── NBA ─────────────────────────────────────────────────────
+  # Games almost daily Oct-Jun, tip times noon through 10 PM CT
   - type: cron
-    name: daily-alerts-morning
+    name: nba-morning
     runtime: python
-    schedule: "0 17 * * *"   # 12 PM CT — NBA, NFL, NCAAF, NCAAB
+    schedule: "0 15 * * *"   # 10 AM CT daily
     buildCommand: pip install -r requirements.txt
-    startCommand: python render_job.py --exclude wnba
+    startCommand: python render_job.py --sport nba
     envVars:
       - key: ODDS_API_KEY
         sync: false
@@ -23,21 +25,23 @@ services:
         sync: false
 
   - type: cron
-    name: noon-retry
+    name: nba-afternoon
     runtime: python
-    schedule: "0 19 * * *"   # 2 PM CT — retry missed morning picks (no WNBA)
+    schedule: "0 21 * * *"   # 4 PM CT daily
     buildCommand: pip install -r requirements.txt
-    startCommand: python render_job.py --retry --exclude wnba
+    startCommand: python render_job.py --sport nba
     envVars:
       - key: ODDS_API_KEY
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
 
+  # ── WNBA ────────────────────────────────────────────────────
+  # Games daily May-Oct, tip times noon through 9 PM CT
   - type: cron
-    name: daily-alerts-wnba-morning
+    name: wnba-morning
     runtime: python
-    schedule: "0 15 * * *"   # 10 AM CT — WNBA noon tip-offs
+    schedule: "0 15 * * *"   # 10 AM CT daily
     buildCommand: pip install -r requirements.txt
     startCommand: python render_job.py --sport wnba
     envVars:
@@ -47,11 +51,101 @@ services:
         sync: false
 
   - type: cron
-    name: daily-alerts-wnba-afternoon
+    name: wnba-afternoon
     runtime: python
-    schedule: "0 21 * * *"   # 4 PM CT — WNBA evening tip-offs
+    schedule: "0 21 * * *"   # 4 PM CT daily
     buildCommand: pip install -r requirements.txt
     startCommand: python render_job.py --sport wnba
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  # ── NCAAB ───────────────────────────────────────────────────
+  # Games almost daily Nov-Apr, tip times noon through 11 PM CT
+  - type: cron
+    name: ncaab-morning
+    runtime: python
+    schedule: "0 15 * * *"   # 10 AM CT daily
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py --sport ncaab
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
+    name: ncaab-afternoon
+    runtime: python
+    schedule: "0 21 * * *"   # 4 PM CT daily
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py --sport ncaab
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  # ── NCAAF ───────────────────────────────────────────────────
+  # Saturday primary slate + Tue/Wed/Thu/Fri night games Aug-Jan
+  - type: cron
+    name: ncaaf-saturday
+    runtime: python
+    schedule: "0 14 * * 6"   # 9 AM CT Saturdays — full Saturday slate
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py --sport ncaaf
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
+    name: ncaaf-weeknight
+    runtime: python
+    schedule: "0 22 * * 2,3,4,5"  # 5 PM CT Tue-Fri — mid-week night games
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py --sport ncaaf
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  # ── NFL ─────────────────────────────────────────────────────
+  # Sunday primary + Thursday Night + Monday Night Sep-Feb
+  - type: cron
+    name: nfl-sunday
+    runtime: python
+    schedule: "0 14 * * 0"   # 9 AM CT Sundays — catches 1 PM and 4 PM games
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py --sport nfl
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
+    name: nfl-thursday
+    runtime: python
+    schedule: "0 22 * * 4"   # 5 PM CT Thursdays — Thursday Night Football
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py --sport nfl
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
+    name: nfl-monday
+    runtime: python
+    schedule: "0 22 * * 1"   # 5 PM CT Mondays — Monday Night Football
+    buildCommand: pip install -r requirements.txt
+    startCommand: python render_job.py --sport nfl
     envVars:
       - key: ODDS_API_KEY
         sync: false
