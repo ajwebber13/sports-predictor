@@ -24,6 +24,7 @@ import os
 import sys
 import requests
 import argparse
+import time
 from datetime import datetime, timezone, timedelta
 
 try:
@@ -31,6 +32,12 @@ try:
     NEWS_ENABLED = True
 except ImportError:
     NEWS_ENABLED = False
+
+try:
+    from intel_feed import fetch_injuries
+    INJURIES_ENABLED = True
+except ImportError:
+    INJURIES_ENABLED = False
 
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
@@ -467,40 +474,38 @@ def format_rest(rest_days) -> str:
     return f"{rest_days} days rest"
 
 
-def format_digest(games: list, predictions: dict, streaks: dict, star_notices: dict, all_news: list = None) -> str:
-    today = get_today_ct().strftime("%B %d, %Y")
+def format_digest(games: list, predictions: dict, streaks: dict, star_notices: dict, all_news: list = None, injury_map: dict = None) -> list:
+    """Returns a list of messages — header + one per game."""
+    today       = get_today_ct().strftime("%B %d, %Y")
     all_news    = all_news or []
+    injury_map  = injury_map or {}
     used_titles = set()
+    messages    = []
 
-    lines = [
+    # ── MESSAGE 1: HEADER + AROUND THE W ──
+    header = [
         "🏀 <b>C&amp;P Picks — WNBA Morning Briefing</b>",
         f"📅 {today}",
         f"<b>{len(games)} game(s) today</b>",
         "",
     ]
-
-    # ── GENERAL WNBA NEWS HEADER ──
     if NEWS_ENABLED and all_news:
-        general_headlines = get_general_news(all_news, used_titles)
-        if general_headlines:
-            lines.append("📡 <b>Around the W</b>")
-            for h in general_headlines:
-                lines.append(h)
+        general = get_general_news(all_news, used_titles)
+        if general:
+            header.append("📡 <b>Around the W</b>")
+            for h in general:
+                header.append(h)
                 used_titles.add(h)
-            lines.append("")
-
-    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
-    lines.append("")
+    messages.append("\n".join(header))
 
     if not games:
-        lines.append("No WNBA games scheduled today.")
-        lines.append("\n<i>Culture &amp; Pulse Analytics | For entertainment only</i>")
-        return "\n".join(lines)
+        messages.append("<i>No WNBA games scheduled today.</i>")
+        return messages
 
+    # ── ONE MESSAGE PER GAME ──
     for g in games:
-        home     = g["home_team"]
-        away     = g["away_team"]
-        game_key = f"{away} @ {home}"
+        home = g["home_team"]
+        away = g["away_team"]
 
         pred         = match_prediction(g, predictions)
         home_streak  = streaks.get(home, {})
@@ -508,81 +513,64 @@ def format_digest(games: list, predictions: dict, streaks: dict, star_notices: d
         home_notices = star_notices.get(home, [])
         away_notices = star_notices.get(away, [])
 
-        # Game header
-        lines.append(f"🏟 <b>{away} @ {home}</b>")
-        lines.append(f"🕐 {g['game_time']}")
+        lines = [f"🏟 <b>{away} @ {home}</b>", f"🕐 {g['game_time']}"]
 
         # Records
-        rec_parts = []
-        if g["away_record"]:
-            rec_parts.append(f"{away}: {g['away_record']}")
-        if g["home_record"]:
-            rec_parts.append(f"{home}: {g['home_record']}")
-        if rec_parts:
-            lines.append("📋 " + " | ".join(rec_parts))
+        rec = []
+        if g["away_record"]: rec.append(f"{away}: {g['away_record']}")
+        if g["home_record"]:  rec.append(f"{home}: {g['home_record']}")
+        if rec: lines.append("📋 " + " | ".join(rec))
 
         # Streaks + rest
-        streak_parts = []
-        away_str = format_streak(away_streak)
-        home_str = format_streak(home_streak)
-        away_rst = format_rest(away_streak.get("rest_days"))
-        home_rst = format_rest(home_streak.get("rest_days"))
-
-        if away_str or away_rst:
-            part = away
-            if away_str: part += f" ({away_str})"
-            if away_rst: part += f" · {away_rst}"
-            streak_parts.append(part)
-        if home_str or home_rst:
-            part = home
-            if home_str: part += f" ({home_str})"
-            if home_rst: part += f" · {home_rst}"
-            streak_parts.append(part)
-        if streak_parts:
-            lines.append("🔥 " + " | ".join(streak_parts))
+        sp = []
+        for team, streak in [(away, away_streak), (home, home_streak)]:
+            s = format_streak(streak)
+            r = format_rest(streak.get("rest_days"))
+            if s or r:
+                p = team
+                if s: p += f" ({s})"
+                if r: p += f" · {r}"
+                sp.append(p)
+        if sp: lines.append("🔥 " + " | ".join(sp))
 
         # Injuries
-        if g["away_injuries"]:
-            lines.append(f"🚑 {away}: {', '.join(g['away_injuries'])}")
-        if g["home_injuries"]:
-            lines.append(f"🚑 {home}: {', '.join(g['home_injuries'])}")
+        away_inj = injury_map.get(away, g.get("away_injuries", []))
+        home_inj = injury_map.get(home, g.get("home_injuries", []))
+        if away_inj: lines.append(f"🚑 {away}: {', '.join(away_inj)}")
+        if home_inj: lines.append(f"🚑 {home}: {', '.join(home_inj)}")
 
-        # Star player notices
-        all_notices = away_notices + home_notices
-        for notice in all_notices[:3]:
+        # Star notices
+        for notice in (away_notices + home_notices)[:3]:
             lines.append(notice)
 
-        # Game-specific news
+        # Game news
         if NEWS_ENABLED and all_news:
-            game_headlines = get_game_news(home, away, all_news)
-            for h in game_headlines:
+            for h in get_game_news(home, away, all_news):
                 if h not in used_titles:
                     lines.append(h)
                     used_titles.add(h)
 
-        # Model prediction
+        # Prediction
+        lines.append("")
         if pred:
-            winner      = pred.get("predicted_winner", "")
-            winner_prob = pred.get("winner_prob", 50)
-            home_prob   = pred.get("home_prob", 50)
-            away_prob   = pred.get("away_prob", 50)
-
+            away_prob = pred.get("away_prob", 50)
+            home_prob = pred.get("home_prob", 50)
+            winner    = pred.get("predicted_winner", "")
+            w_prob    = pred.get("winner_prob", 50)
             lines.append(f"📊 {away} {away_prob}% | {home} {home_prob}%")
-            lines.append(f"🤖 <b>Model Pick: {winner} ({winner_prob}%)</b>")
-
+            lines.append(f"🤖 <b>Model Pick: {winner} ({w_prob}%)</b>")
             if pred.get("has_edge") and pred.get("pick_label"):
-                edge = pred.get("edge", 0)
-                lines.append(f"✅ <b>EDGE PICK: {pred['pick_label']} | +{edge}%</b>")
+                lines.append(f"✅ <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}%</b>")
             else:
                 lines.append("⚠️ No edge pick (below threshold)")
         else:
             lines.append("📊 Model prediction unavailable")
 
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
         lines.append("")
+        lines.append("<i>Culture &amp; Pulse Analytics | For entertainment only.</i>")
+        messages.append("\n".join(lines))
 
-    lines.append("<i>Culture &amp; Pulse Analytics | For entertainment only. Bet responsibly.</i>")
-    return "\n".join(lines)
+    return messages
 
 
 # ─────────────────────────────────────────────────────────────
@@ -591,8 +579,13 @@ def format_digest(games: list, predictions: dict, streaks: dict, star_notices: d
 
 def send_message(text: str):
     url     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHANNEL, "text": text, "parse_mode": "HTML"}
-    r       = requests.post(url, json=payload, timeout=10)
+    payload = {
+        "chat_id":                  TELEGRAM_CHANNEL,
+        "text":                     text,
+        "parse_mode":               "HTML",
+        "disable_web_page_preview": True,
+    }
+    r = requests.post(url, json=payload, timeout=10)
     if r.status_code == 200:
         print("Digest sent successfully.")
     else:
@@ -651,21 +644,38 @@ def run_digest(dry_run: bool = False):
             star_notices[team_name] = notices
             print(f"  {team_name}: {len(notices)} notice(s)")
 
-    # 5. Fetch news headlines
+    # 5. Fetch injury reports
+    injury_map = {}
+    if INJURIES_ENABLED:
+        print("Fetching injury reports...")
+        raw_injuries = fetch_injuries("WNBA")
+        # Flatten to {team_name: ["Player (Status)", ...]}
+        for team, reports in raw_injuries.items():
+            significant = [r for r in reports if r.status in ["Out", "Doubtful", "Day-To-Day"]]
+            if significant:
+                injury_map[team] = [f"{r.player} ({r.status})" for r in significant]
+        print(f"  Found injuries for {len(injury_map)} team(s)")
+
+    # 6. Fetch news headlines
     all_news = []
     if NEWS_ENABLED:
         print("Fetching news headlines...")
         all_news = fetch_all_headlines()
 
-    # 6. Format and send
+    # 7. Format and send
     print("Formatting digest...")
-    digest = format_digest(games, predictions, streaks, star_notices, all_news=all_news)
+    digest = format_digest(games, predictions, streaks, star_notices, all_news=all_news, injury_map=injury_map)
 
     if dry_run:
         print("\n--- DRY RUN OUTPUT ---")
-        print(digest)
+        for i, msg in enumerate(digest):
+            print(f"\n[Message {i+1}]")
+            print(msg)
+            print()
     else:
-        send_message(digest)
+        for msg in digest:
+            send_message(msg)
+            time.sleep(1)
         print("Done.")
 
 

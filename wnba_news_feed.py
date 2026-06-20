@@ -257,13 +257,25 @@ def filter_general_wnba_stories(stories: list, used_titles: set) -> list:
 # ─────────────────────────────────────────────────────────────
 
 def format_headline(story: dict) -> str:
-    """Format a single story for Telegram."""
+    """Format a single story for Telegram with clickable Read more link.
+    Google News URLs are redirects — Telegram strips anchor tags on them.
+    For those, we use the direct article URL if available, otherwise plain text.
+    """
     title  = story["title"]
     source = story["source"]
+    link   = story.get("link", "")
 
     # Trim long titles
     if len(title) > 90:
         title = title[:87] + "..."
+
+    # Google News redirect URLs don't render as clickable in Telegram
+    # Show as plain text — still informative without the broken link
+    if "news.google.com" in link:
+        return f"📰 {title} <i>({source})</i>"
+
+    if link:
+        return f'📰 {title} <i>({source})</i> — <a href="{link}">Read more</a>'
 
     return f"📰 {title} <i>({source})</i>"
 
