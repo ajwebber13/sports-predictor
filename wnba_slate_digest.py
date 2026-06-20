@@ -39,6 +39,12 @@ try:
 except ImportError:
     INJURIES_ENABLED = False
 
+try:
+    from espn_winprob import get_espn_win_probs, check_divergence
+    ESPN_PROB_ENABLED = True
+except ImportError:
+    ESPN_PROB_ENABLED = False
+
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
@@ -474,11 +480,12 @@ def format_rest(rest_days) -> str:
     return f"{rest_days} days rest"
 
 
-def format_digest(games: list, predictions: dict, streaks: dict, star_notices: dict, all_news: list = None, injury_map: dict = None) -> list:
+def format_digest(games: list, predictions: dict, streaks: dict, star_notices: dict, all_news: list = None, injury_map: dict = None, espn_probs: dict = None) -> list:
     """Returns a list of messages — header + one per game."""
     today       = get_today_ct().strftime("%B %d, %Y")
     all_news    = all_news or []
     injury_map  = injury_map or {}
+    espn_probs  = espn_probs or {}
     used_titles = set()
     messages    = []
 
@@ -557,8 +564,29 @@ def format_digest(games: list, predictions: dict, streaks: dict, star_notices: d
             home_prob = pred.get("home_prob", 50)
             winner    = pred.get("predicted_winner", "")
             w_prob    = pred.get("winner_prob", 50)
-            lines.append(f"📊 {away} {away_prob}% | {home} {home_prob}%")
+
+            # ESPN divergence check
+            game_key   = f"{away} @ {home}"
+            espn_game  = espn_probs.get(game_key, {})
+            divergence_line = ""
+            if espn_game and ESPN_PROB_ENABLED:
+                espn_home = espn_game.get("home_prob", 50)
+                espn_away = espn_game.get("away_prob", 50)
+                div = check_divergence(home_prob, espn_home)
+                if div["diverged"]:
+                    espn_winner = home if espn_home > espn_away else away
+                    model_winner = winner
+                    if espn_winner != model_winner:
+                        divergence_line = f"⚠️ <b>Model diverges from ESPN</b> — Model: {model_winner} | ESPN: {espn_winner} ({espn_home}% home) | Gap: {div['gap']} pts"
+                    else:
+                        divergence_line = f"⚠️ <b>Model/ESPN gap: {div['gap']} pts</b> — same winner but confidence differs"
+
+            lines.append(f"📊 Model: {away} {away_prob}% | {home} {home_prob}%")
+            if espn_game:
+                lines.append(f"📊 ESPN:  {away} {espn_game.get('away_prob', '?')}% | {home} {espn_game.get('home_prob', '?')}%")
             lines.append(f"🤖 <b>Model Pick: {winner} ({w_prob}%)</b>")
+            if divergence_line:
+                lines.append(divergence_line)
             if pred.get("has_edge") and pred.get("pick_label"):
                 lines.append(f"✅ <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}%</b>")
             else:
@@ -644,7 +672,14 @@ def run_digest(dry_run: bool = False):
             star_notices[team_name] = notices
             print(f"  {team_name}: {len(notices)} notice(s)")
 
-    # 5. Fetch injury reports
+    # 5. Fetch ESPN win probabilities for divergence check
+    espn_probs = {}
+    if ESPN_PROB_ENABLED:
+        print("Fetching ESPN win probabilities...")
+        espn_probs = get_espn_win_probs("WNBA")
+        print(f"  Got ESPN probs for {len(espn_probs)} game(s)")
+
+    # 6. Fetch injury reports
     injury_map = {}
     if INJURIES_ENABLED:
         print("Fetching injury reports...")
@@ -664,7 +699,7 @@ def run_digest(dry_run: bool = False):
 
     # 7. Format and send
     print("Formatting digest...")
-    digest = format_digest(games, predictions, streaks, star_notices, all_news=all_news, injury_map=injury_map)
+    digest = format_digest(games, predictions, streaks, star_notices, all_news=all_news, injury_map=injury_map, espn_probs=espn_probs)
 
     if dry_run:
         print("\n--- DRY RUN OUTPUT ---")

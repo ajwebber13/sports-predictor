@@ -70,13 +70,13 @@ RSS_FEEDS = [
 TEAM_KEYWORDS = {
     "Las Vegas Aces":          ["Las Vegas Aces", "Aces", "A'ja Wilson", "Kelsey Plum", "Jackie Young"],
     "New York Liberty":        ["New York Liberty", "Liberty", "Breanna Stewart", "Sabrina Ionescu", "Jonquel Jones"],
-    "Seattle Storm":           ["Seattle Storm", "Storm", "Nneka Ogwumike", "Jewell Loyd", "Skylar Diggins"],
+    "Seattle Storm":           ["Seattle Storm", "Nneka Ogwumike", "Jewell Loyd"],
     "Minnesota Lynx":          ["Minnesota Lynx", "Lynx", "Napheesa Collier", "Kayla McBride"],
     "Connecticut Sun":         ["Connecticut Sun", "Sun", "Alyssa Thomas", "DeWanna Bonner"],
     "Indiana Fever":           ["Indiana Fever", "Fever", "Caitlin Clark", "Aliyah Boston", "NaLyssa Smith"],
     "Chicago Sky":             ["Chicago Sky", "Sky", "Angel Reese", "Marina Mabrey", "Chennedy Carter"],
     "Atlanta Dream":           ["Atlanta Dream", "Dream", "Rhyne Howard", "Allisha Gray"],
-    "Phoenix Mercury":         ["Phoenix Mercury", "Mercury", "Diana Taurasi", "Brittney Griner"],
+    "Phoenix Mercury":         ["Phoenix Mercury", "Diana Taurasi", "Brittney Griner"],
     "Los Angeles Sparks":      ["Los Angeles Sparks", "Sparks", "Dearica Hamby", "Rickea Jackson"],
     "Washington Mystics":      ["Washington Mystics", "Mystics", "Elena Delle Donne", "Shakira Austin"],
     "Dallas Wings":            ["Dallas Wings", "Wings", "Arike Ogunbowale", "Satou Sabally"],
@@ -92,7 +92,7 @@ WNBA_GENERAL_KEYWORDS = ["WNBA", "W league", "women's basketball"]
 NEWS_LOOKBACK_HOURS = 36
 
 # Max headlines per team per game
-MAX_HEADLINES_PER_TEAM = 2
+MAX_HEADLINES_PER_TEAM = 1
 
 # Max headlines for general WNBA news in header
 MAX_GENERAL_HEADLINES = 3
@@ -235,19 +235,33 @@ def filter_stories_for_team(team_name: str, stories: list) -> list:
     return matches[:MAX_HEADLINES_PER_TEAM]
 
 
+# Terms that indicate non-WNBA content slipping through
+NON_WNBA_NOISE = [
+    "nba", "nfl", "mlb", "nhl", "knicks", "lakers", "celtics",
+    "warriors", "bulls nba", "heat nba", "nets nba",
+]
+
 def filter_general_wnba_stories(stories: list, used_titles: set) -> list:
     """
     Return general WNBA stories not already used in team sections.
+    Must explicitly mention WNBA and must not be about other leagues.
     """
     matches = []
     for story in stories:
         if story["title"] in used_titles:
             continue
-        text = f"{story['title']} {story['summary']}".lower()
-        for kw in WNBA_GENERAL_KEYWORDS:
-            if kw.lower() in text:
-                matches.append(story)
-                break
+        text  = f"{story['title']} {story['summary']}".lower()
+        title = story["title"].lower()
+
+        # Must contain a WNBA keyword
+        if not any(kw.lower() in text for kw in WNBA_GENERAL_KEYWORDS):
+            continue
+
+        # Must not be primarily about another league
+        if any(noise in title for noise in NON_WNBA_NOISE):
+            continue
+
+        matches.append(story)
 
     return matches[:MAX_GENERAL_HEADLINES]
 
@@ -287,8 +301,24 @@ def format_headline(story: dict) -> str:
 def get_game_news(home_team: str, away_team: str, all_stories: list) -> list:
     """
     Returns formatted headline lines for a specific matchup.
-    Called once per game in the digest.
+    Rules:
+    1. Story title must mention a keyword for one of THIS game's teams
+    2. Story title must NOT mention a keyword for a team NOT in this game
+    Returns empty list if no relevant stories — no fallback, no bleed.
     """
+    home_keywords = [k.lower() for k in TEAM_KEYWORDS.get(home_team, [home_team])]
+    away_keywords = [k.lower() for k in TEAM_KEYWORDS.get(away_team, [away_team])]
+    game_keywords = set(home_keywords + away_keywords)
+
+    # All keywords for teams NOT in this game
+    other_keywords = set(
+        k.lower()
+        for team, kws in TEAM_KEYWORDS.items()
+        if team not in [home_team, away_team]
+        for k in kws
+        if len(k) > 6  # skip short names to avoid false positives
+    )
+
     home_stories = filter_stories_for_team(home_team, all_stories)
     away_stories = filter_stories_for_team(away_team, all_stories)
 
@@ -298,9 +328,23 @@ def get_game_news(home_team: str, away_team: str, all_stories: list) -> list:
     for story in away_stories + home_stories:
         if len(lines) >= MAX_HEADLINES_PER_TEAM * 2:
             break
-        if story["title"] not in used:
-            lines.append(format_headline(story))
-            used.add(story["title"])
+        if story["title"] in used:
+            continue
+
+        title_lower = story["title"].lower()
+
+        # Rule 1: must mention this game's teams in the title
+        if not any(kw in title_lower for kw in game_keywords):
+            continue
+
+        # Rule 2: must NOT mention a team from a different game in the title
+        other_hits = [kw for kw in other_keywords if kw in title_lower]
+        if other_hits:
+            print(f"  [EXCLUDED] '{story['title'][:60]}' — other team kw: {other_hits}")
+            continue
+
+        lines.append(format_headline(story))
+        used.add(story["title"])
 
     return lines
 
