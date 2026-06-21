@@ -103,7 +103,10 @@ def wnba_preview(home: str, away: str, simulations: int = Query(default=10000)):
 def wnba_predictions(simulations: int = Query(default=10000)):
     """Returns model predictions for ALL today's WNBA games — no edge filter."""
     import sys, os
-    sys.path.insert(0, os.path.abspath("."))
+    src = os.path.abspath(".")
+    sys.path.insert(0, src)
+    sys.path.insert(0, os.path.join(src, "app"))
+    sys.path.insert(0, os.path.join(src, "app", "api"))
     from wnba_data      import get_team_stats, TEAM_IDS
     from wnba_predictor import WNBAPredictionEngine
     from wnba_props     import get_wnba_events
