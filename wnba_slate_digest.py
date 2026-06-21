@@ -111,10 +111,6 @@ def format_game_time(utc_str: str) -> str:
 # ─────────────────────────────────────────────────────────────
 
 def fetch_today_games() -> list:
-    """
-    Pull today's WNBA games from ESPN scoreboard.
-    Returns list of game dicts with teams, time, status, and ESPN event ID.
-    """
     today = get_today_ct().strftime("%Y%m%d")
     url   = f"{ESPN_WNBA_SCOREBOARD}?dates={today}"
 
@@ -136,22 +132,15 @@ def fetch_today_games() -> list:
         home        = next((c for c in competitors if c.get("homeAway") == "home"), {})
         away        = next((c for c in competitors if c.get("homeAway") == "away"), {})
 
-        home_name = home.get("team", {}).get("displayName", "")
-        away_name = away.get("team", {}).get("displayName", "")
-
-        # Records
+        home_name   = home.get("team", {}).get("displayName", "")
+        away_name   = away.get("team", {}).get("displayName", "")
         home_record = home.get("records", [{}])[0].get("summary", "") if home.get("records") else ""
         away_record = away.get("records", [{}])[0].get("summary", "") if away.get("records") else ""
+        utc_time    = event.get("date", "")
+        game_time   = format_game_time(utc_time)
+        status      = event.get("status", {}).get("type", {}).get("name", "")
+        completed   = event.get("status", {}).get("type", {}).get("completed", False)
 
-        # Game time
-        utc_time  = event.get("date", "")
-        game_time = format_game_time(utc_time)
-
-        # Status
-        status    = event.get("status", {}).get("type", {}).get("name", "")
-        completed = event.get("status", {}).get("type", {}).get("completed", False)
-
-        # Injuries from competitors
         home_injuries = _parse_injuries(home)
         away_injuries = _parse_injuries(away)
 
@@ -175,7 +164,6 @@ def fetch_today_games() -> list:
 
 
 def _parse_injuries(competitor: dict) -> list:
-    """Pull injury data from ESPN competitor block if available."""
     injuries = []
     for player in competitor.get("injuries", []):
         name   = player.get("athlete", {}).get("displayName", "")
@@ -186,14 +174,10 @@ def _parse_injuries(competitor: dict) -> list:
 
 
 # ─────────────────────────────────────────────────────────────
-# STREAK FETCHER — pulls last 10 game results per team
+# STREAK FETCHER
 # ─────────────────────────────────────────────────────────────
 
 def fetch_team_streak(team_id: str) -> dict:
-    """
-    Pull last 10 games for a team from ESPN.
-    Returns streak dict: {"type": "W"/"L", "count": int, "rest_days": int}
-    """
     if not team_id:
         return {"type": "", "count": 0, "rest_days": None}
 
@@ -205,9 +189,9 @@ def fetch_team_streak(team_id: str) -> dict:
         print(f"  Streak fetch error (team {team_id}): {e}")
         return {"type": "", "count": 0, "rest_days": None}
 
-    today    = get_today_ct()
-    events   = data.get("events", [])
-    past     = []
+    today  = get_today_ct()
+    events = data.get("events", [])
+    past   = []
 
     for event in events:
         utc_str   = event.get("date", "")
@@ -224,7 +208,6 @@ def fetch_team_streak(team_id: str) -> dict:
         if game_day >= today:
             continue
 
-        # Determine W/L for this team
         comp        = event.get("competitions", [{}])[0]
         competitors = comp.get("competitors", [])
         team_comp   = next((c for c in competitors if c.get("team", {}).get("id") == team_id), None)
@@ -237,27 +220,19 @@ def fetch_team_streak(team_id: str) -> dict:
     if not past:
         return {"type": "", "count": 0, "rest_days": None}
 
-    # Sort by date descending
     past.sort(key=lambda x: x["date"], reverse=True)
-
-    # Calculate rest days
     last_game_date = past[0]["date"]
     rest_days      = (today - last_game_date).days
+    streak_type    = past[0]["result"]
+    streak_count   = 0
 
-    # Calculate current streak
-    streak_type  = past[0]["result"]
-    streak_count = 0
     for game in past:
         if game["result"] == streak_type:
             streak_count += 1
         else:
             break
 
-    return {
-        "type":      streak_type,
-        "count":     streak_count,
-        "rest_days": rest_days,
-    }
+    return {"type": streak_type, "count": streak_count, "rest_days": rest_days}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -265,19 +240,15 @@ def fetch_team_streak(team_id: str) -> dict:
 # ─────────────────────────────────────────────────────────────
 
 def fetch_star_player_streaks(team_name: str) -> list:
-    """
-    Pull recent box scores for a team's star players.
-    Returns list of notable streak strings.
-    """
     stars   = WNBA_STAR_PLAYERS.get(team_name, [])
     notices = []
 
     if not stars:
         return notices
 
-    # Get last 7 days of completed game IDs
-    today   = get_today_ct()
+    today    = get_today_ct()
     game_ids = []
+
     for days_back in range(1, 15):
         check_date = (today - timedelta(days=days_back)).strftime("%Y%m%d")
         url        = f"{ESPN_WNBA_SCOREBOARD}?dates={check_date}"
@@ -285,8 +256,7 @@ def fetch_star_player_streaks(team_name: str) -> list:
             r    = requests.get(url, headers=HEADERS, timeout=8)
             data = r.json()
             for event in data.get("events", []):
-                completed = event.get("status", {}).get("type", {}).get("completed", False)
-                # Check if this team played
+                completed   = event.get("status", {}).get("type", {}).get("completed", False)
                 comps       = event.get("competitions", [{}])
                 competitors = comps[0].get("competitors", []) if comps else []
                 team_names  = [c.get("team", {}).get("displayName", "") for c in competitors]
@@ -303,10 +273,9 @@ def fetch_star_player_streaks(team_name: str) -> list:
         print(f"  No recent completed games found for {team_name} star players")
         return notices
 
-    # Build per-player game log
     player_logs = {star: [] for star in stars}
 
-    for game_id in game_ids[:STAR_STREAK_GAMES + 2]:  # a few extra for buffer
+    for game_id in game_ids[:STAR_STREAK_GAMES + 2]:
         url = f"{ESPN_WNBA_SUMMARY}?event={game_id}"
         try:
             r        = requests.get(url, headers=HEADERS, timeout=10)
@@ -339,38 +308,30 @@ def fetch_star_player_streaks(team_name: str) -> list:
                         try:
                             idx = stat_keys.index(key)
                             val = raw[idx]
-                            # ESPN sometimes returns "N/A" or dash for DNP
                             return float(val) if val not in ("N/A", "-", "", None) else 0.0
                         except:
                             return 0.0
 
-                    pts = gs("points")
-                    reb = gs("rebounds")
-                    ast = gs("assists")
-
                     player_logs[p_name].append({
-                        "pts": pts,
-                        "reb": reb,
-                        "ast": ast,
+                        "pts": gs("points"),
+                        "reb": gs("rebounds"),
+                        "ast": gs("assists"),
                     })
         except Exception as e:
             print(f"  Box score error ({game_id}): {e}")
             continue
 
-    # Evaluate streaks
     for player, games in player_logs.items():
         if len(games) < STAR_STREAK_GAMES:
             continue
 
-        recent = games[:STAR_STREAK_GAMES]
-
-        # Points streak
+        recent    = games[:STAR_STREAK_GAMES]
         pts_above = [g for g in recent if g["pts"] >= STAR_PTS_THRESHOLD]
+
         if len(pts_above) >= STAR_STREAK_GAMES:
             avg_pts = round(sum(g["pts"] for g in recent) / len(recent), 1)
             notices.append(f"⚡ {player}: {avg_pts} PPG last {STAR_STREAK_GAMES}G")
 
-        # Double-double streak
         dd_games = [g for g in recent if g["pts"] >= 10 and (g["reb"] >= 10 or g["ast"] >= 10)]
         if len(dd_games) >= DOUBLE_DOUBLE_GAMES:
             notices.append(f"⚡ {player}: Double-double last {len(dd_games)}G")
@@ -380,15 +341,17 @@ def fetch_star_player_streaks(team_name: str) -> list:
 
 # ─────────────────────────────────────────────────────────────
 # MODEL PREDICTIONS FETCHER
+# Hits /edges/wnba/predictions — returns ALL games, no edge filter
 # ─────────────────────────────────────────────────────────────
 
 def fetch_model_predictions() -> dict:
     """
     Pull all WNBA predictions from your FastAPI backend.
+    Uses /edges/wnba/predictions so every game gets a model pick.
     Returns dict keyed by "AWAY @ HOME" game string.
     """
     try:
-        r    = requests.get(f"{API_BASE}/wnba/edges", params={"simulations": 5000}, timeout=60)
+        r    = requests.get(f"{API_BASE}/edges/wnba/predictions", params={"simulations": 5000}, timeout=60)
         data = r.json()
     except Exception as e:
         print(f"Model API error: {e}")
@@ -414,21 +377,21 @@ def fetch_model_predictions() -> dict:
         predicted_winner = home_team if home_prob > away_prob else away_team
         winner_prob      = max(home_prob, away_prob)
 
-        has_edge    = edge >= 10
-        pick_label  = bet_label if has_edge else ""
+        has_edge   = edge >= 10
+        pick_label = bet_label if has_edge else ""
 
         predictions[game] = {
-            "home_team":       home_team,
-            "away_team":       away_team,
-            "home_prob":       home_prob,
-            "away_prob":       away_prob,
+            "home_team":        home_team,
+            "away_team":        away_team,
+            "home_prob":        home_prob,
+            "away_prob":        away_prob,
             "predicted_winner": predicted_winner,
-            "winner_prob":     winner_prob,
-            "edge":            edge,
-            "has_edge":        has_edge,
-            "pick_label":      pick_label,
-            "odds":            odds,
-            "implied_prob":    implied,
+            "winner_prob":      winner_prob,
+            "edge":             edge,
+            "has_edge":         has_edge,
+            "pick_label":       pick_label,
+            "odds":             odds,
+            "implied_prob":     implied,
         }
 
     return predictions
@@ -439,19 +402,13 @@ def fetch_model_predictions() -> dict:
 # ─────────────────────────────────────────────────────────────
 
 def match_prediction(game: dict, predictions: dict) -> dict:
-    """
-    Try to match ESPN game to a model prediction.
-    Model uses "AWAY @ HOME" format.
-    """
     home = game["home_team"]
     away = game["away_team"]
 
-    # Try exact match first
     key = f"{away} @ {home}"
     if key in predictions:
         return predictions[key]
 
-    # Try fuzzy match on team name keywords
     for pred_key, pred in predictions.items():
         if pred["home_team"] in home or home in pred["home_team"]:
             if pred["away_team"] in away or away in pred["away_team"]:
@@ -480,8 +437,15 @@ def format_rest(rest_days) -> str:
     return f"{rest_days} days rest"
 
 
-def format_digest(games: list, predictions: dict, streaks: dict, star_notices: dict, all_news: list = None, injury_map: dict = None, espn_probs: dict = None) -> list:
-    """Returns a list of messages — header + one per game."""
+def format_digest(
+    games: list,
+    predictions: dict,
+    streaks: dict,
+    star_notices: dict,
+    all_news: list = None,
+    injury_map: dict = None,
+    espn_probs: dict = None,
+) -> list:
     today       = get_today_ct().strftime("%B %d, %Y")
     all_news    = all_news or []
     injury_map  = injury_map or {}
@@ -521,11 +485,12 @@ def format_digest(games: list, predictions: dict, streaks: dict, star_notices: d
         away_notices = star_notices.get(away, [])
 
         lines = [f"🏟 <b>{away} @ {home}</b>", f"🕐 {g['game_time']}"]
+        lines.append("───────────────────")
 
         # Records
         rec = []
         if g["away_record"]: rec.append(f"{away}: {g['away_record']}")
-        if g["home_record"]:  rec.append(f"{home}: {g['home_record']}")
+        if g["home_record"]: rec.append(f"{home}: {g['home_record']}")
         if rec: lines.append("📋 " + " | ".join(rec))
 
         # Streaks + rest
@@ -558,28 +523,34 @@ def format_digest(games: list, predictions: dict, streaks: dict, star_notices: d
                     used_titles.add(h)
 
         # Prediction
-        lines.append("")
+        lines.append("───────────────────")
         if pred:
             away_prob = pred.get("away_prob", 50)
             home_prob = pred.get("home_prob", 50)
             winner    = pred.get("predicted_winner", "")
             w_prob    = pred.get("winner_prob", 50)
 
-            # ESPN divergence check
-            game_key   = f"{away} @ {home}"
-            espn_game  = espn_probs.get(game_key, {})
+            game_key        = f"{away} @ {home}"
+            espn_game       = espn_probs.get(game_key, {})
             divergence_line = ""
             if espn_game and ESPN_PROB_ENABLED:
                 espn_home = espn_game.get("home_prob", 50)
                 espn_away = espn_game.get("away_prob", 50)
                 div = check_divergence(home_prob, espn_home)
                 if div["diverged"]:
-                    espn_winner = home if espn_home > espn_away else away
+                    espn_winner  = home if espn_home > espn_away else away
                     model_winner = winner
                     if espn_winner != model_winner:
-                        divergence_line = f"⚠️ <b>Model diverges from ESPN</b> — Model: {model_winner} | ESPN: {espn_winner} ({espn_home}% home) | Gap: {div['gap']} pts"
+                        divergence_line = (
+                            f"⚠️ <b>Model diverges from ESPN</b> — "
+                            f"Model: {model_winner} | ESPN: {espn_winner} "
+                            f"({espn_home}% home) | Gap: {div['gap']} pts"
+                        )
                     else:
-                        divergence_line = f"⚠️ <b>Model/ESPN gap: {div['gap']} pts</b> — same winner but confidence differs"
+                        divergence_line = (
+                            f"⚠️ <b>Model/ESPN gap: {div['gap']} pts</b> — "
+                            f"same winner but confidence differs"
+                        )
 
             lines.append(f"📊 Model: {away} {away_prob}% | {home} {home_prob}%")
             if espn_game:
@@ -628,7 +599,6 @@ def run_digest(dry_run: bool = False):
     today = get_today_ct().strftime("%B %d, %Y")
     print(f"Running WNBA slate digest for {today}...")
 
-    # 1. Get today's games
     print("Fetching today's games from ESPN...")
     games = fetch_today_games()
     print(f"  Found {len(games)} game(s)")
@@ -646,14 +616,12 @@ def run_digest(dry_run: bool = False):
             send_message(msg)
         return
 
-    # 2. Get model predictions
     print("Fetching model predictions...")
     predictions = fetch_model_predictions()
     print(f"  Got {len(predictions)} prediction(s)")
 
-    # 3. Get streaks + rest days for each team
     print("Fetching team streaks and rest days...")
-    streaks = {}
+    streaks   = {}
     all_teams = set()
     for g in games:
         all_teams.add((g["home_team"], g["home_team_id"]))
@@ -663,7 +631,6 @@ def run_digest(dry_run: bool = False):
         print(f"  {team_name}...")
         streaks[team_name] = fetch_team_streak(team_id)
 
-    # 4. Get star player streaks
     print("Fetching star player streaks...")
     star_notices = {}
     for team_name, _ in all_teams:
@@ -672,34 +639,37 @@ def run_digest(dry_run: bool = False):
             star_notices[team_name] = notices
             print(f"  {team_name}: {len(notices)} notice(s)")
 
-    # 5. Fetch ESPN win probabilities for divergence check
     espn_probs = {}
     if ESPN_PROB_ENABLED:
         print("Fetching ESPN win probabilities...")
         espn_probs = get_espn_win_probs("WNBA")
         print(f"  Got ESPN probs for {len(espn_probs)} game(s)")
 
-    # 6. Fetch injury reports
     injury_map = {}
     if INJURIES_ENABLED:
         print("Fetching injury reports...")
         raw_injuries = fetch_injuries("WNBA")
-        # Flatten to {team_name: ["Player (Status)", ...]}
         for team, reports in raw_injuries.items():
             significant = [r for r in reports if r.status in ["Out", "Doubtful", "Day-To-Day"]]
             if significant:
                 injury_map[team] = [f"{r.player} ({r.status})" for r in significant]
         print(f"  Found injuries for {len(injury_map)} team(s)")
 
-    # 6. Fetch news headlines
     all_news = []
     if NEWS_ENABLED:
         print("Fetching news headlines...")
         all_news = fetch_all_headlines()
 
-    # 7. Format and send
     print("Formatting digest...")
-    digest = format_digest(games, predictions, streaks, star_notices, all_news=all_news, injury_map=injury_map, espn_probs=espn_probs)
+    digest = format_digest(
+        games,
+        predictions,
+        streaks,
+        star_notices,
+        all_news=all_news,
+        injury_map=injury_map,
+        espn_probs=espn_probs,
+    )
 
     if dry_run:
         print("\n--- DRY RUN OUTPUT ---")
@@ -710,7 +680,7 @@ def run_digest(dry_run: bool = False):
     else:
         for msg in digest:
             send_message(msg)
-            time.sleep(1)
+            time.sleep(2)
         print("Done.")
 
 
