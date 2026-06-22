@@ -19,8 +19,8 @@ from typing import Optional
 # CONFIG
 # ─────────────────────────────────────────────────────────────
 
-DIVERGENCE_THRESHOLD  = 10.0   # flag if model vs ESPN gap exceeds this
-MIN_GAMES_THRESHOLD   = 10     # flag teams with fewer games as low confidence
+DIVERGENCE_THRESHOLD = 15.0  # raised from 10 — WNBA pre-game ESPN model is less reliable
+MIN_GAMES_THRESHOLD  = 10    # flag teams with fewer games as low confidence
 
 ESPN_URLS = {
     "WNBA":  "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
@@ -34,7 +34,7 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept": "application/json",
+    "Accept":  "application/json",
     "Referer": "https://www.espn.com/",
 }
 
@@ -46,7 +46,6 @@ HEADERS = {
 def get_espn_win_probs(league: str) -> dict:
     """
     Fetch ESPN win probabilities for all games in today's scoreboard.
-
     Returns a dict keyed by normalized matchup string:
       "{away_team} @ {home_team}" -> {"home_prob": float, "away_prob": float}
 
@@ -58,7 +57,8 @@ def get_espn_win_probs(league: str) -> dict:
                   OR competitions[0].predictor.homeTeam.gameProjection
     """
     league = league.upper()
-    url = ESPN_URLS.get(league)
+    url    = ESPN_URLS.get(league)
+
     if not url:
         print(f"  [ESPN] Unknown league: {league}")
         return {}
@@ -77,9 +77,9 @@ def get_espn_win_probs(league: str) -> dict:
         try:
             comp        = event.get("competitions", [{}])[0]
             competitors = comp.get("competitors", [])
+            home        = next((t for t in competitors if t["homeAway"] == "home"), None)
+            away        = next((t for t in competitors if t["homeAway"] == "away"), None)
 
-            home = next((t for t in competitors if t["homeAway"] == "home"), None)
-            away = next((t for t in competitors if t["homeAway"] == "away"), None)
             if not home or not away:
                 continue
 
@@ -92,10 +92,10 @@ def get_espn_win_probs(league: str) -> dict:
                 continue
 
             result[key] = {
-                "home_team":  home_name,
-                "away_team":  away_name,
-                "home_prob":  round(home_prob, 1),
-                "away_prob":  round(100 - home_prob, 1),
+                "home_team": home_name,
+                "away_team": away_name,
+                "home_prob": round(home_prob, 1),
+                "away_prob": round(100 - home_prob, 1),
             }
         except Exception:
             continue
@@ -111,9 +111,9 @@ def _extract_win_prob(comp: dict, home_name: str, away_name: str) -> Optional[fl
     Try all known ESPN win prob locations. Returns home win % (0-100) or None.
 
     Priority:
-      1. predictor.homeTeam.gameProjection  (pre-game %)
-      2. odds[0].homeTeamOdds.winPercentage (pre-game odds-based %)
-      3. situation.lastPlay.probability.homeWinPercentage (live)
+      1. predictor.homeTeam.gameProjection       (pre-game %)
+      2. odds[0].homeTeamOdds.winPercentage      (pre-game odds-based %)
+      3. situation.lastPlay.probability...        (live)
       4. competitors[home].statistics winProbability
     """
     # 1. Predictor block (most reliable pre-game)
@@ -127,17 +127,17 @@ def _extract_win_prob(comp: dict, home_name: str, away_name: str) -> Optional[fl
     # 2. Odds block win percentage
     odds_list = comp.get("odds", [])
     if odds_list:
-        odds = odds_list[0]
+        odds    = odds_list[0]
         home_wp = odds.get("homeTeamOdds", {}).get("winPercentage")
         if home_wp is not None:
             val = float(home_wp)
             return val if val <= 1.0 else val  # handle 0-1 vs 0-100
 
     # 3. Live game situation
-    situation = comp.get("situation", {})
-    last_play = situation.get("lastPlay", {})
-    prob = last_play.get("probability", {})
-    home_live = prob.get("homeWinPercentage")
+    situation  = comp.get("situation", {})
+    last_play  = situation.get("lastPlay", {})
+    prob       = last_play.get("probability", {})
+    home_live  = prob.get("homeWinPercentage")
     if home_live is not None:
         val = float(home_live)
         return val * 100 if val <= 1.0 else val
@@ -167,10 +167,10 @@ def check_divergence(
 
     Returns:
       {
-        "diverged":   bool,
-        "gap":        float,      # absolute difference in percentage points
-        "direction":  str,        # "model_higher" or "espn_higher"
-        "flag":       str | None, # "DIVERGENCE" if flagged, else None
+        "diverged":  bool,
+        "gap":       float,   # absolute difference in percentage points
+        "direction": str,     # "model_higher" or "espn_higher"
+        "flag":      str | None,  # "DIVERGENCE" if flagged, else None
       }
     """
     gap       = abs(model_home_prob - espn_home_prob)
@@ -192,7 +192,6 @@ def check_divergence(
 def get_confidence_flag(wins: int, losses: int, min_games: int = MIN_GAMES_THRESHOLD) -> str:
     """
     Flag teams with insufficient game history.
-
     Returns "LOW_CONFIDENCE" if games played is below threshold.
     Returns "STANDARD" otherwise.
     """
@@ -215,14 +214,14 @@ def should_suppress_pick(confidence_flag: str, divergence_flag: Optional[str]) -
 # ─────────────────────────────────────────────────────────────
 
 def validate_pick(
-    league:          str,
-    home_team:       str,
-    away_team:       str,
-    model_home_prob: float,
-    home_wins:       int  = None,
-    home_losses:     int  = None,
-    away_wins:       int  = None,
-    away_losses:     int  = None,
+    league:           str,
+    home_team:        str,
+    away_team:        str,
+    model_home_prob:  float,
+    home_wins:        int = None,
+    home_losses:      int = None,
+    away_wins:        int = None,
+    away_losses:      int = None,
 ) -> dict:
     """
     Full validation pipeline for a single game pick.
@@ -234,12 +233,12 @@ def validate_pick(
 
     Returns:
       {
-        "espn_home_prob":    float | None,
-        "divergence":        dict | None,
-        "home_confidence":   str,
-        "away_confidence":   str,
-        "suppress":          bool,
-        "suppress_reason":   str | None,
+        "espn_home_prob":   float | None,
+        "divergence":       dict | None,
+        "home_confidence":  str,
+        "away_confidence":  str,
+        "suppress":         bool,
+        "suppress_reason":  str | None,
       }
     """
     matchup_key = f"{away_team} @ {home_team}"
@@ -248,7 +247,7 @@ def validate_pick(
     if home_wins is None or away_wins is None:
         try:
             from live_records import get_live_records, get_record
-            records        = get_live_records(league)
+            records     = get_live_records(league)
             home_wins, home_losses = get_record(home_team, league, records)
             away_wins, away_losses = get_record(away_team, league, records)
         except Exception as e:
@@ -260,8 +259,8 @@ def validate_pick(
     away_conf = get_confidence_flag(away_wins, away_losses)
 
     # ESPN win prob lookup
-    espn_probs   = get_espn_win_probs(league)
-    espn_game    = espn_probs.get(matchup_key)
+    espn_probs  = get_espn_win_probs(league)
+    espn_game   = espn_probs.get(matchup_key)
     espn_home_wp = espn_game["home_prob"] if espn_game else None
 
     # Divergence check
@@ -303,20 +302,18 @@ def validate_pick(
 def print_validation_result(result: dict, home_team: str, away_team: str):
     """Print a human-readable validation summary."""
     print(f"\n  📊 Validation: {away_team} @ {home_team}")
-    print(f"     Home confidence : {result['home_confidence']}")
-    print(f"     Away confidence : {result['away_confidence']}")
-
+    print(f"  Home confidence : {result['home_confidence']}")
+    print(f"  Away confidence : {result['away_confidence']}")
     if result["espn_home_prob"] is not None:
         d = result["divergence"]
-        print(f"     ESPN home prob  : {result['espn_home_prob']}%")
-        print(f"     Divergence      : {d['gap']} pts ({d['direction']})")
+        print(f"  ESPN home prob  : {result['espn_home_prob']}%")
+        print(f"  Divergence      : {d['gap']} pts ({d['direction']})")
     else:
-        print(f"     ESPN home prob  : Not available")
-
+        print(f"  ESPN home prob  : Not available")
     if result["suppress"]:
-        print(f"     ⚠  SUPPRESSED   : {result['suppress_reason']}")
+        print(f"  ⚠ SUPPRESSED   : {result['suppress_reason']}")
     else:
-        print(f"     ✅ CLEAR TO POST")
+        print(f"  ✅ CLEAR TO POST")
 
 
 if __name__ == "__main__":

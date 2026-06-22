@@ -1,12 +1,14 @@
 {
-  "game": "Seattle Storm @ Minnesota Lynx",
+  "game": "Minnesota Lynx @ Golden State Valkyries",
   "sport": "wnba",
-  "date": "2026-06-06",
+  "date": "2026-06-19",
+  "event_id": "",
+  "game_type": "regular_season",
   "bet": "Minnesota Lynx ML",
   "odds": "N/A",
-  "model_prob": 86.0,
-  "implied_prob": 52.4,
-  "edge": 33.6,
+  "model_prob": 60.1,
+  "implied_prob": 56.4,
+  "edge": 3.7,
   "confidence": "N/A",
   "prediction": {
     "predicted_winner": "Minnesota Lynx"
@@ -14,5 +16,5 @@
   "actual_result": {
     "actual_winner": "Minnesota Lynx"
   },
-  "model_version": "v1"
+  "model_version": "v3"
 }
