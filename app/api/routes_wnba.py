@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Query
 import sys, os
+
+# Resolve project root regardless of working directory
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, _root)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
 
 router = APIRouter(prefix="/wnba", tags=["WNBA"])
 
@@ -87,34 +90,31 @@ def wnba_preview(home: str, away: str, simulations: int = Query(default=10000)):
 
 @router.get("/predictions")
 def wnba_predictions(simulations: int = Query(default=10000)):
-    """Returns model predictions for ALL today's WNBA games — no edge filter."""
+    """Returns model predictions for ALL today's WNBA games, no edge filter."""
     from wnba_data      import get_team_stats, TEAM_IDS
     from wnba_predictor import WNBAPredictionEngine
     from wnba_props     import get_wnba_events
     from odds_parser    import american_to_implied
 
-    engine    = WNBAPredictionEngine()
-    events    = get_wnba_events()
-    results   = []
+    engine  = WNBAPredictionEngine()
+    events  = get_wnba_events()
+    results = []
 
     for event in events:
         home = event.get("home_team", "")
         away = event.get("away_team", "")
         if home not in TEAM_IDS or away not in TEAM_IDS:
             continue
-
         home_stats = get_team_stats(home)
         away_stats = get_team_stats(away)
         if not home_stats or not away_stats:
             continue
-
         pred      = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
         implied   = round(american_to_implied(-110) * 100, 1)
         e_home    = round(pred.home_win_prob - implied, 2)
         e_away    = round(pred.away_win_prob - implied, 2)
         best_edge = max(e_home, e_away)
         label     = f"{away} @ {home}"
-
         results.append({
             "game":         label,
             "bet":          f"{home} ML" if e_home >= e_away else f"{away} ML",
