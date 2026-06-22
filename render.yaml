@@ -62,6 +62,17 @@ services:
       - key: TELEGRAM_TOKEN
         sync: false
 
+- type: cron
+  name: wnba-pregame
+  runtime: python
+  schedule: "0 * * * *"
+  buildCommand: pip install -r requirements.txt
+  startCommand: python wnba_pregame_alert.py
+  envVars:
+    - key: ODDS_API_KEY
+      sync: false
+    - key: TELEGRAM_TOKEN
+      sync: false
   # ── NCAAB ───────────────────────────────────────────────────
   # Games almost daily Nov-Apr, tip times noon through 11 PM CT
   - type: cron
