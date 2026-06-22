@@ -11,10 +11,9 @@ router = APIRouter(prefix="/wnba", tags=["WNBA"])
 
 @router.get("/edges")
 def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
-    from wnba_data      import get_team_stats, TEAM_IDS
-    from wnba_predictor import WNBAPredictionEngine
-    from wnba_props     import get_wnba_events
-    from odds_parser    import american_to_implied
+    from wnba_data            import get_team_stats, TEAM_IDS, get_wnba_events
+    from wnba_predictor       import WNBAPredictionEngine
+    from services.odds_parser import american_to_implied
 
     engine  = WNBAPredictionEngine()
     events  = get_wnba_events()
@@ -56,13 +55,6 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
     return {"count": len(results), "best_bets": results}
 
 
-@router.get("/props")
-def wnba_props(min_edge: float = Query(default=3.0)):
-    from wnba_props import get_wnba_prop_edges
-    edges = get_wnba_prop_edges(min_edge=min_edge)
-    return {"count": len(edges), "props": edges}
-
-
 @router.get("/preview")
 def wnba_preview(home: str, away: str, simulations: int = Query(default=10000)):
     from wnba_data      import get_team_stats, get_roster, TEAM_IDS
@@ -91,10 +83,9 @@ def wnba_preview(home: str, away: str, simulations: int = Query(default=10000)):
 @router.get("/predictions")
 def wnba_predictions(simulations: int = Query(default=10000)):
     """Returns model predictions for ALL today's WNBA games, no edge filter."""
-    from wnba_data      import get_team_stats, TEAM_IDS
-    from wnba_predictor import WNBAPredictionEngine
-    from wnba_props     import get_wnba_events
-    from odds_parser    import american_to_implied
+    from wnba_data            import get_team_stats, TEAM_IDS, get_wnba_events
+    from wnba_predictor       import WNBAPredictionEngine
+    from services.odds_parser import american_to_implied
 
     engine  = WNBAPredictionEngine()
     events  = get_wnba_events()
