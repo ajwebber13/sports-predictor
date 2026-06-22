@@ -34,18 +34,26 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         edge_home    = round(pred.home_win_prob - implied_home, 2)
         edge_away    = round(pred.away_win_prob - implied_away, 2)
         label        = f"{away} @ {home}"
+
         if edge_home >= min_edge:
+            home_prob_dec = pred.home_win_prob / 100
+            home_odds = round(-(home_prob_dec / (1 - home_prob_dec)) * 100) if home_prob_dec >= 0.5 else round(((1 - home_prob_dec) / home_prob_dec) * 100)
             results.append({
                 "game": label, "bet": f"{home} ML", "model_prob": pred.home_win_prob,
                 "implied_prob": implied_home, "edge": round(edge_home / 100, 4),
+                "odds": home_odds,
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
                 "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
             })
+
         if edge_away >= min_edge:
+            away_prob_dec = pred.away_win_prob / 100
+            away_odds = round(-(away_prob_dec / (1 - away_prob_dec)) * 100) if away_prob_dec >= 0.5 else round(((1 - away_prob_dec) / away_prob_dec) * 100)
             results.append({
                 "game": label, "bet": f"{away} ML", "model_prob": pred.away_win_prob,
                 "implied_prob": implied_away, "edge": round(edge_away / 100, 4),
+                "odds": away_odds,
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "home_record": pred.home_record, "away_record": pred.away_record,
                 "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
@@ -106,12 +114,22 @@ def wnba_predictions(simulations: int = Query(default=10000)):
         e_away    = round(pred.away_win_prob - implied, 2)
         best_edge = max(e_home, e_away)
         label     = f"{away} @ {home}"
+
+        # Convert implied prob back to american odds
+        bet_prob  = pred.home_win_prob if e_home >= e_away else pred.away_win_prob
+        bet_prob_dec = bet_prob / 100
+        if bet_prob_dec >= 0.5:
+            bet_odds = round(-(bet_prob_dec / (1 - bet_prob_dec)) * 100)
+        else:
+            bet_odds = round(((1 - bet_prob_dec) / bet_prob_dec) * 100)
+
         results.append({
             "game":         label,
             "bet":          f"{home} ML" if e_home >= e_away else f"{away} ML",
             "model_prob":   pred.home_win_prob,
             "implied_prob": implied,
             "edge":         round(best_edge / 100, 4),
+            "odds":         bet_odds,
             "projected":    f"{pred.projected_home}-{pred.projected_away}",
             "home_record":  pred.home_record,
             "away_record":  pred.away_record,
