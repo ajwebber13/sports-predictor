@@ -62,7 +62,6 @@ ESPN_WNBA_TEAMS      = "https://site.api.espn.com/apis/site/v2/sports/basketball
 
 # ─────────────────────────────────────────────────────────────
 # STAR PLAYERS PER TEAM
-# Update as rosters change each season
 # ─────────────────────────────────────────────────────────────
 
 WNBA_STAR_PLAYERS = {
@@ -83,10 +82,9 @@ WNBA_STAR_PLAYERS = {
     "Portland Fire":           ["Kelsey Mitchell", "Lexie Hull"],
 }
 
-# Thresholds for flagging a streak as notable
-STAR_PTS_THRESHOLD  = 20   # pts in last N games
-STAR_STREAK_GAMES   = 3    # minimum games to call it a streak
-DOUBLE_DOUBLE_GAMES = 3    # games needed for double-double streak
+STAR_PTS_THRESHOLD  = 20
+STAR_STREAK_GAMES   = 3
+DOUBLE_DOUBLE_GAMES = 3
 
 
 # ─────────────────────────────────────────────────────────────
@@ -341,17 +339,17 @@ def fetch_star_player_streaks(team_name: str) -> list:
 
 # ─────────────────────────────────────────────────────────────
 # MODEL PREDICTIONS FETCHER
-# Hits /wnba/predictions — returns ALL games, no edge filter
+# Hits /edges/wnba/predictions — returns ALL games, no edge filter
 # ─────────────────────────────────────────────────────────────
 
 def fetch_model_predictions() -> dict:
     """
-    Pull all WNBA predictions from your FastAPI backend.
-    Uses /wnba/predictions so every game gets a model pick.
+    Pull all WNBA predictions from FastAPI backend.
+    Uses /edges/wnba/predictions so every game gets a model pick.
     Returns dict keyed by "AWAY @ HOME" game string.
     """
     try:
-        r    = requests.get(f"{API_BASE}/wnba/predictions", params={"simulations": 5000}, timeout=60)
+        r    = requests.get(f"{API_BASE}/edges/wnba/predictions", params={"simulations": 5000}, timeout=60)
         data = r.json()
     except Exception as e:
         print(f"Model API error: {e}")
