@@ -341,17 +341,17 @@ def fetch_star_player_streaks(team_name: str) -> list:
 
 # ─────────────────────────────────────────────────────────────
 # MODEL PREDICTIONS FETCHER
-# Hits /edges/wnba/predictions — returns ALL games, no edge filter
+# Hits /wnba/predictions — returns ALL games, no edge filter
 # ─────────────────────────────────────────────────────────────
 
 def fetch_model_predictions() -> dict:
     """
     Pull all WNBA predictions from your FastAPI backend.
-    Uses /edges/wnba/predictions so every game gets a model pick.
+    Uses /wnba/predictions so every game gets a model pick.
     Returns dict keyed by "AWAY @ HOME" game string.
     """
     try:
-        r    = requests.get(f"{API_BASE}/edges/wnba/predictions", params={"simulations": 5000}, timeout=60)
+        r    = requests.get(f"{API_BASE}/wnba/predictions", params={"simulations": 5000}, timeout=60)
         data = r.json()
     except Exception as e:
         print(f"Model API error: {e}")
