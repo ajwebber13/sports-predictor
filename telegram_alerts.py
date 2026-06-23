@@ -53,7 +53,7 @@ SEASON_WINDOWS = {
     "ncaab": (11, 4),
     "ncaaw": (11, 4),
     "wnba":  (5, 10),
-    "nba":   (10, 6),
+    "nba":   (10, 5),
 }
 
 def is_in_season(sport: str) -> bool:
@@ -430,7 +430,7 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         clean_bets = []
         suppressed = []
         for bet in bets:
-            if get_recommended_prob(bet) >= 65:
+            if get_recommended_prob(bet) >= 57:
                 clean_bets.append(bet)
             else:
                 suppressed.append(bet)
