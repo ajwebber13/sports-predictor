@@ -414,7 +414,6 @@ def fetch_model_predictions() -> dict:
         has_edge   = edge >= 10
         pick_label = bet_label if has_edge else ""
 
-        print(f"  DEBUG: '{game}' | home: {home_prob}% | away: {away_prob}% | winner: {predicted_winner} | edge: {edge}%")
 
         predictions[game] = {
             "home_team":        home_team,
@@ -430,7 +429,6 @@ def fetch_model_predictions() -> dict:
             "implied_prob":     implied,
         }
 
-    print(f"  Prediction keys: {list(predictions.keys())}")
     return predictions
 
 
@@ -443,7 +441,6 @@ def match_prediction(game: dict, predictions: dict) -> dict:
     away = game["away_team"]
 
     key = f"{away} @ {home}"
-    print(f"  Trying to match: '{key}'")
 
     if key in predictions:
         return predictions[key]
@@ -453,7 +450,6 @@ def match_prediction(game: dict, predictions: dict) -> dict:
             if pred["away_team"] in away or away in pred["away_team"]:
                 return pred
 
-    print(f"  NO MATCH FOUND for: '{key}'")
     return {}
 
 
@@ -591,6 +587,24 @@ def format_digest(
             if divergence_line:
                 lines.append(divergence_line)
             if pred.get("has_edge") and pred.get("pick_label"):
+                try:
+                    from database import log_prediction
+                    log_prediction({
+                        "game":          f"{away} @ {home}",
+                        "bet":           pred.get("pick_label", ""),
+                        "odds":          pred.get("odds"),
+                        "model_prob":    pred.get("winner_prob", 0),
+                        "implied_prob":  pred.get("implied_prob", 52.4),
+                        "edge":          round(pred.get("edge", 0) / 100, 4),
+                        "home_record":   g.get("home_record", ""),
+                        "away_record":   g.get("away_record", ""),
+                        "home_rest":     None,
+                        "away_rest":     None,
+                        "home_injuries": ", ".join(g.get("home_injuries", [])),
+                        "away_injuries": ", ".join(g.get("away_injuries", [])),
+                    }, "wnba")
+                except Exception as e:
+                    print(f"  Prediction log error: {e}")
                 lines.append(f"✅ <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}%</b>")
             else:
                 lines.append("⚠️ No edge pick (below threshold)")
