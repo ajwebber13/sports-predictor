@@ -9,15 +9,56 @@ if _root not in sys.path:
 router = APIRouter(prefix="/wnba", tags=["WNBA"])
 
 
+def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
+    """
+    Returns (home_implied, away_implied) from live odds.
+    Falls back to -110 implied (~52.4%) if not found.
+    Uses median across bookmakers to avoid bad data.
+    """
+    from services.odds_parser import american_to_implied
+    home_probs = []
+    away_probs = []
+    for game in events_odds:
+        game_home = game.get("home_team", "")
+        game_away = game.get("away_team", "")
+        if not (home.lower() in game_home.lower() or game_home.lower() in home.lower()):
+            continue
+        if not (away.lower() in game_away.lower() or game_away.lower() in away.lower()):
+            continue
+        for bm in game.get("bookmakers", []):
+            for market in bm.get("markets", []):
+                if market["key"] != "h2h":
+                    continue
+                for o in market.get("outcomes", []):
+                    price = o.get("price", 0)
+                    name  = o.get("name", "")
+                    if abs(price) > 2000:
+                        continue
+                    prob = round(american_to_implied(price) * 100, 1)
+                    if home.lower() in name.lower():
+                        home_probs.append(prob)
+                    elif away.lower() in name.lower():
+                        away_probs.append(prob)
+    default = round(american_to_implied(-110) * 100, 1)
+    if not home_probs or not away_probs:
+        return default, default
+    home_probs.sort()
+    away_probs.sort()
+    home_implied = home_probs[len(home_probs) // 2]
+    away_implied = away_probs[len(away_probs) // 2]
+    return home_implied, away_implied
+
+
 @router.get("/edges")
 def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
     from wnba_data            import get_team_stats, TEAM_IDS, get_wnba_events
     from wnba_predictor       import WNBAPredictionEngine
-    from services.odds_parser import american_to_implied
+    from services.odds_parser import american_to_implied, get_live_odds
 
-    engine  = WNBAPredictionEngine()
-    events  = get_wnba_events()
-    results = []
+    engine      = WNBAPredictionEngine()
+    events      = get_wnba_events()
+    events_odds = get_live_odds("wnba")
+    results     = []
 
     for event in events:
         home = event.get("home_team", "")
@@ -28,12 +69,11 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         away_stats = get_team_stats(away)
         if not home_stats or not away_stats:
             continue
-        pred         = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
-        implied_home = round(american_to_implied(-110) * 100, 1)
-        implied_away = round(american_to_implied(-110) * 100, 1)
-        edge_home    = round(pred.home_win_prob - implied_home, 2)
-        edge_away    = round(pred.away_win_prob - implied_away, 2)
-        label        = f"{away} @ {home}"
+        pred                     = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
+        implied_home, implied_away = get_market_implied(events_odds, home, away)
+        edge_home                = round(pred.home_win_prob - implied_home, 2)
+        edge_away                = round(pred.away_win_prob - implied_away, 2)
+        label                    = f"{away} @ {home}"
 
         if edge_home >= min_edge:
             home_prob_dec = pred.home_win_prob / 100
@@ -93,11 +133,12 @@ def wnba_predictions(simulations: int = Query(default=10000)):
     """Returns model predictions for ALL today's WNBA games, no edge filter."""
     from wnba_data            import get_team_stats, TEAM_IDS, get_wnba_events
     from wnba_predictor       import WNBAPredictionEngine
-    from services.odds_parser import american_to_implied
+    from services.odds_parser import american_to_implied, get_live_odds
 
-    engine  = WNBAPredictionEngine()
-    events  = get_wnba_events()
-    results = []
+    engine      = WNBAPredictionEngine()
+    events      = get_wnba_events()
+    events_odds = get_live_odds("wnba")
+    results     = []
 
     for event in events:
         home = event.get("home_team", "")
@@ -108,15 +149,15 @@ def wnba_predictions(simulations: int = Query(default=10000)):
         away_stats = get_team_stats(away)
         if not home_stats or not away_stats:
             continue
-        pred      = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
-        implied   = round(american_to_implied(-110) * 100, 1)
-        e_home    = round(pred.home_win_prob - implied, 2)
-        e_away    = round(pred.away_win_prob - implied, 2)
-        best_edge = max(e_home, e_away)
-        label     = f"{away} @ {home}"
+        pred                       = engine.predict(home_stats=home_stats, away_stats=away_stats, simulations=simulations)
+        home_implied, away_implied = get_market_implied(events_odds, home, away)
+        e_home                     = round(pred.home_win_prob - home_implied, 2)
+        e_away                     = round(pred.away_win_prob - away_implied, 2)
+        implied                    = home_implied if e_home >= e_away else away_implied
+        best_edge                  = max(e_home, e_away)
+        label                      = f"{away} @ {home}"
 
-        # Convert implied prob back to american odds
-        bet_prob  = pred.home_win_prob if e_home >= e_away else pred.away_win_prob
+        bet_prob     = pred.home_win_prob if e_home >= e_away else pred.away_win_prob
         bet_prob_dec = bet_prob / 100
         if bet_prob_dec >= 0.5:
             bet_odds = round(-(bet_prob_dec / (1 - bet_prob_dec)) * 100)
