@@ -164,9 +164,11 @@ def wnba_predictions(simulations: int = Query(default=10000)):
         else:
             bet_odds = round(((1 - bet_prob_dec) / bet_prob_dec) * 100)
 
+        # Use model's predicted winner for bet label
+        bet_label = f"{home} ML" if pred.home_win_prob > pred.away_win_prob else f"{away} ML"
         results.append({
             "game":         label,
-            "bet":          f"{home} ML" if e_home >= e_away else f"{away} ML",
+            "bet":          bet_label,
             "model_prob":   pred.home_win_prob,
             "implied_prob": implied,
             "edge":         round(best_edge / 100, 4),
