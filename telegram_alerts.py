@@ -175,13 +175,7 @@ def get_recommended_prob(bet: dict) -> float:
     model_prob is always the HOME team win probability.
     If we're betting the away team, confidence = 100 - model_prob.
     """
-    model_prob  = bet.get("model_prob", 50)
-    game        = bet.get("game", "")
-    bet_label   = bet.get("bet", "")
-    parts       = game.split(" @ ")
-    home_team   = parts[1] if len(parts) == 2 else ""
-    bet_on_home = home_team.lower() in bet_label.lower()
-    return model_prob if bet_on_home else round(100 - model_prob, 1)
+    return round(float(bet.get("model_prob", 50)), 1)
 
 
 def fmt_odds(odds) -> str:
@@ -274,9 +268,8 @@ def format_alert(bet: dict, sport: str, game_time: str) -> str:
     parts       = game.split(" @ ")
     away_team   = parts[0] if len(parts) == 2 else ""
     home_team   = parts[1] if len(parts) == 2 else ""
-    bet_on_home = home_team.lower() in bet_label.lower()
-    home_prob   = model_prob if bet_on_home else round(100 - model_prob, 1)
-    away_prob   = round(100 - model_prob, 1) if bet_on_home else model_prob
+    home_prob = round(float(model_prob), 1)
+    away_prob = round(100 - home_prob, 1)
 
     odds_str  = f" ({fmt_odds(odds)})" if odds else ""
     proj_line = f"\n📊 <b>Projected:</b> {projected}" if projected else ""
