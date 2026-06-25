@@ -175,3 +175,23 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+
+  - type: cron
+    name: wnba-daily-recap
+    runtime: python
+    schedule: "30 11 * * *"   # 6:30 AM CT daily
+    buildCommand: pip install -r requirements.txt
+    startCommand: python wnba_recap.py --daily
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
+    name: wnba-weekly-recap
+    runtime: python
+    schedule: "0 14 * * 0"   # 9 AM CT Sundays
+    buildCommand: pip install -r requirements.txt
+    startCommand: python wnba_recap.py --weekly
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
