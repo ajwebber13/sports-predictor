@@ -175,7 +175,15 @@ def get_recommended_prob(bet: dict) -> float:
     model_prob is always the HOME team win probability.
     If we're betting the away team, confidence = 100 - model_prob.
     """
-    return round(float(bet.get("model_prob", 50)), 1)
+    model_prob = bet.get("model_prob", 50)
+    game       = bet.get("game", "")
+    bet_label  = bet.get("bet", "")
+    parts      = game.split(" @ ")
+    home_team  = parts[1] if len(parts) == 2 else ""
+    if home_team.lower() in bet_label.lower():
+        return round(float(model_prob), 1)
+    else:
+        return round(100 - float(model_prob), 1)
 
 
 def fmt_odds(odds) -> str:
