@@ -334,17 +334,27 @@ def fetch_model_predictions() -> dict:
         has_edge   = edge >= 8
         pick_label = bet_label if has_edge else ""
         predictions[game] = {
-            "home_team":        home_team,
-            "away_team":        away_team,
-            "home_prob":        home_prob,
-            "away_prob":        away_prob,
-            "predicted_winner": predicted_winner,
-            "winner_prob":      winner_prob,
-            "edge":             edge,
-            "has_edge":         has_edge,
-            "pick_label":       pick_label,
-            "odds":             odds,
-            "implied_prob":     implied,
+            "home_team":          home_team,
+            "away_team":          away_team,
+            "home_prob":          home_prob,
+            "away_prob":          away_prob,
+            "predicted_winner":   predicted_winner,
+            "winner_prob":        winner_prob,
+            "edge":               edge,
+            "has_edge":           has_edge,
+            "pick_label":         pick_label,
+            "odds":               odds,
+            "implied_prob":       implied,
+            "projected":          bet.get("projected", ""),
+            "pred_margin":        bet.get("pred_margin"),
+            "posted_spread":      bet.get("posted_spread"),
+            "spread_pick":        bet.get("spread_pick"),
+            "spread_cover_prob":  bet.get("spread_cover_prob"),
+            "spread_edge":        bet.get("spread_edge"),
+            "projected_total":    bet.get("projected_total"),
+            "posted_total":       bet.get("posted_total"),
+            "over_prob":          bet.get("over_prob"),
+            "under_prob":         bet.get("under_prob"),
         }
     return predictions
 
@@ -562,8 +572,51 @@ def format_digest(
                     lines.append(f"⚠️ Edge suppressed — {pick_team} missing {star_out_count} key players")
                 else:
                     lines.append(f"{tier_emoji} <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}% ({conf_tier.upper()})</b>")
+
+                    # Spread pick — show if model has meaningful edge vs posted line
+                    spread_pick = pred.get("spread_pick")
+                    spread_prob = pred.get("spread_cover_prob")
+                    spread_edge = pred.get("spread_edge")
+                    posted_spread = pred.get("posted_spread")
+                    pred_margin = pred.get("pred_margin")
+                    if spread_pick and spread_prob and posted_spread is not None and pred_margin is not None:
+                        lines.append(
+                            f"📐 <b>SPREAD: {spread_pick} | {spread_prob}% cover</b> "
+                            f"(model margin {pred_margin:+.1f} vs posted {posted_spread:+.1f})"
+                        )
+
+                    # Totals pick — fire when model projection differs from posted total by 4+ pts
+                    proj_total   = pred.get("projected_total")
+                    posted_total = pred.get("posted_total")
+                    over_prob    = pred.get("over_prob")
+                    under_prob   = pred.get("under_prob")
+                    if proj_total and posted_total:
+                        total_edge = round(proj_total - posted_total, 1)
+                        if abs(total_edge) >= 4:
+                            if total_edge > 0:
+                                direction  = "OVER"
+                                total_prob = over_prob
+                            else:
+                                direction  = "UNDER"
+                                total_prob = under_prob
+                            lines.append(
+                                f"🎯 <b>TOTAL: {direction} {posted_total} | {total_prob}%</b> "
+                                f"(model projects {proj_total}, edge {total_edge:+.1f})"
+                            )
             else:
                 lines.append(f"🔴 No edge pick (below threshold)")
+
+                # Still show projected score even without edge
+                projected = pred.get("projected", "")
+                proj_total = pred.get("projected_total")
+                posted_total = pred.get("posted_total")
+                if projected:
+                    lines.append(f"📐 Projected: {projected}")
+                if proj_total and posted_total:
+                    total_edge = round(proj_total - posted_total, 1)
+                    direction = "OVER" if total_edge > 0 else "UNDER"
+                    if abs(total_edge) >= 4:
+                        lines.append(f"🎯 Total lean: {direction} {posted_total} (model {proj_total}, edge {total_edge:+.1f})")
         else:
             lines.append("📊 Model prediction unavailable")
 
