@@ -153,6 +153,30 @@ services:
         sync: false
 
   - type: cron
+    name: wnba-closing-lines-early
+    runtime: python
+    schedule: "30 17 * * *"   # 11:30 AM CT daily — captures closing lines for 1 PM early games
+    buildCommand: pip install -r requirements.txt
+    startCommand: python capture_closing_lines.py --sport wnba
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
+    name: closing-lines-early-weekend
+    runtime: python
+    schedule: "30 17 * * 0,6"   # 11:30 AM CT Sat/Sun — NFL 1 PM + NCAAF noon closing lines
+    buildCommand: pip install -r requirements.txt
+    startCommand: python capture_closing_lines.py
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
     name: wnba-closing-lines
     runtime: python
     schedule: "0 21 * * *"   # 4 PM CT daily — capture closing lines before 6:30 PM tip

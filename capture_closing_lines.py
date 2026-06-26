@@ -26,7 +26,7 @@ from datetime import datetime, timezone, timedelta
 
 CENTRAL_OFFSET = -5  # CDT
 
-ACTIVE_SPORTS = ["wnba"]  # expand to nba, nfl etc when seasons activate
+ACTIVE_SPORTS = ["wnba", "nfl", "ncaaf"]  # nba added when in season
 
 # Sharp movement threshold — line moves 8+ points = possible sharp money
 SHARP_THRESHOLD = 8
