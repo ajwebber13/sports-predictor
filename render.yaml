@@ -39,6 +39,16 @@ services:
   # ── WNBA ────────────────────────────────────────────────────
   # Games daily May-Oct, tip times noon through 9 PM CT
   - type: cron
+    name: wnba-props-morning
+    runtime: python
+    schedule: "0 15 * * *"   # 10 AM CT daily — fetch PrizePicks props before alerts
+    buildCommand: pip install -r requirements.txt
+    startCommand: python fetch_prizepicks_props.py --sport wnba
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+
+  - type: cron
     name: wnba-morning
     runtime: python
     schedule: "0 15 * * *"   # 10 AM CT daily
