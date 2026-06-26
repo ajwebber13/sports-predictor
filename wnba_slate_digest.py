@@ -397,12 +397,14 @@ def format_digest(
     injury_map: dict = None,
     espn_probs: dict = None,
     line_movement_map: dict = None,
+    prop_picks_map: dict = None,
 ) -> list:
     today       = get_today_ct().strftime("%B %d, %Y")
     all_news    = all_news or []
     injury_map  = injury_map or {}
     espn_probs  = espn_probs or {}
     line_movement_map = line_movement_map or {}
+    prop_picks_map    = prop_picks_map or {}
     used_titles = set()
     messages    = []
 
@@ -461,6 +463,17 @@ def format_digest(
 
         for notice in (away_notices + home_notices)[:3]:
             lines.append(notice)
+
+        # ── Prop picks for this game ──
+        game_props = prop_picks_map.get(home, []) + prop_picks_map.get(away, [])
+        if game_props:
+            lines.append("🎯 <b>Prop Picks</b>")
+            for prop in game_props[:4]:  # cap at 4 props per game
+                stat_label = {"pts": "PTS", "reb": "REB", "ast": "AST", "stl": "STL", "blk": "BLK"}.get(prop["stat"], prop["stat"].upper())
+                tier_emoji = "✅" if prop["confidence_tier"] == "green" else "⚠️"
+                hr         = prop.get("hit_rate_overall")
+                hr_str     = f"{hr}%" if hr else "?"
+                lines.append(f"  {tier_emoji} {prop['player_name']} o{prop['line']} {stat_label} — {hr_str}")
 
         if NEWS_ENABLED and all_news:
             for h in get_game_news(home, away, all_news):
@@ -707,6 +720,53 @@ def run_digest(dry_run: bool = False):
         print("Fetching news headlines...")
         all_news = fetch_all_headlines()
 
+    # ── Today's prop picks (from player_props table — populated by fetch_prizepicks_props.py) ──
+    prop_picks_map = {}
+    try:
+        import sqlite3 as _sqlite3
+        _db   = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
+        _conn = _sqlite3.connect(_db)
+        _conn.row_factory = _sqlite3.Row
+        _c    = _conn.cursor()
+        _today = get_today_ct().strftime("%Y-%m-%d")
+
+        # Get green/yellow props
+        _c.execute("""
+            SELECT player_name, team_name, stat, line,
+                   over_odds, under_odds,
+                   hit_rate_overall, confidence_tier
+            FROM player_props
+            WHERE date = ? AND sport = ? AND confidence_tier IN ('green', 'yellow')
+            ORDER BY hit_rate_overall DESC
+        """, (_today, "wnba"))
+        all_props_today = [dict(r) for r in _c.fetchall()]
+
+        # Build player → team lookup from game log (most recent entry per player)
+        _c.execute("""
+            SELECT player_name, team_name
+            FROM wnba_game_log
+            WHERE team_name != ''
+            GROUP BY player_name
+            ORDER BY date DESC
+        """)
+        player_team_map = {r["player_name"]: r["team_name"] for r in _c.fetchall()}
+        _conn.close()
+
+        # Assign team to each prop, group by team
+        for prop in all_props_today:
+            team = prop.get("team_name") or player_team_map.get(prop["player_name"], "")
+            prop["team_name"] = team
+            if team:
+                if team not in prop_picks_map:
+                    prop_picks_map[team] = []
+                prop_picks_map[team].append(prop)
+
+        if prop_picks_map:
+            total = sum(len(v) for v in prop_picks_map.values())
+            print(f"  Loaded {total} prop pick(s) for {len(prop_picks_map)} team(s)")
+    except Exception as e:
+        print(f"  Prop picks load error (non-fatal): {e}")
+
     # ── Line movement (from DB — populated by afternoon closing line capture) ──
     line_movement_map = {}
     try:
@@ -742,6 +802,7 @@ def run_digest(dry_run: bool = False):
         injury_map=injury_map,
         espn_probs=espn_probs,
         line_movement_map=line_movement_map,
+        prop_picks_map=prop_picks_map,
     )
 
     if dry_run:
