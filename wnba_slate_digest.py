@@ -331,7 +331,7 @@ def fetch_model_predictions() -> dict:
         away_prob = round(100 - home_prob, 1)
         predicted_winner = home_team if home_prob > away_prob else away_team
         winner_prob      = max(home_prob, away_prob)
-        has_edge   = edge >= 10
+        has_edge   = edge >= 8
         pick_label = bet_label if has_edge else ""
         predictions[game] = {
             "home_team":        home_team,
@@ -386,11 +386,13 @@ def format_digest(
     all_news: list = None,
     injury_map: dict = None,
     espn_probs: dict = None,
+    line_movement_map: dict = None,
 ) -> list:
     today       = get_today_ct().strftime("%B %d, %Y")
     all_news    = all_news or []
     injury_map  = injury_map or {}
     espn_probs  = espn_probs or {}
+    line_movement_map = line_movement_map or {}
     used_titles = set()
     messages    = []
 
@@ -464,6 +466,23 @@ def format_digest(
             w_prob    = pred.get("winner_prob", 50)
 
             game_key        = f"{away} @ {home}"
+
+            # ── Line movement signal ──
+            lm = line_movement_map.get(game_key, {})
+            if lm:
+                open_h  = lm.get("opening_home_ml")
+                close_h = lm.get("closing_home_ml")
+                open_a  = lm.get("opening_away_ml")
+                close_a = lm.get("closing_away_ml")
+                sharp   = lm.get("sharp_signal", "")
+                if open_h and close_h:
+                    lines.append(
+                        f"📉 Line: {home} {open_h:+d}→{close_h:+d} | "
+                        f"{away} {open_a:+d}→{close_a:+d}"
+                    )
+                if sharp:
+                    lines.append(f"🔔 {sharp}")
+
             espn_game       = espn_probs.get(game_key, {})
             divergence_line = ""
             if espn_game and ESPN_PROB_ENABLED:
@@ -512,10 +531,39 @@ def format_digest(
             except Exception as e:
                 print(f"  Prediction log error: {e}")
 
-            if pred.get("has_edge") and pred.get("pick_label"):
-                lines.append(f"✅ <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}%</b>")
+            # ── Confidence tier ──
+            w_prob_val = pred.get("winner_prob", 0)
+            edge_val   = pred.get("edge", 0)
+            if w_prob_val >= 60 and edge_val >= 10:
+                conf_tier  = "green"
+                tier_emoji = "🟢"
+            elif w_prob_val >= 55 or (edge_val >= 8 and edge_val < 10):
+                conf_tier  = "yellow"
+                tier_emoji = "🟡"
             else:
-                lines.append("⚠️ No edge pick (below threshold)")
+                conf_tier  = "red"
+                tier_emoji = "🔴"
+
+            if pred.get("has_edge") and pred.get("pick_label"):
+                # Suppress edge only if the picked team is missing 2+ STAR players
+                pick_team = pred["pick_label"].replace(" ML", "").strip()
+                pick_injuries = []
+                if pick_team == home:
+                    pick_injuries = injury_map.get(home, g.get("home_injuries", []))
+                elif pick_team == away:
+                    pick_injuries = injury_map.get(away, g.get("away_injuries", []))
+                star_list = WNBA_STAR_PLAYERS.get(pick_team, [])
+                star_out_count = sum(
+                    1 for inj in pick_injuries
+                    if ("(Out)" in inj or "(Doubtful)" in inj)
+                    and any(star.lower() in inj.lower() for star in star_list)
+                )
+                if star_out_count >= 2:
+                    lines.append(f"⚠️ Edge suppressed — {pick_team} missing {star_out_count} key players")
+                else:
+                    lines.append(f"{tier_emoji} <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}% ({conf_tier.upper()})</b>")
+            else:
+                lines.append(f"🔴 No edge pick (below threshold)")
         else:
             lines.append("📊 Model prediction unavailable")
 
@@ -606,6 +654,31 @@ def run_digest(dry_run: bool = False):
         print("Fetching news headlines...")
         all_news = fetch_all_headlines()
 
+    # ── Line movement (from DB — populated by afternoon closing line capture) ──
+    line_movement_map = {}
+    try:
+        import sqlite3 as _sqlite3
+        _db = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
+        _conn = _sqlite3.connect(_db)
+        _conn.row_factory = _sqlite3.Row
+        _c = _conn.cursor()
+        _today = get_today_ct().strftime("%Y-%m-%d")
+        _c.execute("""
+            SELECT home_team, away_team, opening_home_ml, opening_away_ml,
+                   closing_home_ml, closing_away_ml,
+                   movement_home, movement_away, sharp_signal
+            FROM line_movement
+            WHERE date = ? AND sport = ?
+        """, (_today, "wnba"))
+        for row in _c.fetchall():
+            key = f"{row['away_team']} @ {row['home_team']}"
+            line_movement_map[key] = dict(row)
+        _conn.close()
+        if line_movement_map:
+            print(f"  Loaded line movement for {len(line_movement_map)} game(s)")
+    except Exception as e:
+        print(f"  Line movement load error (non-fatal): {e}")
+
     print("Formatting digest...")
     digest = format_digest(
         games,
@@ -615,6 +688,7 @@ def run_digest(dry_run: bool = False):
         all_news=all_news,
         injury_map=injury_map,
         espn_probs=espn_probs,
+        line_movement_map=line_movement_map,
     )
 
     if dry_run:

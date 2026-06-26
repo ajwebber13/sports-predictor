@@ -436,6 +436,14 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
             else:
                 suppressed.append(bet)
 
+    # ── WNBA: digest already sent edge picks inline — skip duplicate summary/alerts ──
+    if sport == "wnba":
+        if clean_bets:
+            print(f"WNBA: {len(clean_bets)} edge(s) already included in slate digest. No duplicate alerts sent.")
+        else:
+            print("WNBA: No clean edges — slate digest already handled game-level output. No summary sent.")
+        return
+
     if not clean_bets:
         print("All alerts filtered. Nothing sent.")
         send_message(

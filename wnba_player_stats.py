@@ -57,8 +57,19 @@ def parse_box_score(event_id: str) -> list:
     players  = boxscore.get("players", [])
     results  = []
 
+    # Build team name list for opponent lookup
+    team_names = [t.get("team", {}).get("displayName", "") for t in players]
+
+    # Build home/away map from competitions
+    home_away_map = {}
+    for comp in data.get("header", {}).get("competitions", []):
+        for competitor in comp.get("competitors", []):
+            tname = competitor.get("team", {}).get("displayName", "")
+            home_away_map[tname] = competitor.get("homeAway", "")
+
     for team_data in players:
         team_name = team_data.get("team", {}).get("displayName", "")
+        opponent  = next((t for t in team_names if t != team_name), "")
         stats_list = team_data.get("statistics", [])
 
         if not stats_list:
@@ -114,6 +125,8 @@ def parse_box_score(event_id: str) -> list:
                 "fg_pct":      fg_pct,
                 "three_pct":   three_pct,
                 "ft_pct":      ft_pct,
+                "opponent":    opponent,
+                "home_away":   home_away_map.get(team_name, ""),
             })
 
     return results
@@ -150,12 +163,13 @@ def save_game_stats(game_stats: list, date_str: str):
             c.execute("""
                 INSERT OR IGNORE INTO wnba_game_log
                 (date, player_name, team_name, minutes, pts, reb, ast,
-                 stl, blk, fg_pct, three_pct, ft_pct)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 stl, blk, fg_pct, three_pct, ft_pct, opponent, home_away)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 date_str, p["player_name"], p["team_name"],
                 p["minutes"], p["pts"], p["reb"], p["ast"],
-                p["stl"], p["blk"], p["fg_pct"], p["three_pct"], p["ft_pct"]
+                p["stl"], p["blk"], p["fg_pct"], p["three_pct"], p["ft_pct"],
+                p.get("opponent", ""), p.get("home_away", ""),
             ))
             saved += 1
         except Exception as e:

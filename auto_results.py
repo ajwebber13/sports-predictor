@@ -209,7 +209,133 @@ def run_daily_scoring(days_back: int = 1):
         print(f"Win Rate: {win_rate}%")
     print(f"{'='*50}\n")
 
+    # Score prop results for the same date
+    score_prop_results(date_str)
+
     return total
+
+
+def score_prop_results(date_str: str = None) -> dict:
+    """
+    Match player prop picks to actual game log results.
+    Marks each prop as hit/miss and stores actual stat value.
+    Runs nightly after auto_results scores game picks.
+    """
+    if not date_str:
+        date_str = get_date_ct(1)  # yesterday by default
+
+    # Convert YYYY-MM-DD to YYYYMMDD for game_log lookup
+    game_log_date = date_str.replace("-", "")
+
+    print(f"Scoring prop results for {date_str}...")
+
+    conn    = get_conn()
+    c       = conn.cursor()
+
+    # Get all prop picks for this date that haven't been scored yet
+    c.execute("""
+        SELECT id, player_name, stat, line
+        FROM player_props
+        WHERE date = ? AND result IS NULL
+    """, (date_str,))
+    props = c.fetchall()
+
+    if not props:
+        print("  No unscored props found.")
+        conn.close()
+        return {"scored": 0, "hits": 0, "misses": 0}
+
+    scored = hits = misses = 0
+
+    for prop in props:
+        prop_id     = prop["id"]
+        player_name = prop["player_name"]
+        stat        = prop["stat"]
+        line        = prop["line"]
+
+        # Look up actual stat in game log
+        c.execute(f"""
+            SELECT {stat}
+            FROM wnba_game_log
+            WHERE date = ? AND player_name = ? AND minutes > 0
+            LIMIT 1
+        """, (game_log_date, player_name))
+        row = c.fetchone()
+
+        if not row:
+            # Try fuzzy match
+            c.execute(f"""
+                SELECT {stat}, player_name
+                FROM wnba_game_log
+                WHERE date = ? AND player_name LIKE ? AND minutes > 0
+                LIMIT 1
+            """, (game_log_date, f"%{player_name.split()[0]}%"))
+            row = c.fetchone()
+
+        if not row:
+            print(f"  ⬜ {player_name} {stat} — no game log entry for {date_str}")
+            continue
+
+        actual = row[stat] if hasattr(row, "__getitem__") else row[0]
+        result = "hit" if actual > line else "miss"
+        symbol = "✅" if result == "hit" else "❌"
+
+        c.execute("""
+            UPDATE player_props
+            SET result = ?, actual_value = ?, scored_at = ?
+            WHERE id = ?
+        """, (result, actual, datetime.now(timezone.utc).isoformat(), prop_id))
+
+        print(f"  {symbol} {player_name} o{line} {stat} — actual: {actual} ({result.upper()})")
+        scored += 1
+        if result == "hit":
+            hits += 1
+        else:
+            misses += 1
+
+    conn.commit()
+    conn.close()
+
+    print(f"  Props scored: {scored} | Hits: {hits} | Misses: {misses}")
+    return {"scored": scored, "hits": hits, "misses": misses}
+
+
+def print_prop_report():
+    """Print prop hit rate performance from player_props table."""
+    conn = get_conn()
+    c    = conn.cursor()
+
+    c.execute("""
+        SELECT player_name, stat,
+               COUNT(*) as picks,
+               SUM(CASE WHEN result = 'hit' THEN 1 ELSE 0 END) as hits,
+               ROUND(AVG(CASE WHEN result = 'hit' THEN 100.0 ELSE 0 END), 1) as hit_rate,
+               ROUND(AVG(line), 1) as avg_line
+        FROM player_props
+        WHERE result IS NOT NULL
+        GROUP BY player_name, stat
+        HAVING picks >= 3
+        ORDER BY hit_rate DESC
+    """)
+    rows = c.fetchall()
+    conn.close()
+
+    if not rows:
+        print("No scored props yet.")
+        return
+
+    print("\n\U0001f4ca PROP HIT RATE REPORT")
+    print("─" * 60)
+    print(f"{'Player':<25} {'Stat':<6} {'Picks':<8} {'Hits':<8} {'Hit Rate':<12} {'Avg Line'}")
+    print("─" * 60)
+    for row in rows:
+        print(f"{row['player_name']:<25} "
+              f"{row['stat'].upper():<6} "
+              f"{row['picks']:<8} "
+              f"{row['hits']:<8} "
+              f"{row['hit_rate']}%{'':<8} "
+              f"{row['avg_line']}")
+    print("─" * 60)
 
 
 def print_model_report():
@@ -254,19 +380,29 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == "report":
             print_model_report()
+            print_prop_report()
+        elif sys.argv[1] == "props":
+            # Score props only: python auto_results.py props
+            score_prop_results()
+            print_prop_report()
         elif sys.argv[1] == "today":
             for sport in ["nba", "wnba", "nfl", "ncaaf", "ncaab"]:
                 score_predictions(sport, get_today_ct())
+            score_prop_results(get_today_ct())
             print_model_report()
+            print_prop_report()
         elif sys.argv[1] == "yesterday":
             run_daily_scoring(days_back=1)
             print_model_report()
+            print_prop_report()
         else:
             # Specific date: python auto_results.py 2026-06-14
             date_str = sys.argv[1]
             for sport in ["nba", "wnba", "nfl", "ncaaf", "ncaab"]:
                 score_predictions(sport, date_str)
+            score_prop_results(date_str)
             print_model_report()
+            print_prop_report()
     else:
         run_daily_scoring(days_back=1)
         print_model_report()
