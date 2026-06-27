@@ -68,21 +68,21 @@ RSS_FEEDS = [
 # ─────────────────────────────────────────────────────────────
 
 TEAM_KEYWORDS = {
-    "Las Vegas Aces":          ["Las Vegas Aces", "Aces", "A'ja Wilson", "Jackie Young", "Chennedy Carter"],
-    "New York Liberty":        ["New York Liberty", "Liberty", "Breanna Stewart", "Sabrina Ionescu", "Jonquel Jones", "Satou Sabally"],
-    "Seattle Storm":           ["Seattle Storm", "Storm", "Jewell Loyd"],
-    "Minnesota Lynx":          ["Minnesota Lynx", "Lynx", "Napheesa Collier", "Kayla McBride"],
-    "Connecticut Sun":         ["Connecticut Sun", "Sun", "Brittney Griner", "Leila Lacan"],
-    "Indiana Fever":           ["Indiana Fever", "Fever", "Caitlin Clark", "Aliyah Boston", "NaLyssa Smith", "Kelsey Mitchell"],
-    "Chicago Sky":             ["Chicago Sky", "Sky", "Kamilla Cardoso", "Skylar Diggins", "Natasha Cloud"],
-    "Atlanta Dream":           ["Atlanta Dream", "Dream", "Rhyne Howard", "Allisha Gray", "Angel Reese", "Te-Hina Paopao"],
-    "Phoenix Mercury":         ["Phoenix Mercury", "Mercury", "Alyssa Thomas", "DeWanna Bonner", "Kahleah Copper", "Natasha Mack"],
-    "Los Angeles Sparks":      ["Los Angeles Sparks", "Sparks", "Dearica Hamby", "Kelsey Plum", "Nneka Ogwumike", "Kate Martin"],
-    "Washington Mystics":      ["Washington Mystics", "Mystics", "Shakira Austin", "Lauren Betts"],
-    "Dallas Wings":            ["Dallas Wings", "Wings", "Arike Ogunbowale", "Paige Bueckers", "Azzi Fudd"],
-    "Golden State Valkyries":  ["Golden State Valkyries", "Valkyries", "Tiffany Hayes", "Kayla Thornton"],
-    "Toronto Tempo":           ["Toronto Tempo", "Tempo", "Marina Mabrey", "Kiki Rice"],
-    "Portland Fire":           ["Portland Fire", "Fire", "Carla Leite"],
+    "Atlanta Dream":             ["Atlanta Dream", "Dream", "Rhyne Howard", "Angel Reese", "Allisha Gray", "Te-Hina Paopao"],
+    "Chicago Sky":               ["Chicago Sky", "Sky", "Kamilla Cardoso", "Skylar Diggins", "Natasha Cloud"],
+    "Connecticut Sun":           ["Connecticut Sun", "Sun", "Brittney Griner", "Leila Lacan"],
+    "Dallas Wings":              ["Dallas Wings", "Wings", "Arike Ogunbowale", "Paige Bueckers", "Azzi Fudd"],
+    "Golden State Valkyries":    ["Golden State Valkyries", "Valkyries", "Tiffany Hayes", "Kayla Thornton"],
+    "Indiana Fever":             ["Indiana Fever", "Fever", "Caitlin Clark", "Aliyah Boston", "Kelsey Mitchell"],
+    "Las Vegas Aces":            ["Las Vegas Aces", "Aces", "A'ja Wilson", "Jackie Young", "Chennedy Carter"],
+    "Los Angeles Sparks":        ["Los Angeles Sparks", "Sparks", "Dearica Hamby", "Kelsey Plum", "Nneka Ogwumike", "Kate Martin"],
+    "Minnesota Lynx":            ["Minnesota Lynx", "Lynx", "Napheesa Collier", "Kayla McBride", "Olivia Miles"],
+    "New York Liberty":          ["New York Liberty", "Liberty", "Breanna Stewart", "Sabrina Ionescu", "Jonquel Jones", "Satou Sabally"],
+    "Phoenix Mercury":           ["Phoenix Mercury", "Mercury", "Alyssa Thomas", "DeWanna Bonner", "Kahleah Copper"],
+    "Portland Fire":             ["Portland Fire", "Fire", "Carla Leite"],
+    "Seattle Storm":             ["Seattle Storm", "Storm"],
+    "Toronto Tempo":             ["Toronto Tempo", "Tempo", "Marina Mabrey", "Kiki Rice"],
+    "Washington Mystics":        ["Washington Mystics", "Mystics", "Shakira Austin", "Lauren Betts"],
 }
 
 # General WNBA keywords — stories that apply to the whole slate

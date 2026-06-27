@@ -44,21 +44,21 @@ ESPN_WNBA_SUMMARY    = "https://site.api.espn.com/apis/site/v2/sports/basketball
 ESPN_WNBA_TEAMS      = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams"
 
 WNBA_STAR_PLAYERS = {
-    "Las Vegas Aces":          ["A'ja Wilson", "Chelsea Gray", "Jackie Young"],
-    "New York Liberty":        ["Breanna Stewart", "Sabrina Ionescu", "Jonquel Jones", "Satou Sabally"],
-    "Seattle Storm":           ["Flau'jae Johnson", "Natisha Hiedeman", "Dominique Malonga"],
-    "Minnesota Lynx":          ["Napheesa Collier", "Courtney Williams", "Kayla McBride", "Olivia Miles", "Natasha Howard"],
-    "Connecticut Sun":         ["Aneesah Morrow", "Brittney Griner", "Kennedy Burke", "Leila Lacan", "Aaliyah Edwards"],
-    "Indiana Fever":           ["Caitlin Clark", "Aliyah Boston", "NaLyssa Smith", "Monique Billings", "Raven Johnson", "Kelsey Mitchell"],
-    "Chicago Sky":             ["Kamilla Cardoso", "DiJonai Carrington", "Skylar Diggins", "Natasha Cloud", "Rickea Jackson", "Gabriela Jaquez"],
-    "Atlanta Dream":           ["Rhyne Howard", "Te-Hina Paopao", "Allisha Gray", "Angel Reese", "Jordin Canada", "Naz Hillmon"],
-    "Phoenix Mercury":         ["DeWanna Bonner", "Alyssa Thomas", "Natasha Mack", "Kahleah Copper"],
-    "Los Angeles Sparks":      ["Cameron Brink", "Dearica Hamby", "Nneka Ogwumike", "Kelsey Plum"],
-    "Washington Mystics":      ["Lauren Betts", "Rori Harmon", "Sonia Citron", "Shakira Austin"],
-    "Dallas Wings":            ["Arike Ogunbowale", "Paige Bueckers", "Alysha Clark", "Azzi Fudd", "Jessica Shepard"],
-    "Golden State Valkyries":  ["Kayla Thornton", "Kaila Charles", "Tiffany Hayes", "Veronica Burton"],
-    "Toronto Tempo":           ["Maria Conde", "Brittney Sykes", "Marina Mabrey", "Kiki Rice", "Nyara Sabally"],
-    "Portland Fire":           ["Carla Leite", "Bridget Carleton"],
+    "Atlanta Dream":             ["Rhyne Howard", "Angel Reese", "Allisha Gray", "Te-Hina Paopao", "Jordin Canada", "Isobel Borlase"],
+    "Chicago Sky":               ["Kamilla Cardoso", "Skylar Diggins", "Natasha Cloud", "Rachel Banham", "DiJonai Carrington", "Aicha Coulibaly"],
+    "Connecticut Sun":           ["Brittney Griner", "Leila Lacan", "Aaliyah Edwards", "Nell Angloma", "Raegan Beers", "Kennedy Burke"],
+    "Dallas Wings":              ["Arike Ogunbowale", "Paige Bueckers", "Azzi Fudd", "Alysha Clark", "Aziaha James", "Haley Jones"],
+    "Golden State Valkyries":    ["Tiffany Hayes", "Kayla Thornton", "Veronica Burton", "Laeticia Amihere", "Kaila Charles", "Kaitlyn Chen"],
+    "Indiana Fever":             ["Caitlin Clark", "Aliyah Boston", "Kelsey Mitchell", "Monique Billings", "Sophie Cunningham", "Damiris Dantas"],
+    "Las Vegas Aces":            ["A'ja Wilson", "Jackie Young", "Chennedy Carter", "Janiah Barker", "Kierstan Bell", "Dana Evans"],
+    "Los Angeles Sparks":        ["Dearica Hamby", "Kelsey Plum", "Nneka Ogwumike", "Kate Martin", "Ariel Atkins", "Cameron Brink"],
+    "Minnesota Lynx":            ["Napheesa Collier", "Kayla McBride", "Olivia Miles", "Maya Caldwell", "Emma Cechova", "Nia Coffey"],
+    "New York Liberty":          ["Breanna Stewart", "Sabrina Ionescu", "Jonquel Jones", "Satou Sabally", "Rebecca Allen", "Pauline Astier"],
+    "Phoenix Mercury":           ["Alyssa Thomas", "DeWanna Bonner", "Kahleah Copper", "Natasha Mack", "Monique Akoa Makani", "Valeriane Ayayi"],
+    "Portland Fire":             ["Carla Leite", "Bridget Carleton", "Sarah Ashlee Barker", "Frieda Buhner", "Emily Engstler", "Sania Feagin"],
+    "Seattle Storm":             ["Zia Cooke", "Stefanie Dolson", "Awa Fam", "Natisha Hiedeman", "Mackenzie Holmes", "Jordan Horston"],
+    "Toronto Tempo":             ["Marina Mabrey", "Kiki Rice", "Julie Allemand", "Maria Conde", "Temi Fagbenle", "Isabelle Harrison"],
+    "Washington Mystics":        ["Shakira Austin", "Lauren Betts", "Rori Harmon", "Georgia Amoore", "Sonia Citron", "Angela Dugalic"],
 }
 
 DOUBLE_DOUBLE_GAMES = 3
