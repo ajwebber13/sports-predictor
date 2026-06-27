@@ -68,21 +68,21 @@ RSS_FEEDS = [
 # ─────────────────────────────────────────────────────────────
 
 TEAM_KEYWORDS = {
-    "Las Vegas Aces":          ["Las Vegas Aces", "Aces", "A'ja Wilson", "Kelsey Plum", "Jackie Young"],
-    "New York Liberty":        ["New York Liberty", "Liberty", "Breanna Stewart", "Sabrina Ionescu", "Jonquel Jones"],
-    "Seattle Storm":           ["Seattle Storm", "Nneka Ogwumike", "Jewell Loyd"],
+    "Las Vegas Aces":          ["Las Vegas Aces", "Aces", "A'ja Wilson", "Jackie Young", "Chennedy Carter"],
+    "New York Liberty":        ["New York Liberty", "Liberty", "Breanna Stewart", "Sabrina Ionescu", "Jonquel Jones", "Satou Sabally"],
+    "Seattle Storm":           ["Seattle Storm", "Storm", "Jewell Loyd"],
     "Minnesota Lynx":          ["Minnesota Lynx", "Lynx", "Napheesa Collier", "Kayla McBride"],
-    "Connecticut Sun":         ["Connecticut Sun", "Sun", "Alyssa Thomas", "DeWanna Bonner"],
-    "Indiana Fever":           ["Indiana Fever", "Fever", "Caitlin Clark", "Aliyah Boston", "NaLyssa Smith"],
-    "Chicago Sky":             ["Chicago Sky", "Sky", "Angel Reese", "Marina Mabrey", "Chennedy Carter"],
-    "Atlanta Dream":           ["Atlanta Dream", "Dream", "Rhyne Howard", "Allisha Gray"],
-    "Phoenix Mercury":         ["Phoenix Mercury", "Diana Taurasi", "Brittney Griner"],
-    "Los Angeles Sparks":      ["Los Angeles Sparks", "Sparks", "Dearica Hamby", "Rickea Jackson"],
-    "Washington Mystics":      ["Washington Mystics", "Mystics", "Elena Delle Donne", "Shakira Austin"],
-    "Dallas Wings":            ["Dallas Wings", "Wings", "Arike Ogunbowale", "Satou Sabally"],
-    "Golden State Valkyries":  ["Golden State Valkyries", "Valkyries", "Kate Martin"],
-    "Toronto Tempo":           ["Toronto Tempo", "Tempo"],
-    "Portland Fire":           ["Portland Fire", "Fire", "Kelsey Mitchell"],
+    "Connecticut Sun":         ["Connecticut Sun", "Sun", "Brittney Griner", "Leila Lacan"],
+    "Indiana Fever":           ["Indiana Fever", "Fever", "Caitlin Clark", "Aliyah Boston", "NaLyssa Smith", "Kelsey Mitchell"],
+    "Chicago Sky":             ["Chicago Sky", "Sky", "Kamilla Cardoso", "Skylar Diggins", "Natasha Cloud"],
+    "Atlanta Dream":           ["Atlanta Dream", "Dream", "Rhyne Howard", "Allisha Gray", "Angel Reese", "Te-Hina Paopao"],
+    "Phoenix Mercury":         ["Phoenix Mercury", "Mercury", "Alyssa Thomas", "DeWanna Bonner", "Kahleah Copper", "Natasha Mack"],
+    "Los Angeles Sparks":      ["Los Angeles Sparks", "Sparks", "Dearica Hamby", "Kelsey Plum", "Nneka Ogwumike", "Kate Martin"],
+    "Washington Mystics":      ["Washington Mystics", "Mystics", "Shakira Austin", "Lauren Betts"],
+    "Dallas Wings":            ["Dallas Wings", "Wings", "Arike Ogunbowale", "Paige Bueckers", "Azzi Fudd"],
+    "Golden State Valkyries":  ["Golden State Valkyries", "Valkyries", "Tiffany Hayes", "Kayla Thornton"],
+    "Toronto Tempo":           ["Toronto Tempo", "Tempo", "Marina Mabrey", "Kiki Rice"],
+    "Portland Fire":           ["Portland Fire", "Fire", "Carla Leite"],
 }
 
 # General WNBA keywords — stories that apply to the whole slate
@@ -271,10 +271,7 @@ def filter_general_wnba_stories(stories: list, used_titles: set) -> list:
 # ─────────────────────────────────────────────────────────────
 
 def format_headline(story: dict) -> str:
-    """Format a single story for Telegram with clickable Read more link.
-    Google News URLs are redirects — Telegram strips anchor tags on them.
-    For those, we use the direct article URL if available, otherwise plain text.
-    """
+    """Format a single story for Telegram with clickable Read more link."""
     title  = story["title"]
     source = story["source"]
     link   = story.get("link", "")
@@ -284,7 +281,6 @@ def format_headline(story: dict) -> str:
         title = title[:87] + "..."
 
     # Google News redirect URLs don't render as clickable in Telegram
-    # Show as plain text — still informative without the broken link
     if "news.google.com" in link:
         return f"📰 {title} <i>({source})</i>"
 
@@ -304,7 +300,6 @@ def get_game_news(home_team: str, away_team: str, all_stories: list) -> list:
     Rules:
     1. Story title must mention a keyword for one of THIS game's teams
     2. Story title must NOT mention a keyword for a team NOT in this game
-    Returns empty list if no relevant stories — no fallback, no bleed.
     """
     home_keywords = [k.lower() for k in TEAM_KEYWORDS.get(home_team, [home_team])]
     away_keywords = [k.lower() for k in TEAM_KEYWORDS.get(away_team, [away_team])]
@@ -316,7 +311,7 @@ def get_game_news(home_team: str, away_team: str, all_stories: list) -> list:
         for team, kws in TEAM_KEYWORDS.items()
         if team not in [home_team, away_team]
         for k in kws
-        if len(k) > 6  # skip short names to avoid false positives
+        if len(k) > 6
     )
 
     home_stories = filter_stories_for_team(home_team, all_stories)
