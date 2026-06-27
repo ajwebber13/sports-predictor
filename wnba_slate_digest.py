@@ -592,7 +592,7 @@ def format_digest(
                     spread_edge = pred.get("spread_edge")
                     posted_spread = pred.get("posted_spread")
                     pred_margin = pred.get("pred_margin")
-                    if spread_pick and spread_prob and posted_spread is not None and pred_margin is not None:
+                    if spread_pick and spread_prob and posted_spread is not None and pred_margin is not None and spread_prob >= 60:
                         lines.append(
                             f"📐 <b>SPREAD: {spread_pick} | {spread_prob}% cover</b> "
                             f"(model margin {pred_margin:+.1f} vs posted {posted_spread:+.1f})"
@@ -605,7 +605,7 @@ def format_digest(
                     under_prob   = pred.get("under_prob")
                     if proj_total and posted_total:
                         total_edge = round(proj_total - posted_total, 1)
-                        if abs(total_edge) >= 4:
+                        if abs(total_edge) >= 4 and abs(total_edge) <= 15:
                             if total_edge > 0:
                                 direction  = "OVER"
                                 total_prob = over_prob
@@ -628,7 +628,7 @@ def format_digest(
                 if proj_total and posted_total:
                     total_edge = round(proj_total - posted_total, 1)
                     direction = "OVER" if total_edge > 0 else "UNDER"
-                    if abs(total_edge) >= 4:
+                    if abs(total_edge) >= 4 and abs(total_edge) <= 15:
                         lines.append(f"🎯 Total lean: {direction} {posted_total} (model {proj_total}, edge {total_edge:+.1f})")
         else:
             lines.append("📊 Model prediction unavailable")
