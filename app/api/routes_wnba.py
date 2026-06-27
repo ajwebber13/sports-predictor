@@ -74,7 +74,8 @@ def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
 # ----------------------------
 def _get_spread_and_total(events_odds: list, home: str, away: str) -> tuple:
     """
-    Returns (spread, total)
+    Returns (spread, total) for a specific game.
+    Returns (None, None) if not found.
     """
 
     for game in events_odds:
@@ -141,9 +142,15 @@ def wnba_edges(
         if not home_stats or not away_stats:
             continue
 
+        spread_line, over_under = _get_spread_and_total(events_odds, home, away)
+        spread_line = spread_line if spread_line is not None else 0.0
+        over_under  = over_under  if over_under  is not None else 164.0
+
         pred = engine.predict(
             home_stats=home_stats,
             away_stats=away_stats,
+            spread_line=spread_line,
+            over_under=over_under,
             simulations=simulations,
         )
 
@@ -177,18 +184,34 @@ def wnba_edges(
             else round(((100 - bet_prob) / bet_prob) * 100)
         )
 
+        pred_margin = pred.projected_home - pred.projected_away
+
         results.append({
-            "game": label,
-            "bet": bet_label,
-            "model_prob": pred.home_win_prob,
-            "implied_prob": implied_home if edge_home >= edge_away else implied_away,
-            "edge": round(best_edge / 100, 4),
-            "odds": bet_odds,
-            "projected": f"{pred.projected_home}-{pred.projected_away}",
-            "home_record": pred.home_record,
-            "away_record": pred.away_record,
-            "home_rest": pred.home_rest_days,
-            "away_rest": pred.away_rest_days,
+            "game":              label,
+            "bet":               bet_label,
+            "model_prob":        pred.home_win_prob,
+            "implied_prob":      implied_home if edge_home >= edge_away else implied_away,
+            "edge":              round(best_edge / 100, 4),
+            "odds":              bet_odds,
+            "projected":         f"{pred.projected_home}-{pred.projected_away}",
+            "home_record":       pred.home_record,
+            "away_record":       pred.away_record,
+            "home_rest":         pred.home_rest_days,
+            "away_rest":         pred.away_rest_days,
+            # Spread
+            "pred_margin":       pred_margin,
+            "posted_spread":     spread_line if spread_line != 0.0 else None,
+            "spread_pick": (
+                f"{home} -{abs(spread_line)}" if pred_margin > 0
+                else f"{away} +{abs(spread_line)}"
+            ) if spread_line != 0.0 else None,
+            "spread_cover_prob": pred.home_cover_prob if pred_margin > 0 else pred.away_cover_prob,
+            "spread_edge":       round(pred_margin - spread_line, 1) if spread_line != 0.0 else None,
+            # Totals
+            "projected_total":   pred.projected_total,
+            "posted_total":      over_under if over_under != 164.0 else None,
+            "over_prob":         pred.over_prob,
+            "under_prob":        pred.under_prob,
         })
 
     results.sort(key=lambda x: x["edge"], reverse=True)
@@ -270,9 +293,10 @@ def wnba_predictions(simulations: int = Query(default=10000)):
         if not home_stats or not away_stats:
             continue
 
-        spread_line, over_under = _get_spread_and_total(
-            events_odds, home, away
-        )
+        # Pull live spread and total per game — fallback to defaults if not found
+        spread_line, over_under = _get_spread_and_total(events_odds, home, away)
+        spread_line = spread_line if spread_line is not None else 0.0
+        over_under  = over_under  if over_under  is not None else 164.0
 
         pred = engine.predict(
             home_stats=home_stats,
@@ -308,26 +332,31 @@ def wnba_predictions(simulations: int = Query(default=10000)):
         pred_margin = pred.projected_home - pred.projected_away
 
         results.append({
-            "game": label,
-            "bet": bet_label,
-            "model_prob": pred.home_win_prob,
-            "implied_prob": implied_home if edge_home >= edge_away else implied_away,
-            "edge": round(best_edge / 100, 4),
-            "odds": bet_odds,
-            "projected": f"{pred.projected_home}-{pred.projected_away}",
-            "home_record": pred.home_record,
-            "away_record": pred.away_record,
-            "home_rest": pred.home_rest_days,
-            "away_rest": pred.away_rest_days,
-
-            "pred_margin": pred_margin,
-            "posted_spread": spread_line,
-            "spread_edge": None if spread_line is None else round(pred_margin - spread_line, 1),
-
-            "projected_total": pred.projected_total,
-            "posted_total": over_under,
-            "over_prob": pred.over_prob,
-            "under_prob": pred.under_prob,
+            "game":              label,
+            "bet":               bet_label,
+            "model_prob":        pred.home_win_prob,
+            "implied_prob":      implied_home if edge_home >= edge_away else implied_away,
+            "edge":              round(best_edge / 100, 4),
+            "odds":              bet_odds,
+            "projected":         f"{pred.projected_home}-{pred.projected_away}",
+            "home_record":       pred.home_record,
+            "away_record":       pred.away_record,
+            "home_rest":         pred.home_rest_days,
+            "away_rest":         pred.away_rest_days,
+            # Spread
+            "pred_margin":       pred_margin,
+            "posted_spread":     spread_line if spread_line != 0.0 else None,
+            "spread_pick": (
+                f"{home} -{abs(spread_line)}" if pred_margin > 0
+                else f"{away} +{abs(spread_line)}"
+            ) if spread_line != 0.0 else None,
+            "spread_cover_prob": pred.home_cover_prob if pred_margin > 0 else pred.away_cover_prob,
+            "spread_edge":       round(pred_margin - spread_line, 1) if spread_line != 0.0 else None,
+            # Totals
+            "projected_total":   pred.projected_total,
+            "posted_total":      over_under if over_under != 164.0 else None,
+            "over_prob":         pred.over_prob,
+            "under_prob":        pred.under_prob,
         })
 
     results.sort(key=lambda x: x["edge"], reverse=True)

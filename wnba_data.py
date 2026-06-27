@@ -301,8 +301,9 @@ def get_wnba_events() -> list:
 
     events = []
     for event in data.get("events", []):
+        # Only skip completed games — allow scheduled, in-progress, and any other status
         status_name = event.get("status", {}).get("type", {}).get("name", "")
-        if status_name not in ("STATUS_SCHEDULED", "STATUS_IN_PROGRESS"):
+        if status_name == "STATUS_FINAL":
             continue
 
         competitions = event.get("competitions", [{}])
