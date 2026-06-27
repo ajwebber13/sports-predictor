@@ -158,9 +158,8 @@ def fetch_prediction(home: str, away: str) -> dict:
             parts       = game.split(" @ ")
             home_team   = parts[1] if len(parts) == 2 else ""
             away_team   = parts[0] if len(parts) == 2 else ""
-            bet_on_home = home_team.lower() in bet_label.lower()
-            home_prob   = model_prob if bet_on_home else round(100 - model_prob, 1)
-            away_prob   = round(100 - model_prob, 1) if bet_on_home else model_prob
+            home_prob = round(float(model_prob), 1)
+            away_prob = round(100 - home_prob, 1)
 
             return {
                 "home_prob":        home_prob,
@@ -168,8 +167,8 @@ def fetch_prediction(home: str, away: str) -> dict:
                 "predicted_winner": home_team if home_prob > away_prob else away_team,
                 "winner_prob":      max(home_prob, away_prob),
                 "edge":             edge,
-                "has_edge":         edge >= 10,
-                "pick_label":       bet_label if edge >= 10 else "",
+                "has_edge":         edge >= 8,
+                "pick_label":       bet_label if edge >= 8 else "",
             }
 
     return {}
