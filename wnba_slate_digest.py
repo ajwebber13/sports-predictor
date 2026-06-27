@@ -171,8 +171,8 @@ def fetch_team_streak(team_id: str) -> dict:
         return {"type": "", "count": 0, "rest_days": None}
 
     past.sort(key=lambda x: x["date"], reverse=True)
-    rest_days   = (today - past[0]["date"]).days
-    streak_type = past[0]["result"]
+    rest_days    = (today - past[0]["date"]).days
+    streak_type  = past[0]["result"]
     streak_count = 0
     for game in past:
         if game["result"] == streak_type:
@@ -308,54 +308,73 @@ def fetch_star_player_streaks(team_name: str) -> list:
     return notices
 
 
-def fetch_model_predictions() -> dict:
-    try:
-        r    = requests.get(f"{API_BASE}/wnba/predictions", params={"simulations": 5000}, timeout=60)
-        data = r.json()
-    except Exception as e:
-        print(f"Model API error: {e}")
-        return {}
-
+def fetch_model_predictions(expected_games: int = 0) -> dict:
+    max_retries = 3
+    retry_delay = 30  # seconds
     predictions = {}
-    for bet in data.get("best_bets", []):
-        game       = bet.get("game", "")
-        model_prob = bet.get("model_prob", 50)
-        edge       = round(bet.get("edge", 0) * 100, 1)
-        bet_label  = bet.get("bet", "")
-        odds       = bet.get("odds")
-        implied    = bet.get("implied_prob", 50)
-        parts     = game.split(" @ ")
-        home_team = parts[1] if len(parts) == 2 else ""
-        away_team = parts[0] if len(parts) == 2 else ""
-        home_prob = round(float(model_prob), 1)
-        away_prob = round(100 - home_prob, 1)
-        predicted_winner = home_team if home_prob > away_prob else away_team
-        winner_prob      = max(home_prob, away_prob)
-        has_edge   = edge >= 8
-        pick_label = bet_label if has_edge else ""
-        predictions[game] = {
-            "home_team":          home_team,
-            "away_team":          away_team,
-            "home_prob":          home_prob,
-            "away_prob":          away_prob,
-            "predicted_winner":   predicted_winner,
-            "winner_prob":        winner_prob,
-            "edge":               edge,
-            "has_edge":           has_edge,
-            "pick_label":         pick_label,
-            "odds":               odds,
-            "implied_prob":       implied,
-            "projected":          bet.get("projected", ""),
-            "pred_margin":        bet.get("pred_margin"),
-            "posted_spread":      bet.get("posted_spread"),
-            "spread_pick":        bet.get("spread_pick"),
-            "spread_cover_prob":  bet.get("spread_cover_prob"),
-            "spread_edge":        bet.get("spread_edge"),
-            "projected_total":    bet.get("projected_total"),
-            "posted_total":       bet.get("posted_total"),
-            "over_prob":          bet.get("over_prob"),
-            "under_prob":         bet.get("under_prob"),
-        }
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            r    = requests.get(f"{API_BASE}/wnba/predictions", params={"simulations": 5000}, timeout=60)
+            data = r.json()
+        except Exception as e:
+            print(f"Model API error (attempt {attempt}): {e}")
+            if attempt < max_retries:
+                print(f"  Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            continue
+
+        predictions = {}
+        for bet in data.get("best_bets", []):
+            game       = bet.get("game", "")
+            model_prob = bet.get("model_prob", 50)
+            edge       = round(bet.get("edge", 0) * 100, 1)
+            bet_label  = bet.get("bet", "")
+            odds       = bet.get("odds")
+            implied    = bet.get("implied_prob", 50)
+            parts      = game.split(" @ ")
+            home_team  = parts[1] if len(parts) == 2 else ""
+            away_team  = parts[0] if len(parts) == 2 else ""
+            home_prob  = round(float(model_prob), 1)
+            away_prob  = round(100 - home_prob, 1)
+            predicted_winner = home_team if home_prob > away_prob else away_team
+            winner_prob      = max(home_prob, away_prob)
+            has_edge   = edge >= 8
+            pick_label = bet_label if has_edge else ""
+            predictions[game] = {
+                "home_team":          home_team,
+                "away_team":          away_team,
+                "home_prob":          home_prob,
+                "away_prob":          away_prob,
+                "predicted_winner":   predicted_winner,
+                "winner_prob":        winner_prob,
+                "edge":               edge,
+                "has_edge":           has_edge,
+                "pick_label":         pick_label,
+                "odds":               odds,
+                "implied_prob":       implied,
+                "projected":          bet.get("projected", ""),
+                "pred_margin":        bet.get("pred_margin"),
+                "posted_spread":      bet.get("posted_spread"),
+                "spread_pick":        bet.get("spread_pick"),
+                "spread_cover_prob":  bet.get("spread_cover_prob"),
+                "spread_edge":        bet.get("spread_edge"),
+                "projected_total":    bet.get("projected_total"),
+                "posted_total":       bet.get("posted_total"),
+                "over_prob":          bet.get("over_prob"),
+                "under_prob":         bet.get("under_prob"),
+            }
+
+        got = len(predictions)
+        print(f"  Got {got} prediction(s) (attempt {attempt})")
+
+        if expected_games == 0 or got >= expected_games:
+            return predictions
+
+        if attempt < max_retries:
+            print(f"  Expected {expected_games}, got {got} — retrying in {retry_delay}s...")
+            time.sleep(retry_delay)
+
     return predictions
 
 
@@ -686,7 +705,7 @@ def run_digest(dry_run: bool = False):
         return
 
     print("Fetching model predictions...")
-    predictions = fetch_model_predictions()
+    predictions = fetch_model_predictions(expected_games=len(games))
     print(f"  Got {len(predictions)} prediction(s)")
 
     print("Fetching team streaks and rest days...")
