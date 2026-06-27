@@ -468,7 +468,7 @@ def format_digest(
         game_props = prop_picks_map.get(home, []) + prop_picks_map.get(away, [])
         if game_props:
             lines.append("🎯 <b>Prop Picks</b>")
-            for prop in game_props[:4]:  # cap at 4 props per game
+            for prop in game_props[:4]:
                 stat_label = {"pts": "PTS", "reb": "REB", "ast": "AST", "stl": "STL", "blk": "BLK"}.get(prop["stat"], prop["stat"].upper())
                 tier_emoji = "✅" if prop["confidence_tier"] == "green" else "⚠️"
                 hr         = prop.get("hit_rate_overall")
@@ -488,7 +488,7 @@ def format_digest(
             winner    = pred.get("predicted_winner", "")
             w_prob    = pred.get("winner_prob", 50)
 
-            game_key        = f"{away} @ {home}"
+            game_key = f"{away} @ {home}"
 
             # ── Line movement signal ──
             lm = line_movement_map.get(game_key, {})
@@ -568,7 +568,6 @@ def format_digest(
                 tier_emoji = "🔴"
 
             if pred.get("has_edge") and pred.get("pick_label"):
-                # Suppress edge only if the picked team is missing 2+ STAR players
                 pick_team = pred["pick_label"].replace(" ML", "").strip()
                 pick_injuries = []
                 if pick_team == home:
@@ -584,21 +583,32 @@ def format_digest(
                 if star_out_count >= 2:
                     lines.append(f"⚠️ Edge suppressed — {pick_team} missing {star_out_count} key players")
                 else:
-                    lines.append(f"{tier_emoji} <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}% ({conf_tier.upper()})</b>")
+                    # ── B2B check — downgrade GREEN to YELLOW if pick team is on a back-to-back ──
+                    pick_streak = streaks.get(pick_team, {})
+                    pick_rest   = pick_streak.get("rest_days")
+                    if pick_rest == 0 and conf_tier == "green":
+                        conf_tier  = "yellow"
+                        tier_emoji = "🟡"
+                        lines.append(f"{tier_emoji} <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}% ({conf_tier.upper()})</b>")
+                        lines.append(f"⚠️ Downgraded — {pick_team} on a back-to-back")
+                    else:
+                        lines.append(f"{tier_emoji} <b>EDGE PICK: {pred['pick_label']} | +{pred.get('edge', 0)}% ({conf_tier.upper()})</b>")
+                        if pick_rest == 0:
+                            lines.append(f"⚠️ Note — {pick_team} on a back-to-back")
 
-                    # Spread pick — show if model has meaningful edge vs posted line
-                    spread_pick = pred.get("spread_pick")
-                    spread_prob = pred.get("spread_cover_prob")
-                    spread_edge = pred.get("spread_edge")
+                    # Spread pick — show only if cover prob 60%+
+                    spread_pick   = pred.get("spread_pick")
+                    spread_prob   = pred.get("spread_cover_prob")
+                    spread_edge   = pred.get("spread_edge")
                     posted_spread = pred.get("posted_spread")
-                    pred_margin = pred.get("pred_margin")
+                    pred_margin   = pred.get("pred_margin")
                     if spread_pick and spread_prob and posted_spread is not None and pred_margin is not None and spread_prob >= 60:
                         lines.append(
                             f"📐 <b>SPREAD: {spread_pick} | {spread_prob}% cover</b> "
                             f"(model margin {pred_margin:+.1f} vs posted {posted_spread:+.1f})"
                         )
 
-                    # Totals pick — fire when model projection differs from posted total by 4+ pts
+                    # Totals pick — fire when edge is 4-15 pts
                     proj_total   = pred.get("projected_total")
                     posted_total = pred.get("posted_total")
                     over_prob    = pred.get("over_prob")
@@ -619,15 +629,14 @@ def format_digest(
             else:
                 lines.append(f"🔴 No edge pick (below threshold)")
 
-                # Still show projected score even without edge
-                projected = pred.get("projected", "")
-                proj_total = pred.get("projected_total")
+                projected    = pred.get("projected", "")
+                proj_total   = pred.get("projected_total")
                 posted_total = pred.get("posted_total")
                 if projected:
                     lines.append(f"📐 Projected: {projected}")
                 if proj_total and posted_total:
                     total_edge = round(proj_total - posted_total, 1)
-                    direction = "OVER" if total_edge > 0 else "UNDER"
+                    direction  = "OVER" if total_edge > 0 else "UNDER"
                     if abs(total_edge) >= 4 and abs(total_edge) <= 15:
                         lines.append(f"🎯 Total lean: {direction} {posted_total} (model {proj_total}, edge {total_edge:+.1f})")
         else:
@@ -720,7 +729,7 @@ def run_digest(dry_run: bool = False):
         print("Fetching news headlines...")
         all_news = fetch_all_headlines()
 
-    # ── Today's prop picks (from player_props table — populated by fetch_prizepicks_props.py) ──
+    # ── Today's prop picks ──
     prop_picks_map = {}
     try:
         import sqlite3 as _sqlite3
@@ -729,8 +738,6 @@ def run_digest(dry_run: bool = False):
         _conn.row_factory = _sqlite3.Row
         _c    = _conn.cursor()
         _today = get_today_ct().strftime("%Y-%m-%d")
-
-        # Get green/yellow props
         _c.execute("""
             SELECT player_name, team_name, stat, line,
                    over_odds, under_odds,
@@ -740,8 +747,6 @@ def run_digest(dry_run: bool = False):
             ORDER BY hit_rate_overall DESC
         """, (_today, "wnba"))
         all_props_today = [dict(r) for r in _c.fetchall()]
-
-        # Build player → team lookup from game log (most recent entry per player)
         _c.execute("""
             SELECT player_name, team_name
             FROM wnba_game_log
@@ -751,8 +756,6 @@ def run_digest(dry_run: bool = False):
         """)
         player_team_map = {r["player_name"]: r["team_name"] for r in _c.fetchall()}
         _conn.close()
-
-        # Assign team to each prop, group by team
         for prop in all_props_today:
             team = prop.get("team_name") or player_team_map.get(prop["player_name"], "")
             prop["team_name"] = team
@@ -760,14 +763,13 @@ def run_digest(dry_run: bool = False):
                 if team not in prop_picks_map:
                     prop_picks_map[team] = []
                 prop_picks_map[team].append(prop)
-
         if prop_picks_map:
             total = sum(len(v) for v in prop_picks_map.values())
             print(f"  Loaded {total} prop pick(s) for {len(prop_picks_map)} team(s)")
     except Exception as e:
         print(f"  Prop picks load error (non-fatal): {e}")
 
-    # ── Line movement (from DB — populated by afternoon closing line capture) ──
+    # ── Line movement ──
     line_movement_map = {}
     try:
         import sqlite3 as _sqlite3
