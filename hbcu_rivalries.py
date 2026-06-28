@@ -6,22 +6,21 @@ Used by hbcu_predict.py to enrich game previews.
 
 Usage:
     from hbcu_rivalries import get_rivalry_context
-    ctx = get_rivalry_context(home_team, away_team)
+    ctx = get_rivalry_context(home_team, away_team, sport_key)
     if ctx:
         print(ctx["telegram_block"])
 
     # List all known rivalries
     python hbcu_rivalries.py
     # Look up a specific matchup
-    python hbcu_rivalries.py "Jackson State Tigers" "Alabama A&M Bulldogs"
+    python hbcu_rivalries.py "Jackson State Tigers" "Alabama A&M Bulldogs" hbcu_football
 """
 
-# ── All-time H2H records ──────────────────────────────────────────────────────
+# ── Football H2H records ──────────────────────────────────────────────────────
 # Format: frozenset({team_a, team_b}):
 #   (leader, leader_wins, trailer_wins, classic_name, cultural_story)
-# Update win totals manually each season end.
 
-HBCU_H2H_RECORDS = {
+HBCU_H2H_FOOTBALL = {
 
     # ══════════════════════════════════════════════════════
     # SWAC FOOTBALL — SIGNATURE CLASSICS
@@ -54,7 +53,7 @@ HBCU_H2H_RECORDS = {
     frozenset({"Jackson State Tigers", "Alabama A&M Bulldogs"}): (
         "Jackson State Tigers", 32, 18,
         "Gulf Coast Challenge",
-        "Played at Ladd-Peebles Stadium in Mobile, Alabama — Drew Webber's hometown. The Gulf Coast Challenge is the ultimate HBCU experience: three days of culture, competition, and community. Concerts, a parade, a college and career fair, HBCU Fest, and then the game. Mobile has hosted HBCU football since 2016 and has turned this classic into a regional economic engine. Jackson State and Alabama A&M have a long track record of delivering electric games."
+        "Played at Ladd-Peebles Stadium in Mobile, Alabama — a city with deep roots in Black college sports history. The Gulf Coast Challenge is the ultimate HBCU experience: three days of culture, competition, and community. Concerts, a parade, a college and career fair, HBCU Fest, and then the game. Mobile has hosted HBCU football since 2016 and has turned this classic into a regional economic engine. Jackson State and Alabama A&M have a long track record of delivering electric games."
     ),
 
     frozenset({"Alabama State Hornets", "Mississippi Valley State Delta Devils"}): (
@@ -124,7 +123,7 @@ HBCU_H2H_RECORDS = {
     frozenset({"Hampton Pirates", "Norfolk State Spartans"}): (
         "Hampton Pirates", 30, 26,
         "Battle of the Bay",
-        "The Hampton Roads rivalry played Sept. 19, 2026. Hampton University's waterfront campus and Norfolk State's urban Spartan Nation represent two different faces of the same community. Norfolk State's Spartan Legion marching band is appointment television. The Battle of the Bay fills the stands with two fan bases that never need an excuse to show out."
+        "The Hampton Roads rivalry. Hampton University's waterfront campus and Norfolk State's urban Spartan Nation represent two different faces of the same community. Norfolk State's Spartan Legion marching band is appointment television. The Battle of the Bay fills the stands with two fan bases that never need an excuse to show out."
     ),
 
     frozenset({"South Carolina State Bulldogs", "Florida A&M Rattlers"}): (
@@ -142,11 +141,17 @@ HBCU_H2H_RECORDS = {
     frozenset({"Tennessee State Tigers", "Florida A&M Rattlers"}): (
         "Florida A&M Rattlers", 18, 16,
         "Tennessee State–FAMU Classic",
-        "Played Sept. 19, 2026. Tennessee State University in Nashville — home of the John A. Merritt Classic — is one of HBCU football's most historic programs. Coach John Merritt won three national championships and built TSU into a national powerhouse in the 1960s and 70s. FAMU brings the Marching 100. Nashville vs Tallahassee — two HBCU capitals collide."
+        "Tennessee State University in Nashville — home of the John A. Merritt Classic — is one of HBCU football's most historic programs. Coach John Merritt won three national championships and built TSU into a national powerhouse in the 1960s and 70s. FAMU brings the Marching 100. Nashville vs Tallahassee — two HBCU capitals collide."
+    ),
+
+    frozenset({"Tuskegee Golden Tigers", "Fort Valley State Wildcats"}): (
+        "Tuskegee Golden Tigers", 28, 18,
+        "Port City Classic",
+        "Played at Ladd-Peebles Stadium in Mobile, Alabama. The Port City Classic rotates opponents and in 2026 features Tuskegee vs Fort Valley State — two SIAC powerhouses bringing their rivalry to the Gulf Coast. Mobile's Mardi Gras-style parade, HBCU Summit, and tailgating experience surround the game."
     ),
 
     # ══════════════════════════════════════════════════════
-    # CHAMPIONSHIP & SHOWCASE GAMES
+    # CHAMPIONSHIP GAMES
     # ══════════════════════════════════════════════════════
 
     frozenset({"MEAC Champion", "SWAC Champion"}): (
@@ -154,10 +159,11 @@ HBCU_H2H_RECORDS = {
         "Celebration Bowl",
         "The HBCU national championship game, played in Atlanta's Mercedes-Benz Stadium. The Celebration Bowl pits the MEAC champion against the SWAC champion — the biggest game in Black college football. Atlanta's Black community turns out in force. The halftime show featuring both conference bands is one of the greatest spectacles in all of college sports."
     ),
+}
 
-    # ══════════════════════════════════════════════════════
-    # MEAC/SWAC BASKETBALL
-    # ══════════════════════════════════════════════════════
+
+# ── Basketball H2H records ────────────────────────────────────────────────────
+HBCU_H2H_BASKETBALL = {
 
     frozenset({"Howard Bison", "Hampton Pirates"}): (
         "Howard Bison", 38, 30,
@@ -194,10 +200,34 @@ HBCU_H2H_RECORDS = {
         "Houston HBCU Basketball Classic",
         "Two Houston-area schools competing for city pride. Texas Southern's H&PE Arena is one of the loudest arenas in SWAC basketball when it's rocking. Prairie View A&M's comeback story — from an 80-game losing streak to a national championship — is one of the greatest in all of college sports."
     ),
+
+    frozenset({"Jackson State Tigers", "Southern Jaguars"}): (
+        "Jackson State Tigers", 44, 36,
+        "SWAC Basketball Rivalry",
+        "Two of SWAC's most competitive basketball programs. Jackson State and Southern have met in the SWAC Tournament multiple times — the stakes are always high and the atmosphere is always electric."
+    ),
+
+    frozenset({"Alabama State Hornets", "Alabama A&M Bulldogs"}): (
+        "Alabama State Hornets", 42, 34,
+        "Magic City Classic Basketball",
+        "The basketball version of Alabama's biggest HBCU rivalry. Alabama State and Alabama A&M bring the same Magic City energy from Legion Field to the hardwood. Both programs have deep NBA alumni histories and passionate fan bases."
+    ),
+
+    frozenset({"Morgan State Bears", "Howard Bison"}): (
+        "Howard Bison", 36, 28,
+        "Howard–Morgan Basketball Classic",
+        "The DC-Baltimore basketball rivalry. Howard and Morgan State represent two of the most important HBCU communities on the East Coast — connected by Amtrak, divided by basketball. The intensity in the stands matches anything in college basketball."
+    ),
+
+    frozenset({"Hampton Pirates", "Norfolk State Spartans"}): (
+        "Hampton Pirates", 34, 28,
+        "Battle of the Bay Basketball",
+        "Hampton Roads' premier HBCU basketball rivalry. Hampton and Norfolk State are separated by a bridge-tunnel but united by one of the most intense rivalries in MEAC basketball. The Spartan Legion and Hampton's student section make this one of the loudest environments in the conference."
+    ),
 }
 
 
-# ── Classic game "Did You Know" facts ────────────────────────────────────────
+# ── Did You Know facts ────────────────────────────────────────────────────────
 HBCU_DID_YOU_KNOW = {
     "Bayou Classic": [
         "The very first Bayou Classic in 1974 drew 76,000 fans — more than most NFL games that season.",
@@ -206,9 +236,13 @@ HBCU_DID_YOU_KNOW = {
         "Grambling has sent over 200 players to the NFL — more than most Power Five programs.",
     ],
     "Magic City Classic": [
-        "The Magic City Classic regularly draws 70,000+ fans to Legion Field in Birmingham — making it the largest HBCU game by attendance in the country.",
+        "The Magic City Classic regularly draws 70,000+ fans to Legion Field in Birmingham — the largest HBCU game by attendance in the country.",
         "Birmingham's Legion Field was once called 'the football capital of the South.' The Magic City Classic is why.",
         "Alabama A&M and Alabama State are 90 miles apart but worlds apart in rivalry intensity. The game has been played since 1924.",
+    ],
+    "Magic City Classic Basketball": [
+        "Alabama State and Alabama A&M have combined to produce multiple NBA players — the talent pipeline from Alabama's HBCUs is real.",
+        "The Magic City Classic basketball rivalry carries the same weight as the football version — two schools, one city, zero mercy.",
     ],
     "Turkey Day Classic": [
         "The Turkey Day Classic has been played on Thanksgiving since 1924 — one of the oldest continuous HBCU rivalries in the country.",
@@ -219,6 +253,10 @@ HBCU_DID_YOU_KNOW = {
         "Alcorn State produced Steve McNair — 2003 NFL MVP, Super Bowl XXXIV starter, and one of the greatest quarterbacks of his generation.",
         "Jackson State's 'Sonic Boom of the South' marching band is considered one of the greatest in HBCU history.",
         "Deion Sanders coached Jackson State from 2020 to 2022, bringing national media attention to HBCU football in a way not seen in decades.",
+    ],
+    "Soul Bowl Basketball": [
+        "Alcorn State's Steve McNair was a two-sport star in college before becoming one of the greatest quarterbacks in NFL history.",
+        "Jackson State's basketball program has been a SWAC contender for decades — the Soul Bowl intensity carries from football to hardwood.",
     ],
     "Gulf Coast Challenge": [
         "The Gulf Coast Challenge is played at Ladd-Peebles Stadium in Mobile, Alabama — a city with deep roots in Black college football dating back to 2016.",
@@ -236,24 +274,44 @@ HBCU_DID_YOU_KNOW = {
         "Bethune-Cookman was founded by Mary McLeod Bethune in 1904 — one of the most important educators and civil rights leaders in American history.",
         "The Florida Classic has been played since 1978. It is the Super Bowl of HBCU football in Florida.",
     ],
+    "Florida Classic Basketball": [
+        "FAMU and Bethune-Cookman have met over 80 times in basketball — one of the most-played rivalries in MEAC history.",
+        "Mary McLeod Bethune founded Bethune-Cookman in 1904 with $1.50 and a dream. The school now has over 3,500 students.",
+    ],
     "Aggie–Eagle Classic": [
         "NC A&T's campus is where the Greensboro Four — the students who launched the 1960 lunch counter sit-ins — were enrolled.",
         "North Carolina A&T is the largest HBCU in the country with over 15,000 students.",
         "NC Central's law school has produced some of the most influential Black attorneys and judges in the American South.",
+    ],
+    "Aggie–Eagle Basketball Classic": [
+        "NC A&T is the largest HBCU in America. Their basketball program has been one of the most competitive in the MEAC for decades.",
+        "NC Central's law school produced some of the most influential Black attorneys in the South — the academic tradition bleeds into the athletic rivalry.",
     ],
     "Battle of the Real HU": [
         "Howard University has produced Thurgood Marshall, Kamala Harris, Chadwick Boseman, Toni Morrison, and Phylicia Rashad — among thousands of others.",
         "The 'Real HU' nickname reflects a longstanding friendly debate between Howard and Hampton fans about which school is the 'real' HU.",
         "The 2026 Battle of the Real HU is played at Audi Field in Washington DC — bringing the rivalry to the nation's capital.",
     ],
+    "Howard–Hampton Basketball Classic": [
+        "Howard University's basketball program has sent players to the NBA and produced some of the finest athletes from the DMV.",
+        "The rivalry between Howard and Hampton spans football, basketball, and a decades-long debate about which school is the 'Real HU.'",
+    ],
+    "Howard–Morgan Classic": [
+        "Howard produced Thurgood Marshall — the first Black Supreme Court Justice and one of the greatest legal minds in American history.",
+        "Morgan State University is one of the most respected research HBCUs in the country — a Carnegie Research Institution.",
+    ],
+    "Howard–Morgan Basketball Classic": [
+        "Howard and Morgan State represent two of the most important Black academic communities on the East Coast.",
+        "The DC-Baltimore corridor has one of the highest concentrations of HBCU alumni in the country — and this rivalry reflects that pride.",
+    ],
     "Battle of the Bay": [
         "Hampton University's waterfront campus on the Chesapeake Bay is one of the most beautiful in the country.",
         "Norfolk State's Spartan Legion marching band is one of the most respected in MEAC competition.",
         "The Hampton Roads metro area has one of the highest concentrations of HBCU alumni on the East Coast.",
     ],
-    "Florida Classic Basketball": [
-        "FAMU and Bethune-Cookman have met over 80 times in basketball — one of the most-played rivalries in MEAC history.",
-        "Mary McLeod Bethune founded Bethune-Cookman in 1904 with $1.50 and a dream. The school now has over 3,500 students.",
+    "Battle of the Bay Basketball": [
+        "Hampton and Norfolk State are separated by a bridge-tunnel but united by one of MEAC basketball's most intense rivalries.",
+        "Norfolk State's 2012 NCAA Tournament upset of Missouri as a 15-seed remains one of the greatest upsets in March Madness history.",
     ],
     "Celebration Bowl": [
         "The Celebration Bowl is the HBCU national championship game — played annually in Atlanta's Mercedes-Benz Stadium.",
@@ -266,34 +324,39 @@ HBCU_DID_YOU_KNOW = {
     ],
     "Southern Heritage Classic": [
         "The Southern Heritage Classic brings SWAC football to Memphis — a city with deep roots in Black music, culture, and civil rights history.",
-        "Memphis is home to Beale Street, the birthplace of the Blues, and the National Civil Rights Museum at the Lorraine Motel. The Southern Heritage Classic fits naturally into that legacy.",
+        "Memphis is home to Beale Street, the birthplace of the Blues, and the National Civil Rights Museum at the Lorraine Motel.",
     ],
     "Bayou Classic Basketball": [
         "Grambling's Willis Reed won two NBA championships with the New York Knicks and was named Finals MVP both times.",
         "The Bayou Classic basketball edition carries the same energy as the football version — two of the most passionate fan bases in SWAC competing on hardwood.",
     ],
-    "Howard–Hampton Basketball Classic": [
-        "Howard University's basketball program has sent players to the NBA and produced some of the finest athletes from the DMV.",
-        "The rivalry between Howard and Hampton spans football, basketball, and a decades-long debate about which school is the 'Real HU.'",
+    "Houston HBCU Classic": [
+        "Texas Southern's campus sits in Houston's Third Ward — one of the most culturally significant Black neighborhoods in America.",
+        "Prairie View A&M went 80 games without a win from 1989 to 1998 and then won a national championship. That comeback is one of the greatest stories in college football.",
     ],
-    "John A. Merritt Classic": [
-        "Coach John Merritt coached Tennessee State from 1963 to 1983, winning three national championships and producing 100+ NFL players.",
-        "The John A. Merritt Classic is Nashville's signature HBCU event — bringing alumni back to TSU every fall.",
+    "Houston HBCU Basketball Classic": [
+        "Texas Southern's H&PE Arena is one of the loudest arenas in SWAC basketball when it's rocking.",
+        "Prairie View A&M's comeback story — from the longest losing streak in college football to a national championship — defines HBCU resilience.",
     ],
     "Tennessee State–FAMU Classic": [
         "Tennessee State University's John Merritt era (1963–1983) produced over 100 NFL players — one of the greatest runs in HBCU football history.",
         "FAMU's Marching 100 has performed at six presidential inaugurations. When they travel, the whole city notices.",
     ],
-    "Aggie–Eagle Basketball Classic": [
-        "NC A&T is the largest HBCU in America. Their basketball program has been one of the most competitive in the MEAC for decades.",
-        "NC Central's law school produced some of the most influential Black attorneys in the South — the academic tradition bleeds into the athletic rivalry.",
+    "SWAC Basketball Rivalry": [
+        "The SWAC Tournament is one of the most electric events in HBCU sports — and Jackson State vs Southern is always a marquee matchup.",
+        "Jackson State's basketball program has been building toward consistent SWAC contention — Southern's Jaguar Nation makes every road game a battle.",
     ],
 }
+
+# ── Sport key routing ─────────────────────────────────────────────────────────
+BASKETBALL_SPORT_KEYS = {"hbcu_mbb", "hbcu_wbb", "mbb", "wbb", "basketball"}
+FOOTBALL_SPORT_KEYS   = {"hbcu_football", "football"}
 
 
 def get_rivalry_context(home_team: str, away_team: str, sport_key: str = "") -> dict | None:
     """
     Returns rivalry context for a matchup, or None if not found.
+    Uses sport_key to route to the correct H2H table.
 
     Returns dict with:
         rivalry_name, leader, leader_wins, trailer_wins,
@@ -301,19 +364,27 @@ def get_rivalry_context(home_team: str, away_team: str, sport_key: str = "") -> 
     """
     import random
     key = frozenset({home_team, away_team})
-    rec = HBCU_H2H_RECORDS.get(key)
+
+    # Route to correct table based on sport_key
+    if sport_key.lower() in BASKETBALL_SPORT_KEYS:
+        rec = HBCU_H2H_BASKETBALL.get(key)
+    elif sport_key.lower() in FOOTBALL_SPORT_KEYS:
+        rec = HBCU_H2H_FOOTBALL.get(key)
+    else:
+        # No sport specified — check football first, then basketball
+        rec = HBCU_H2H_FOOTBALL.get(key) or HBCU_H2H_BASKETBALL.get(key)
+
     if not rec:
         return None
 
     leader, leader_wins, trailer_wins, rivalry_name, cultural_story = rec
-    trailer = away_team if leader == home_team else home_team
 
     if leader_wins == trailer_wins:
         series_str = f"All-Time Series: Tied {leader_wins}-{trailer_wins}"
     else:
         series_str = f"All-Time Series: {leader} leads {leader_wins}-{trailer_wins}"
 
-    facts       = HBCU_DID_YOU_KNOW.get(rivalry_name, [])
+    facts        = HBCU_DID_YOU_KNOW.get(rivalry_name, [])
     did_you_know = random.choice(facts) if facts else ""
 
     telegram_block = (
@@ -337,26 +408,35 @@ def get_rivalry_context(home_team: str, away_team: str, sport_key: str = "") -> 
     }
 
 
-def list_rivalries() -> list:
-    """Returns all known rivalries as a list of dicts."""
+def list_rivalries(sport: str = "all") -> list:
+    """Returns known rivalries. sport: 'football', 'basketball', or 'all'."""
     rivalries = []
-    for teams, rec in HBCU_H2H_RECORDS.items():
-        leader, lw, tw, name, _ = rec
-        teams_list = list(teams)
-        rivalries.append({
-            "rivalry_name": name,
-            "teams":        teams_list,
-            "series":       f"{leader} leads {lw}-{tw}" if lw != tw else f"Tied {lw}-{tw}",
-        })
-    return sorted(rivalries, key=lambda x: x["rivalry_name"])
+    tables = []
+    if sport in ("football", "all"):
+        tables.append(("Football", HBCU_H2H_FOOTBALL))
+    if sport in ("basketball", "all"):
+        tables.append(("Basketball", HBCU_H2H_BASKETBALL))
+
+    for sport_label, table in tables:
+        for teams, rec in table.items():
+            leader, lw, tw, name, _ = rec
+            teams_list = list(teams)
+            rivalries.append({
+                "sport":        sport_label,
+                "rivalry_name": name,
+                "teams":        teams_list,
+                "series":       f"{leader} leads {lw}-{tw}" if lw != tw else f"Tied {lw}-{tw}",
+            })
+    return sorted(rivalries, key=lambda x: (x["sport"], x["rivalry_name"]))
 
 
 if __name__ == "__main__":
     import sys
     if len(sys.argv) >= 3:
-        home = sys.argv[1]
-        away = sys.argv[2]
-        ctx  = get_rivalry_context(home, away)
+        home       = sys.argv[1]
+        away       = sys.argv[2]
+        sport_key  = sys.argv[3] if len(sys.argv) >= 4 else ""
+        ctx = get_rivalry_context(home, away, sport_key)
         if ctx:
             print(ctx["telegram_block"])
         else:
@@ -364,6 +444,6 @@ if __name__ == "__main__":
     else:
         print("Known HBCU Rivalries & Classics:\n")
         for r in list_rivalries():
-            print(f"  {r['rivalry_name']}")
+            print(f"  [{r['sport']}] {r['rivalry_name']}")
             print(f"    {r['teams'][0]} vs {r['teams'][1]}")
             print(f"    {r['series']}\n")
