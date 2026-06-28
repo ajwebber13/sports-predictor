@@ -22,30 +22,31 @@ import time
 from datetime import datetime, timedelta
 from database import get_conn
 from hbcu_teams import HBCU_FOOTBALL_TEAMS, HBCU_MBB_TEAMS, HBCU_WBB_TEAMS
+from hbcu_rivalries import get_rivalry_context
 
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 
 SPORT_CONFIGS = {
     "hbcu_football": {
-        "label":       "HBCU Football",
-        "emoji":       "🏈",
-        "path":        "football/college-football",
-        "registry":    HBCU_FOOTBALL_TEAMS,
-        "adv_sport":   "hbcu_football",
+        "label":     "HBCU Football",
+        "emoji":     "🏈",
+        "path":      "football/college-football",
+        "registry":  HBCU_FOOTBALL_TEAMS,
+        "adv_sport": "hbcu_football",
     },
     "hbcu_mbb": {
-        "label":       "HBCU Men's Basketball",
-        "emoji":       "🏀",
-        "path":        "basketball/mens-college-basketball",
-        "registry":    HBCU_MBB_TEAMS,
-        "adv_sport":   "hbcu_mbb",
+        "label":     "HBCU Men's Basketball",
+        "emoji":     "🏀",
+        "path":      "basketball/mens-college-basketball",
+        "registry":  HBCU_MBB_TEAMS,
+        "adv_sport": "hbcu_mbb",
     },
     "hbcu_wbb": {
-        "label":       "HBCU Women's Basketball",
-        "emoji":       "🏀",
-        "path":        "basketball/womens-college-basketball",
-        "registry":    HBCU_WBB_TEAMS,
-        "adv_sport":   "hbcu_wbb",
+        "label":     "HBCU Women's Basketball",
+        "emoji":     "🏀",
+        "path":      "basketball/womens-college-basketball",
+        "registry":  HBCU_WBB_TEAMS,
+        "adv_sport": "hbcu_wbb",
     },
 }
 
@@ -156,14 +157,14 @@ def predict_game(home_team: str, away_team: str, sport_key: str) -> dict:
     home_elo = get_elo(home_team, sport_key)
     away_elo = get_elo(away_team, sport_key)
 
-    elo_diff     = home_elo - away_elo
+    elo_diff      = home_elo - away_elo
     home_elo_prob = 1 / (1 + 10 ** (-elo_diff / 400))
     away_elo_prob = 1 - home_elo_prob
 
     home_adv = get_adv_metrics(home_team, sport_key)
     away_adv = get_adv_metrics(away_team, sport_key)
 
-    net_diff = home_adv["net"] - away_adv["net"]
+    net_diff      = home_adv["net"] - away_adv["net"]
     adv_home_prob = round(0.5 + (net_diff * 0.015), 3)
     adv_home_prob = min(max(adv_home_prob, 0.1), 0.9)
     adv_away_prob = 1 - adv_home_prob
@@ -175,8 +176,7 @@ def predict_game(home_team: str, away_team: str, sport_key: str) -> dict:
         from ensemble_model import predict_game as ens_predict
         ens = ens_predict(home_team, away_team, sport_key)
         if ens and ens.get("ensemble_home_prob"):
-            ens_home = ens["ensemble_home_prob"] / 100
-            ens_away = ens["ensemble_away_prob"] / 100
+            ens_home  = ens["ensemble_home_prob"] / 100
             home_prob = round((home_prob * 0.6) + (ens_home * 0.4), 3)
             away_prob = round(1 - home_prob, 3)
     except Exception:
@@ -209,40 +209,51 @@ def get_conference(team_name: str, sport_key: str) -> str:
 
 
 def format_alert(pred: dict, game_date: str, sport_key: str) -> str:
-    config  = SPORT_CONFIGS[sport_key]
-    emoji   = config["emoji"]
-    label   = config["label"]
-    home    = pred["home_team"]
-    away    = pred["away_team"]
-    fav     = pred["favorite"]
-    conf    = round(pred["confidence"], 1)
+    config   = SPORT_CONFIGS[sport_key]
+    emoji    = config["emoji"]
+    label    = config["label"]
+    home     = pred["home_team"]
+    away     = pred["away_team"]
+    fav      = pred["favorite"]
+    conf     = round(pred["confidence"], 1)
 
     home_conf_tag = f" ({pred['home_conf']})" if pred["home_conf"] else ""
     away_conf_tag = f" ({pred['away_conf']})" if pred["away_conf"] else ""
-
     stars = "★★★" if conf >= 70 else "★★" if conf >= 60 else "★"
 
-    alert = f"""{emoji} {label.upper()} — GAME PREVIEW
+    # ── Rivalry context ──
+    rivalry_block = ""
+    try:
+        ctx = get_rivalry_context(home, away, sport_key)
+        if ctx:
+            rivalry_block = ctx["telegram_block"]
+    except Exception:
+        pass
 
-{away}{away_conf_tag} @ {home}{home_conf_tag}
-📅 {game_date}
+    alert = (
+        f"{emoji} <b>{label.upper()} — GAME PREVIEW</b>\n\n"
+        f"<b>{away}{away_conf_tag} @ {home}{home_conf_tag}</b>\n"
+        f"📅 {game_date}\n\n"
+        f"🏆 <b>Model Favorite: {fav} {stars}</b>\n\n"
+        f"<b>WIN PROBABILITY</b>\n"
+        f"{home}: {pred['home_prob']}%\n"
+        f"{away}: {pred['away_prob']}%\n\n"
+        f"<b>ELO RATINGS</b>\n"
+        f"{home}: {pred['home_elo']}\n"
+        f"{away}: {pred['away_elo']}\n\n"
+        f"<b>NET RATING</b>\n"
+        f"{home}: {pred['home_net']:+.1f}\n"
+        f"{away}: {pred['away_net']:+.1f}"
+    )
 
-🏆 Model Favorite: {fav} {stars}
+    if rivalry_block:
+        alert += f"\n{rivalry_block}"
 
-WIN PROBABILITY
-{home}: {pred['home_prob']}%
-{away}: {pred['away_prob']}%
-
-ELO RATINGS
-{home}: {pred['home_elo']}
-{away}: {pred['away_elo']}
-
-NET RATING
-{home}: {pred['home_net']:+.1f}
-{away}: {pred['away_net']:+.1f}
-{'─'*24}
-Culture & Pulse Analytics
-For entertainment only."""
+    alert += (
+        f"\n{'─' * 24}\n"
+        f"<i>Culture &amp; Pulse Analytics\n"
+        f"For entertainment only.</i>"
+    )
 
     return alert
 
@@ -266,7 +277,7 @@ def run_hbcu_sport(sport_key: str, send_telegram: bool = False):
 
     predictions = []
     for game in games:
-        pred = predict_game(game["home_team"], game["away_team"], sport_key)
+        pred  = predict_game(game["home_team"], game["away_team"], sport_key)
         alert = format_alert(pred, game["date"], sport_key)
         print(alert)
         print()
@@ -299,8 +310,8 @@ if __name__ == "__main__":
             run_hbcu_sport("hbcu_wbb", send_telegram=send_tg)
         elif arg == "all":
             run_hbcu_sport("hbcu_football", send_telegram=send_tg)
-            run_hbcu_sport("hbcu_mbb", send_telegram=send_tg)
-            run_hbcu_sport("hbcu_wbb", send_telegram=send_tg)
+            run_hbcu_sport("hbcu_mbb",      send_telegram=send_tg)
+            run_hbcu_sport("hbcu_wbb",      send_telegram=send_tg)
         else:
             print(f"Unknown sport: {arg}")
             print("Usage: python hbcu_predict.py [football|mbb|wbb|all] [--telegram]")
