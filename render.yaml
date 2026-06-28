@@ -241,12 +241,23 @@ services:
     envVars:
       - key: TELEGRAM_TOKEN
         sync: false
+
   - type: cron
     name: wnba-roster-sync
     runtime: python
-    schedule: "0 6 * * 1"   # 1 AM CT Mondays — weekly roster sync
+    schedule: "0 6 * * 1"   # 1 AM CT Mondays â€” weekly roster sync
     buildCommand: pip install -r requirements.txt
     startCommand: python sync_wnba_rosters.py
     envVars:
       - key: ODDS_API_KEY
+        sync: false
+
+  - type: cron
+    name: wnba-prop-scoring
+    runtime: python
+    schedule: "0 7 * * *"   # 2 AM CT daily
+    buildCommand: pip install -r requirements.txt
+    startCommand: python prop_tracker.py --score yesterday
+    envVars:
+      - key: TELEGRAM_TOKEN
         sync: false

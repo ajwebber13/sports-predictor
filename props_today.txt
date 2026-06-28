@@ -1,0 +1,15 @@
+# WNBA Props — Edit each morning before running load_props.py
+# Format: player_name, stat, line, over_odds, under_odds
+# Stats: pts, reb, ast, stl, blk
+# Odds are American format (e.g. -115, +105). Leave blank if unknown.
+# Lines with # are ignored.
+#
+# Example:
+# A'ja Wilson, pts, 22.5, -115, -105
+# Caitlin Clark, ast, 7.5, -110, -110
+
+A'ja Wilson, pts, 22.5, -115, -105
+Jackie Young, pts, 16.5, -110, -110
+Kamilla Cardoso, reb, 8.5, -115, -105
+Caitlin Clark, ast, 7.5, -120, +100
+Paige Bueckers, pts, 18.5, -110, -110
