@@ -744,8 +744,9 @@ def format_digest(
                     lines.append(f"🔔 {sharp}")
 
             # ESPN divergence — only show if winner differs
-            espn_game       = espn_probs.get(game_key, {})
-            divergence_line = ""
+            espn_game            = espn_probs.get(game_key, {})
+            divergence_line      = ""
+            divergence_downgrade = False
             if espn_game and ESPN_PROB_ENABLED:
                 espn_home = espn_game.get("home_prob", 50)
                 espn_away = espn_game.get("away_prob", 50)
@@ -754,6 +755,7 @@ def format_digest(
                     espn_winner  = home if espn_home > espn_away else away
                     model_winner = winner
                     if espn_winner != model_winner:
+                        divergence_downgrade = True
                         divergence_line = (
                             f"⚠️ Divergence — Model: {abbr(model_winner)} | "
                             f"ESPN: {abbr(espn_winner)} (gap: {div['gap']} pts)"
@@ -799,6 +801,8 @@ def format_digest(
 
             if pred.get("has_edge") and pred.get("pick_label"):
                 pick_team = pred["pick_label"].replace(" ML", "").strip()
+                odds_val  = pred.get("odds")
+                odds_str  = f" | odds: {'+' if odds_val > 0 else ''}{odds_val}" if odds_val is not None else ""
                 pick_injuries = injury_map.get(pick_team, g.get("home_injuries" if pick_team == home else "away_injuries", []))
                 star_list = WNBA_STAR_PLAYERS.get(pick_team, [])
                 star_out_count = sum(
@@ -811,15 +815,22 @@ def format_digest(
                 else:
                     pick_streak = streaks.get(pick_team, {})
                     pick_rest   = pick_streak.get("rest_days")
-                    if pick_rest == 0 and conf_tier == "green":
+
+                    downgrade_reasons = []
+                    if pick_rest == 0:
+                        downgrade_reasons.append(f"{abbr(pick_team)} on B2B")
+                    if divergence_downgrade:
+                        downgrade_reasons.append("ESPN divergence")
+
+                    if downgrade_reasons and conf_tier == "green":
                         conf_tier  = "yellow"
                         tier_emoji = "🟡"
-                        lines.append(f"{tier_emoji} <b>EDGE: {pred['pick_label']} | +{pred.get('edge', 0)}% (YELLOW)</b>")
-                        lines.append(f"⚠️ Downgraded — {abbr(pick_team)} on B2B")
+                        lines.append(f"{tier_emoji} <b>EDGE: {pred['pick_label']} | +{pred.get('edge', 0)}%{odds_str} (YELLOW)</b>")
+                        lines.append(f"⚠️ Downgraded — {', '.join(downgrade_reasons)}")
                     else:
-                        lines.append(f"{tier_emoji} <b>EDGE: {pred['pick_label']} | +{pred.get('edge', 0)}% ({conf_tier.upper()})</b>")
-                        if pick_rest == 0:
-                            lines.append(f"⚠️ Note — {abbr(pick_team)} on B2B")
+                        lines.append(f"{tier_emoji} <b>EDGE: {pred['pick_label']} | +{pred.get('edge', 0)}%{odds_str} ({conf_tier.upper()})</b>")
+                        if downgrade_reasons:
+                            lines.append(f"⚠️ Note — {', '.join(downgrade_reasons)}")
 
                     # Spread
                     spread_pick   = pred.get("spread_pick")
