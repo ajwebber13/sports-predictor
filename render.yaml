@@ -49,6 +49,16 @@ services:
         sync: false
 
   - type: cron
+    name: wnba-props-alert
+    runtime: python
+    schedule: "15 15 * * *"   # 10:15 AM CT daily — 15 min after the fetch, so today's props already exist
+    buildCommand: pip install -r requirements.txt
+    startCommand: python wnba_props_alert.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+
+  - type: cron
     name: wnba-morning
     runtime: python
     schedule: "0 15 * * *"   # 10 AM CT daily

@@ -66,7 +66,7 @@ def setup_props_table():
             team_name       TEXT NOT NULL,
             opponent        TEXT NOT NULL,
             home_away       TEXT,
-            stat            TEXT NOT NULL,         -- pts, reb, ast, stl, blk
+            stat            TEXT NOT NULL,         -- pts, reb, ast, stl, blk, pra, pr, pa, ra
             line            REAL NOT NULL,          -- e.g. 18.5
             over_odds       INTEGER,                -- American odds for Over
             under_odds      INTEGER,                -- American odds for Under
@@ -80,9 +80,18 @@ def setup_props_table():
             confidence_tier    TEXT,               -- green / yellow / red
             source          TEXT DEFAULT 'odds_api',
             captured_at     TEXT,
+            injury_status   TEXT,                  -- Day-To-Day / Questionable / Doubtful, etc.
             UNIQUE(date, player_name, stat)
         )
     """)
+
+    # Migration for DBs created before injury_status existed — wnba_props_alert.py
+    # selects this column, so a fresh table without it would crash that query.
+    try:
+        c.execute("ALTER TABLE player_props ADD COLUMN injury_status TEXT")
+    except Exception:
+        pass  # column already exists
+
     conn.commit()
     conn.close()
 

@@ -1,13 +1,21 @@
 """
 load_props.py — Culture & Pulse Analytics
 ==========================================
+MANUAL FALLBACK ONLY as of 2026-07-01. The daily flow is now automated:
+  fetch_prizepicks_props.py (10 AM CT cron) -> wnba_props_alert.py (10:15 AM CT cron)
+Use this script only if PropLine's API is down, rate-limited (1,000 req/day
+free tier), or missing a specific line you need. It has its own simpler
+confidence-tier logic (no off-role downgrade, no PRA/PR/PA/RA support —
+see STAT_KEY_MAP below) and writes to the same player_props row as the
+automated pipeline, so whichever one runs LAST wins for that player/stat.
+
 Reads props_today.txt, fetches player hit rates from ESPN box score history,
 and loads everything into the player_props table in cp_analytics.db.
 
 Usage:
     py load_props.py
 
-Run every morning after filling out props_today.txt.
+Manual use only — fill out props_today.txt first, then run this.
 """
 
 import os
