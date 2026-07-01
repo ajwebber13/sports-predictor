@@ -22,6 +22,55 @@ HEADERS = {
 
 WNBA_SEASON_START = "20260516"  # May 16 2026
 
+# Commissioner's Cup dates for the 2026 season (fixed by league schedule —
+# update these each season). Group-stage Cup games (Jun 1-17) already count
+# toward the regular-season record, so they're tagged for reference only.
+# The championship (Jun 30) does NOT count toward either team's record —
+# tagging it lets hit-rate / situational queries exclude or isolate it later.
+CUP_GROUP_STAGE_START = "20260601"
+CUP_GROUP_STAGE_END   = "20260617"
+CUP_CHAMPIONSHIP_DATE = "20260630"
+
+
+def _detect_game_type(data: dict) -> str:
+    """
+    Best-effort tag for Commissioner's Cup games: 'cup_championship',
+    'cup_group', or 'regular'.
+
+    Primary signal: "Commissioner's Cup" text in ESPN's header/notes.
+    Fallback: known 2026 Cup date range, since the exact ESPN JSON field
+    for tournament games hasn't been confirmed against a live response —
+    verify this against a real game_id (e.g. 401857321, the 6/30 final)
+    before trusting it fully, and adjust if the text match doesn't fire.
+    """
+    try:
+        header = data.get("header", {})
+        text_blobs = []
+        for comp in header.get("competitions", []):
+            for note in comp.get("notes", []):
+                text_blobs.append(note.get("headline", ""))
+            text_blobs.append(comp.get("name", ""))
+        text_blobs.append(header.get("name", ""))
+        combined = " ".join(text_blobs).lower()
+
+        game_date = ""
+        comps = header.get("competitions", [])
+        if comps:
+            game_date = (comps[0].get("date", "") or "")[:10].replace("-", "")
+
+        if "commissioner" in combined and "cup" in combined:
+            if "championship" in combined or game_date == CUP_CHAMPIONSHIP_DATE:
+                return "cup_championship"
+            return "cup_group"
+
+        if game_date == CUP_CHAMPIONSHIP_DATE:
+            return "cup_championship"
+        if game_date and CUP_GROUP_STAGE_START <= game_date <= CUP_GROUP_STAGE_END:
+            return "cup_group"
+    except Exception:
+        pass
+    return "regular"
+
 
 def get_game_ids(date_str: str) -> list:
     """Get all completed WNBA game IDs for a given date (YYYYMMDD)."""
@@ -53,9 +102,10 @@ def parse_box_score(event_id: str) -> list:
         print(f"  Box score error {event_id}: {e}")
         return []
 
-    boxscore = data.get("boxscore", {})
-    players  = boxscore.get("players", [])
-    results  = []
+    boxscore  = data.get("boxscore", {})
+    players   = boxscore.get("players", [])
+    results   = []
+    game_type = _detect_game_type(data)
 
     # Build team name list for opponent lookup
     team_names = [t.get("team", {}).get("displayName", "") for t in players]
@@ -127,6 +177,7 @@ def parse_box_score(event_id: str) -> list:
                 "ft_pct":      ft_pct,
                 "opponent":    opponent,
                 "home_away":   home_away_map.get(team_name, ""),
+                "game_type":   game_type,
             })
 
     return results
@@ -153,9 +204,24 @@ def save_game_stats(game_stats: list, date_str: str):
             fg_pct      REAL DEFAULT 0,
             three_pct   REAL DEFAULT 0,
             ft_pct      REAL DEFAULT 0,
+            opponent    TEXT DEFAULT '',
+            home_away   TEXT DEFAULT '',
+            game_type   TEXT DEFAULT 'regular',
             UNIQUE(date, player_name, team_name)
         )
     """)
+
+    # Migration for DBs created before these columns existed — CREATE TABLE
+    # IF NOT EXISTS only fires on a brand-new table, so anyone with an
+    # existing cp_analytics.db needs these added by hand once.
+    # (opponent/home_away were already being inserted below but were missing
+    # from this CREATE statement — adding them here too so a fresh DB matches
+    # what the code actually writes.)
+    for col_def in ("opponent TEXT DEFAULT ''", "home_away TEXT DEFAULT ''", "game_type TEXT DEFAULT 'regular'"):
+        try:
+            c.execute(f"ALTER TABLE wnba_game_log ADD COLUMN {col_def}")
+        except Exception:
+            pass  # column already exists — safe to ignore
 
     saved = 0
     for p in game_stats:
@@ -163,13 +229,13 @@ def save_game_stats(game_stats: list, date_str: str):
             c.execute("""
                 INSERT OR IGNORE INTO wnba_game_log
                 (date, player_name, team_name, minutes, pts, reb, ast,
-                 stl, blk, fg_pct, three_pct, ft_pct, opponent, home_away)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 stl, blk, fg_pct, three_pct, ft_pct, opponent, home_away, game_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 date_str, p["player_name"], p["team_name"],
                 p["minutes"], p["pts"], p["reb"], p["ast"],
                 p["stl"], p["blk"], p["fg_pct"], p["three_pct"], p["ft_pct"],
-                p.get("opponent", ""), p.get("home_away", ""),
+                p.get("opponent", ""), p.get("home_away", ""), p.get("game_type", "regular"),
             ))
             saved += 1
         except Exception as e:
@@ -298,7 +364,7 @@ def update_recent(days: int = 7):
 
     print(f"\nUpdating WNBA stats for last {days} days...")
 
-    for i in range(days, 0, -1):
+    for i in range(days - 1, -1, -1):
         date     = today - timedelta(days=i)
         date_str = date.strftime("%Y%m%d")
         game_ids = get_game_ids(date_str)
