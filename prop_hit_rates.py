@@ -18,6 +18,7 @@ Usage:
 """
 
 import os
+from wnba_player_categories import is_off_role
 import sqlite3
 from datetime import datetime, timezone
 
@@ -27,7 +28,22 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
 MIN_GAMES_OVERALL    = 5
 MIN_GAMES_SITUATIONAL = 3
 
-SUPPORTED_STATS = ["pts", "reb", "ast", "stl", "blk"]
+SUPPORTED_STATS = ["pts", "reb", "ast", "stl", "blk", "pra", "pr", "pa", "ra"]
+
+# SQL expression per stat. Combo stats (pra/pr/pa/ra) are computed on the fly —
+# wnba_game_log only stores the base columns (pts/reb/ast/stl/blk), so a combo
+# prop like Points+Rebounds+Assists is graded as (pts + reb + ast) > line.
+STAT_EXPR = {
+    "pts": "pts",
+    "reb": "reb",
+    "ast": "ast",
+    "stl": "stl",
+    "blk": "blk",
+    "pra": "(pts + reb + ast)",
+    "pr":  "(pts + reb)",
+    "pa":  "(pts + ast)",
+    "ra":  "(reb + ast)",
+}
 
 
 # ─────────────────────────────────────────────
@@ -113,9 +129,10 @@ def get_hit_rate(
     season_prefix = f"{season}%"
 
     # ── Overall hit rate ──
+    stat_sql = STAT_EXPR[stat]
     c.execute(f"""
         SELECT COUNT(*) as games,
-               SUM(CASE WHEN {stat} > ? THEN 1 ELSE 0 END) as hits
+               SUM(CASE WHEN {stat_sql} > ? THEN 1 ELSE 0 END) as hits
         FROM wnba_game_log
         WHERE player_name = ?
           AND date LIKE ?
@@ -147,7 +164,7 @@ def get_hit_rate(
     if opponent:
         c.execute(f"""
             SELECT COUNT(*) as games,
-                   SUM(CASE WHEN {stat} > ? THEN 1 ELSE 0 END) as hits
+                   SUM(CASE WHEN {stat_sql} > ? THEN 1 ELSE 0 END) as hits
             FROM wnba_game_log
             WHERE player_name = ?
               AND opponent = ?
@@ -168,7 +185,7 @@ def get_hit_rate(
     if home_away:
         c.execute(f"""
             SELECT COUNT(*) as games,
-                   SUM(CASE WHEN {stat} > ? THEN 1 ELSE 0 END) as hits
+                   SUM(CASE WHEN {stat_sql} > ? THEN 1 ELSE 0 END) as hits
             FROM wnba_game_log
             WHERE player_name = ?
               AND home_away = ?
@@ -190,7 +207,7 @@ def get_hit_rate(
         # B2B = rest_days <= 1; we approximate by checking games on consecutive dates
         # For now pull last 5 games and flag if overall trend is negative
         c.execute(f"""
-            SELECT date, {stat}
+            SELECT date, {stat_sql} AS stat_value
             FROM wnba_game_log
             WHERE player_name = ?
               AND date LIKE ?
@@ -199,7 +216,7 @@ def get_hit_rate(
             LIMIT 20
         """, (player_name, season_prefix))
         rows = c.fetchall()
-        b2b_games = [(r["date"], r[stat]) for r in rows if _is_b2b(r["date"], rows)]
+        b2b_games = [(r["date"], r["stat_value"]) for r in rows if _is_b2b(r["date"], rows)]
         b2b_hits  = sum(1 for _, v in b2b_games if v > line)
         b2b_count = len(b2b_games)
         b2b_rate  = round(b2b_hits / b2b_count * 100, 1) if b2b_count >= MIN_GAMES_SITUATIONAL else None
@@ -210,7 +227,7 @@ def get_hit_rate(
         }
 
     # ── Confidence tier ──
-    result["confidence_tier"] = _confidence_tier(result, overall_rate)
+    result["confidence_tier"] = _confidence_tier(result, overall_rate, player_name, stat)
 
     # ── Flag if situational is significantly worse than overall ──
     flags = []
@@ -242,11 +259,22 @@ def _is_b2b(date_str: str, all_rows: list) -> bool:
         return False
 
 
-def _confidence_tier(result: dict, overall_rate: float | None) -> str:
+def _confidence_tier(
+    result: dict,
+    overall_rate: float | None,
+    player_name: str = None,
+    stat: str = None,
+) -> str:
     """
     Green:  overall >= 65% and no significant situational downgrade
     Yellow: overall >= 50% or situational concern exists
     Red:    overall < 50% or significant situational flag
+
+    Off-role downgrade: a PTS/REB/AST prop on a player whose primary
+    category (scorer/rebounder/playmaker) doesn't match the stat gets
+    knocked down one tier. Points is the highest-variance stat, so this
+    matters most there — e.g. a playmaker's PTS line is riskier than
+    their AST line even at the same hit rate. See wnba_player_categories.py.
     """
     if overall_rate is None:
         return "insufficient"
@@ -254,13 +282,21 @@ def _confidence_tier(result: dict, overall_rate: float | None) -> str:
     has_flag = result.get("flag") is not None
 
     if overall_rate >= 65 and not has_flag:
-        return "green"
+        tier = "green"
     elif overall_rate >= 50 and not has_flag:
-        return "yellow"
+        tier = "yellow"
     elif overall_rate >= 50 and has_flag:
-        return "yellow"
+        tier = "yellow"
     else:
-        return "red"
+        tier = "red"
+
+    if player_name and stat and is_off_role(player_name, stat):
+        if tier == "green":
+            tier = "yellow"
+        elif tier == "yellow":
+            tier = "red"
+
+    return tier
 
 
 # ─────────────────────────────────────────────

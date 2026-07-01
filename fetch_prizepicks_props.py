@@ -40,11 +40,15 @@ SPORT_KEYS = {
 
 # PropLine market keys → our stat key
 MARKET_MAP = {
-    "player_points":   "pts",
-    "player_rebounds": "reb",
-    "player_assists":  "ast",
-    "player_steals":   "stl",
-    "player_blocks":   "blk",
+    "player_points":                   "pts",
+    "player_rebounds":                 "reb",
+    "player_assists":                  "ast",
+    "player_steals":                   "stl",
+    "player_blocks":                   "blk",
+    "player_points_rebounds_assists":  "pra",
+    "player_points_rebounds":          "pr",
+    "player_points_assists":           "pa",
+    "player_rebounds_assists":         "ra",
 }
 
 MARKETS = ",".join(MARKET_MAP.keys())
