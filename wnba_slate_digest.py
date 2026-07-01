@@ -109,6 +109,58 @@ STREAK_THRESHOLDS = [
     {"stat": "blk",   "label": "BPG", "threshold": 2,  "games": 5},
 ]
 
+# ── Arena coordinates (home venues) — used for travel distance calc ─────────
+WNBA_ARENA_COORDS = {
+    "Atlanta Dream":          (33.6367, -84.4419),
+    "Chicago Sky":            (41.8534, -87.6182),
+    "Connecticut Sun":        (41.4936, -72.0995),
+    "Dallas Wings":           (32.7473, -97.1161),
+    "Golden State Valkyries": (37.7680, -122.3877),
+    "Indiana Fever":          (39.7640, -86.1555),
+    "Las Vegas Aces":         (36.0908, -115.1653),
+    "Los Angeles Sparks":     (34.0430, -118.2673),
+    "Minnesota Lynx":         (44.9795, -93.2760),
+    "New York Liberty":       (40.6826, -73.9754),
+    "Phoenix Mercury":        (33.4457, -112.0712),
+    "Portland Fire":          (45.5316, -122.6668),
+    "Seattle Storm":          (47.6221, -122.3540),
+    "Toronto Tempo":          (43.6435, -79.3791),
+    "Washington Mystics":     (38.8267, -76.9880),
+}
+
+TRAVEL_DISTANCE_THRESHOLD = 1500  # miles
+TRAVEL_REST_THRESHOLD     = 1     # rest_days <= this counts as short rest
+
+
+def haversine_miles(coord1: tuple, coord2: tuple) -> float:
+    """Great-circle distance between two (lat, lon) points, in miles."""
+    import math
+    lat1, lon1 = coord1
+    lat2, lon2 = coord2
+    R = 3958.8  # Earth radius in miles
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return round(R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)), 0)
+
+
+def get_team_travel_miles(team_streak: dict, team_name: str, tonight_host: str):
+    """Distance from a team's last game location to tonight's host arena.
+    Returns None if we don't have enough data (e.g. season opener, no
+    coordinate for a team). last_was_home tells us where the last game
+    was actually played: the team's own arena if home, the opponent's
+    arena if away."""
+    last_opponent = team_streak.get("last_opponent")
+    last_was_home = team_streak.get("last_was_home")
+    if last_was_home is None:
+        return None
+    last_location_team = team_name if last_was_home else last_opponent
+    if last_location_team not in WNBA_ARENA_COORDS or tonight_host not in WNBA_ARENA_COORDS:
+        return None
+    return haversine_miles(WNBA_ARENA_COORDS[last_location_team], WNBA_ARENA_COORDS[tonight_host])
+
+
 # ── Team abbreviation map for cleaner display ────────────────────────────────
 TEAM_ABBR = {
     "Atlanta Dream":          "ATL",
@@ -204,15 +256,16 @@ def _parse_injuries(competitor: dict) -> list:
 
 
 def fetch_team_streak(team_id: str) -> dict:
+    empty = {"type": "", "count": 0, "rest_days": None, "last_opponent": None, "last_was_home": None}
     if not team_id:
-        return {"type": "", "count": 0, "rest_days": None}
+        return empty
     url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/teams/{team_id}/schedule"
     try:
         r    = requests.get(url, headers=HEADERS, timeout=10)
         data = r.json()
     except Exception as e:
         print(f"  Streak fetch error (team {team_id}): {e}")
-        return {"type": "", "count": 0, "rest_days": None}
+        return empty
 
     today  = get_today_ct()
     past   = []
@@ -233,11 +286,19 @@ def fetch_team_streak(team_id: str) -> dict:
         team_comp   = next((c for c in competitors if c.get("team", {}).get("id") == team_id), None)
         if not team_comp:
             continue
-        winner = team_comp.get("winner", False)
-        past.append({"date": game_day, "result": "W" if winner else "L"})
+        opp_comp = next((c for c in competitors if c.get("team", {}).get("id") != team_id), None)
+        opp_name = opp_comp.get("team", {}).get("displayName", "") if opp_comp else ""
+        was_home = team_comp.get("homeAway") == "home"
+        winner   = team_comp.get("winner", False)
+        past.append({
+            "date":      game_day,
+            "result":    "W" if winner else "L",
+            "opponent":  opp_name,
+            "was_home":  was_home,
+        })
 
     if not past:
-        return {"type": "", "count": 0, "rest_days": None}
+        return empty
 
     past.sort(key=lambda x: x["date"], reverse=True)
     rest_days    = (today - past[0]["date"]).days
@@ -248,7 +309,13 @@ def fetch_team_streak(team_id: str) -> dict:
             streak_count += 1
         else:
             break
-    return {"type": streak_type, "count": streak_count, "rest_days": rest_days}
+    return {
+        "type":           streak_type,
+        "count":          streak_count,
+        "rest_days":      rest_days,
+        "last_opponent":  past[0]["opponent"],
+        "last_was_home":  past[0]["was_home"],
+    }
 
 
 def get_h2h_record(home: str, away: str) -> str:
@@ -654,6 +721,18 @@ def format_digest(
         away_rest = away_streak.get("rest_days")
         is_b2b_game = home_rest == 0 or away_rest == 0
 
+        # Travel factor — distance from each team's last game to tonight's host arena
+        away_travel_miles = get_team_travel_miles(away_streak, away, home)
+        home_travel_miles = get_team_travel_miles(home_streak, home, home)
+        away_long_travel = (
+            away_travel_miles is not None and away_travel_miles >= TRAVEL_DISTANCE_THRESHOLD
+            and away_rest is not None and away_rest <= TRAVEL_REST_THRESHOLD
+        )
+        home_long_travel = (
+            home_travel_miles is not None and home_travel_miles >= TRAVEL_DISTANCE_THRESHOLD
+            and home_rest is not None and home_rest <= TRAVEL_REST_THRESHOLD
+        )
+
         lines = [f"🏟 <b>{away} @ {home}</b>", f"🕐 {g['game_time']}"]
         lines.append("───────────────────")
 
@@ -693,6 +772,12 @@ def format_digest(
         # B2B fatigue alerts
         for alert in (away_b2b + home_b2b):
             lines.append(alert)
+
+        # Travel notes — long haul + short rest for either team
+        if away_long_travel:
+            lines.append(f"\u2708\ufe0f {abbr(away)} long travel \u2014 {int(away_travel_miles):,}mi on {format_rest(away_rest).lower()}")
+        if home_long_travel:
+            lines.append(f"\u2708\ufe0f {abbr(home)} long travel \u2014 {int(home_travel_miles):,}mi on {format_rest(home_rest).lower()}")
 
         # Minutes — ONLY on B2B games
         if is_b2b_game:
@@ -821,6 +906,10 @@ def format_digest(
                         downgrade_reasons.append(f"{abbr(pick_team)} on B2B")
                     if divergence_downgrade:
                         downgrade_reasons.append("ESPN divergence")
+                    if pick_team == away and away_long_travel:
+                        downgrade_reasons.append(f"{abbr(pick_team)} long travel ({int(away_travel_miles):,}mi)")
+                    if pick_team == home and home_long_travel:
+                        downgrade_reasons.append(f"{abbr(pick_team)} long travel ({int(home_travel_miles):,}mi)")
 
                     if downgrade_reasons and conf_tier == "green":
                         conf_tier  = "yellow"
