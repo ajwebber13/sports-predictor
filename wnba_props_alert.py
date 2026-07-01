@@ -17,12 +17,15 @@ IMPORTANT — how tiers work:
     >= 65%        -> green
     50% - 64.9%   -> yellow
     < 50% / None  -> red
-  "Hit" = actual_value > line, i.e. an OVER. There is no separate
-  under-edge calculation in this system yet. So:
-    - Green/Yellow = play the OVER
-    - Red = low confidence, NOT a confirmed "bet the under" signal
-  Red props are excluded from the alert for now. If/when an actual
-  under-probability model gets built, add a real Red/under section.
+  "Hit" = actual_value > line, i.e. an OVER.
+
+Fade signal (unders):
+  All prop lines are half-points (X.5), so there's no push case — a game
+  either clears the line or doesn't. That means the under rate is exact,
+  not approximate: under_rate = 100 - hit_rate_overall. No separate model
+  needed. Props with hit_rate_overall <= 35 (i.e. under_rate >= 65) get
+  surfaced in a separate "Fades" section, since a low over-rate is a real
+  signal to play the under, not just noise to exclude.
 
 Run order each day (fully automated via render.yaml):
   1. fetch_prizepicks_props.py runs on its own schedule (10 AM CT) —
@@ -60,6 +63,8 @@ CENTRAL_OFFSET = -5
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
+FADE_THRESHOLD = 35  # hit_rate_overall <= this -> under_rate >= 65 -> fade candidate
+
 STAT_LABELS = {
     "pts": "PTS",
     "reb": "REB",
@@ -95,7 +100,7 @@ def get_conn():
 
 
 def fetch_today_props(date_str: str):
-    """Pull today's props, sorted by tier then hit rate descending."""
+    """Pull today's Green/Yellow (over) props, sorted by tier then hit rate descending."""
     conn = get_conn()
     c = conn.cursor()
     c.execute("""
@@ -108,6 +113,23 @@ def fetch_today_props(date_str: str):
             CASE confidence_tier WHEN 'green' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END,
             hit_rate_overall DESC
     """, (date_str,))
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return rows
+
+
+def fetch_fade_props(date_str: str):
+    """Pull today's fade (under) candidates — low over hit rate = high under rate."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT player_name, stat, line, hit_rate_overall, injury_status
+        FROM player_props
+        WHERE date = ? AND sport = 'wnba'
+          AND hit_rate_overall IS NOT NULL
+          AND hit_rate_overall <= ?
+        ORDER BY hit_rate_overall ASC
+    """, (date_str, FADE_THRESHOLD))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
@@ -129,8 +151,26 @@ def format_line(prop: dict, seen_players: set) -> str:
     return f"\u2022 {name} {stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
 
 
-def build_message(date_str: str, props: list) -> str:
-    if not props:
+def format_fade_line(prop: dict, seen_players: set) -> str:
+    stat_label = STAT_LABELS.get(prop["stat"], prop["stat"].upper())
+    over_pct   = prop["hit_rate_overall"]
+    under_pct  = round(100 - over_pct, 1)
+    pct_str    = f"{under_pct:.1f}".rstrip("0").rstrip(".") if under_pct % 1 else f"{int(under_pct)}"
+    name       = (prop["player_name"]
+                  .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    flag = ""
+    status = prop.get("injury_status")
+    if status in WATCH_STATUSES and prop["player_name"] not in seen_players:
+        flag = f" \u26a0\ufe0f {INJURY_FLAG.get(status, status)}"
+
+    seen_players.add(prop["player_name"])
+    return f"\U0001f53b {name} u{stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
+
+
+def build_message(date_str: str, props: list, fades: list = None) -> str:
+    fades = fades or []
+    if not props and not fades:
         return ""
 
     green  = [p for p in props if p["confidence_tier"] == "green"]
@@ -155,6 +195,12 @@ def build_message(date_str: str, props: list) -> str:
         lines.append("\U0001f7e1 <b>Yellow (monitor):</b>")
         for p in yellow:
             lines.append(format_line(p, seen))
+        lines.append("")
+
+    if fades:
+        lines.append("\U0001f53b <b>Fades (play the under):</b>")
+        for p in fades:
+            lines.append(format_fade_line(p, seen))
         lines.append("")
 
     lines.append("<i>Culture &amp; Pulse Analytics</i>")
@@ -189,11 +235,12 @@ def run(dry_run: bool = False, date_override: str = None):
     print(f"Building props alert for {date_str}...")
 
     props = fetch_today_props(date_str)
-    if not props:
-        print("No green/yellow props found for today. No alert sent.")
+    fades = fetch_fade_props(date_str)
+    if not props and not fades:
+        print("No green/yellow/fade props found for today. No alert sent.")
         return
 
-    message = build_message(date_str, props)
+    message = build_message(date_str, props, fades)
     print("\n" + "─" * 40)
     print(message)
     print("─" * 40 + "\n")
