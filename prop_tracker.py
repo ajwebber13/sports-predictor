@@ -19,10 +19,12 @@ Usage:
 
 import os
 import sys
-import sqlite3
 import requests
 import argparse
 from datetime import datetime, timezone, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from database import get_conn
 
 CENTRAL_OFFSET       = -5
 ESPN_WNBA_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard"
@@ -39,16 +41,6 @@ STAT_KEY_MAP = {
     "stl": "steals",
     "blk": "blocks",
 }
-
-
-def get_db_path():
-    return os.path.join(os.path.dirname(__file__), "cp_analytics.db")
-
-
-def get_conn():
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def get_today_ct():

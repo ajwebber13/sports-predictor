@@ -20,9 +20,11 @@ Usage:
 
 import os
 import sys
-import sqlite3
 import argparse
 from datetime import datetime, timezone, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from database import get_conn
 
 CENTRAL_OFFSET = -5  # CDT
 
@@ -76,9 +78,7 @@ def sharp_signal(home_move: int, away_move: int, home_team: str, away_team: str)
 def run(sports: list, dry_run: bool = False):
     from services.odds_parser import get_live_odds
 
-    db_path = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
-    conn    = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn    = get_conn()
     c       = conn.cursor()
     today   = get_today_ct()
 

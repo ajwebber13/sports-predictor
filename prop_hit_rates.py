@@ -18,11 +18,12 @@ Usage:
 """
 
 import os
+import sys
 from wnba_player_categories import is_off_role
-import sqlite3
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from database import get_conn as _get_conn
 
 # Minimum games needed for a hit rate to be considered reliable
 MIN_GAMES_OVERALL    = 5
@@ -55,7 +56,7 @@ def setup_props_table():
     Create the player_props table if it doesn't exist.
     This is where Odds API prop lines will be stored once that feed is active.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     c    = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS player_props (
@@ -99,12 +100,6 @@ def setup_props_table():
 # ─────────────────────────────────────────────
 # CORE HIT RATE CALCULATION
 # ─────────────────────────────────────────────
-
-def _get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
 
 def get_hit_rate(
     player_name: str,
@@ -390,7 +385,7 @@ def save_prop_with_hit_rates(
     vs_opp    = data.get("vs_opponent") or {}
     ha        = data.get("home_away")   or {}
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     c    = conn.cursor()
     try:
         c.execute("""

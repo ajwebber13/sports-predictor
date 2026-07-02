@@ -9,6 +9,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   # ── NBA ─────────────────────────────────────────────────────
   # Games almost daily Oct-Jun, tip times noon through 10 PM CT
@@ -23,6 +27,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: nba-afternoon
@@ -34,6 +42,10 @@ services:
       - key: ODDS_API_KEY
         sync: false
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   # ── WNBA ────────────────────────────────────────────────────
@@ -47,6 +59,10 @@ services:
     envVars:
       - key: ODDS_API_KEY
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: wnba-props-alert
@@ -56,6 +72,10 @@ services:
     startCommand: python wnba_props_alert.py
     envVars:
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   - type: cron
@@ -69,6 +89,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: wnba-afternoon
@@ -80,6 +104,10 @@ services:
       - key: ODDS_API_KEY
         sync: false
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   # ── NCAAB ───────────────────────────────────────────────────
@@ -95,6 +123,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: ncaab-afternoon
@@ -106,6 +138,10 @@ services:
       - key: ODDS_API_KEY
         sync: false
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   # ── NCAAF ───────────────────────────────────────────────────
@@ -121,6 +157,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: ncaaf-weeknight
@@ -132,6 +172,10 @@ services:
       - key: ODDS_API_KEY
         sync: false
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   # ── NFL ─────────────────────────────────────────────────────
@@ -147,6 +191,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: nfl-thursday
@@ -158,6 +206,10 @@ services:
       - key: ODDS_API_KEY
         sync: false
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   - type: cron
@@ -171,6 +223,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: wnba-closing-lines-early
@@ -182,6 +238,10 @@ services:
       - key: ODDS_API_KEY
         sync: false
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   - type: cron
@@ -195,6 +255,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: wnba-closing-lines
@@ -206,6 +270,10 @@ services:
       - key: ODDS_API_KEY
         sync: false
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   - type: cron
@@ -219,6 +287,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: auto-results
@@ -231,6 +303,10 @@ services:
         sync: false
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: wnba-daily-recap
@@ -240,6 +316,10 @@ services:
     startCommand: python wnba_recap.py --daily
     envVars:
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false
 
   - type: cron
@@ -251,6 +331,10 @@ services:
     envVars:
       - key: TELEGRAM_TOKEN
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: wnba-roster-sync
@@ -261,6 +345,10 @@ services:
     envVars:
       - key: ODDS_API_KEY
         sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
 
   - type: cron
     name: wnba-prop-scoring
@@ -270,4 +358,8 @@ services:
     startCommand: python prop_tracker.py --score yesterday
     envVars:
       - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
         sync: false

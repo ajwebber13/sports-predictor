@@ -1053,10 +1053,8 @@ def run_digest(dry_run: bool = False):
     # Prop picks
     prop_picks_map = {}
     try:
-        import sqlite3 as _sqlite3
-        _db    = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
-        _conn  = _sqlite3.connect(_db)
-        _conn.row_factory = _sqlite3.Row
+        from database import get_conn as _get_conn
+        _conn  = _get_conn()
         _c     = _conn.cursor()
         _today = get_today_ct().strftime("%Y-%m-%d")
         _c.execute("""
@@ -1087,10 +1085,8 @@ def run_digest(dry_run: bool = False):
     # Line movement
     line_movement_map = {}
     try:
-        import sqlite3 as _sqlite3
-        _db   = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
-        _conn = _sqlite3.connect(_db)
-        _conn.row_factory = _sqlite3.Row
+        from database import get_conn as _get_conn
+        _conn = _get_conn()
         _c    = _conn.cursor()
         _today = get_today_ct().strftime("%Y-%m-%d")
         _c.execute("""

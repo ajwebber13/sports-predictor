@@ -48,16 +48,16 @@ Usage:
 
 import os
 import sys
-import sqlite3
 import argparse
 import time
 import requests
 from datetime import datetime, timezone, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from database import get_conn
 from prop_hit_rates import setup_props_table
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DB_PATH        = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
 CENTRAL_OFFSET = -5
 
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
@@ -91,12 +91,6 @@ INJURY_FLAG = {
 
 def get_today_ct():
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
-
-
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 
 def fetch_today_props(date_str: str):
