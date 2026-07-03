@@ -1,15 +1,13 @@
-name: Morning Run
+name: WNBA Morning Alert
 
 on:
   schedule:
-    - cron: '7 14 * * *'
+    - cron: '30 13 * * *'   # 8:30 AM CT daily — before Morning Run at 9:07 AM
   workflow_dispatch:
 
 jobs:
-  morning:
+  wnba_alert:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,8 +15,8 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run morning alerts
-        run: python render_job.py --exclude wnba
+      - name: Run WNBA slate digest and edge alerts
+        run: python telegram_alerts.py --sport wnba
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
@@ -26,4 +24,3 @@ jobs:
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-         
