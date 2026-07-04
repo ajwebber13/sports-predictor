@@ -153,14 +153,21 @@ def fetch_and_save_boxscore(event_id: str, date_str: str, conn) -> int:
         team_name = team_names[i]
         opponent  = team_names[1 - i]
 
-        for stat_group in team_block.get("statistics", []):
-            labels = stat_group.get("labels", [])
-            for athlete_entry in stat_group.get("athletes", []):
+        stat_groups = team_block.get("statistics", [])
+        print(f"      team {team_name}: {len(stat_groups)} statistic group(s)")
+
+        for stat_group in stat_groups:
+            labels   = stat_group.get("labels", [])
+            athletes = stat_group.get("athletes", [])
+            print(f"        group labels: {labels} — {len(athletes)} athlete(s)")
+
+            for athlete_entry in athletes:
                 athlete = athlete_entry.get("athlete", {})
                 name    = athlete.get("displayName", "")
                 stats   = athlete_entry.get("stats", [])
 
                 if not name or not stats:
+                    print(f"        skipping athlete — name={name!r} stats={stats!r}")
                     continue
 
                 try:
