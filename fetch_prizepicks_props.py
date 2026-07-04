@@ -81,7 +81,7 @@ def propline_get(path: str, params: dict = None) -> dict | list | None:
         return None
 
 
-def fetch_props_for_sport(sport: str) -> list:
+def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
     """
     Returns a flat list of prop dicts:
     { player_name, team, opponent, home_away, stat, line, over_odds, under_odds }
@@ -96,10 +96,19 @@ def fetch_props_for_sport(sport: str) -> list:
     if not events:
         return []
 
-    today_ct = get_today_ct()
+    today_ct = target_date or get_today_ct()
+
+    def event_date_ct(commence_time: str) -> str:
+        try:
+            utc_dt = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+            ct_dt  = utc_dt + timedelta(hours=-5)
+            return ct_dt.strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+
     today_events = [
         e for e in events
-        if e.get("commence_time", "")[:10] == today_ct
+        if event_date_ct(e.get("commence_time", "")) == today_ct
     ]
 
     if not today_events:
