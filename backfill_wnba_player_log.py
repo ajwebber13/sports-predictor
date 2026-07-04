@@ -58,6 +58,19 @@ def setup_game_log_table():
             UNIQUE(date, player_name)
         )
     """)
+
+    # Migration for a wnba_game_log created before this script existed —
+    # CREATE TABLE IF NOT EXISTS won't add columns to an existing table.
+    try:
+        c.execute("ALTER TABLE wnba_game_log ADD COLUMN source TEXT DEFAULT 'espn'")
+    except Exception:
+        pass  # column already exists
+
+    try:
+        c.execute("ALTER TABLE wnba_game_log ADD COLUMN captured_at TEXT")
+    except Exception:
+        pass  # column already exists
+
     conn.commit()
     conn.close()
 
