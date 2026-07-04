@@ -19,6 +19,11 @@ IMPORTANT — how tiers work:
     < 50% / None  -> red
   "Hit" = actual_value > line, i.e. an OVER.
 
+  NEW — sample size floor:
+  hit_rate_overall alone is meaningless on 1-2 games (it can only be
+  0% or 100%). MIN_GAMES filters those out before they ever reach the
+  tier logic below, regardless of what the raw rate says.
+
 Fade signal (unders):
   All prop lines are half-points (X.5), so there's no push case — a game
   either clears the line or doesn't. That means the under rate is exact,
@@ -40,6 +45,12 @@ Schema note:
   safe to run against a database that predates the injury_status column
   (e.g. the live one on Render) — the ALTER TABLE migration lives inside
   setup_props_table() in prop_hit_rates.py.
+
+  ⚠️ VERIFY: the queries below assume player_props has a column that
+  stores the games-played sample size behind hit_rate_overall. Guessed
+  name: "games_overall". Open prop_hit_rates.py / setup_props_table()
+  and confirm the actual column name, then fix MIN_GAMES_COLUMN below
+  if it's different (e.g. "sample_size", "games_played", "n_games").
 
 Usage:
     py wnba_props_alert.py            # send today's alert
@@ -64,6 +75,13 @@ TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
 FADE_THRESHOLD = 35  # hit_rate_overall <= this -> under_rate >= 65 -> fade candidate
+
+# NEW — minimum games behind a hit rate before it's trusted enough to alert on.
+# 1-2 games can only produce 0% or 100%, which looks like a strong signal
+# but is actually a coin flip. Raise/lower based on how conservative you want
+# to be — 5 is a reasonable floor to start with.
+MIN_GAMES = 5
+MIN_GAMES_COLUMN = "games_overall"  # ⚠️ confirm this matches your actual column name
 
 STAT_LABELS = {
     "pts": "PTS",
@@ -94,36 +112,42 @@ def get_today_ct():
 
 
 def fetch_today_props(date_str: str):
-    """Pull today's Green/Yellow (over) props, sorted by tier then hit rate descending."""
+    """Pull today's Green/Yellow (over) props, sorted by tier then hit rate descending.
+    Excludes anything below MIN_GAMES sample size."""
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""
+    c.execute(f"""
         SELECT player_name, stat, line, hit_rate_overall, confidence_tier, injury_status
         FROM player_props
         WHERE date = ? AND sport = 'wnba'
           AND confidence_tier IN ('green', 'yellow')
+          AND confidence_tier != 'insufficient'
           AND hit_rate_overall IS NOT NULL
+          AND {MIN_GAMES_COLUMN} >= ?
         ORDER BY
             CASE confidence_tier WHEN 'green' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END,
             hit_rate_overall DESC
-    """, (date_str,))
+    """, (date_str, MIN_GAMES))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
 
 
 def fetch_fade_props(date_str: str):
-    """Pull today's fade (under) candidates — low over hit rate = high under rate."""
+    """Pull today's fade (under) candidates — low over hit rate = high under rate.
+    Excludes anything below MIN_GAMES sample size."""
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""
+    c.execute(f"""
         SELECT player_name, stat, line, hit_rate_overall, injury_status
         FROM player_props
         WHERE date = ? AND sport = 'wnba'
           AND hit_rate_overall IS NOT NULL
           AND hit_rate_overall <= ?
+          AND confidence_tier != 'insufficient'
+          AND {MIN_GAMES_COLUMN} >= ?
         ORDER BY hit_rate_overall ASC
-    """, (date_str, FADE_THRESHOLD))
+    """, (date_str, FADE_THRESHOLD, MIN_GAMES))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
@@ -231,7 +255,7 @@ def run(dry_run: bool = False, date_override: str = None):
     props = fetch_today_props(date_str)
     fades = fetch_fade_props(date_str)
     if not props and not fades:
-        print("No green/yellow/fade props found for today. No alert sent.")
+        print(f"No props/fades met the {MIN_GAMES}-game minimum for today. No alert sent.")
         return
 
     message = build_message(date_str, props, fades)
