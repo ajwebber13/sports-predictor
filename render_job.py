@@ -71,10 +71,41 @@ def send_telegram(text: str):
 
 
 # ─────────────────────────────────────────────────────────────
+# NEW: DEDUP CHECK — prevents noon retry from re-alerting a game
+# already covered by the morning alert.
+#
+# Matches database.py's actual schema: get_conn(), table
+# "predictions", columns date / sport / game.
+# ─────────────────────────────────────────────────────────────
+
+def already_alerted_today(sport: str, game: str) -> bool:
+    """
+    Returns True if a pick for this game was already logged today
+    (e.g. by the morning wnba_morning_alert.yml run).
+    """
+    try:
+        from database import get_conn
+        today = datetime.now().strftime("%Y-%m-%d")
+        conn  = get_conn()
+        cur   = conn.execute(
+            "SELECT COUNT(*) as cnt FROM predictions "
+            "WHERE sport = ? AND game = ? AND date = ?",
+            (sport, game, today),
+        )
+        row = cur.fetchone()
+        conn.close()
+        return (row["cnt"] if row else 0) > 0
+    except Exception as e:
+        log(f"Dedup check failed ({e}) — defaulting to NOT alerting to avoid duplicates.")
+        # Fail-safe: if we can't confirm it's new, don't send a duplicate.
+        return True
+
+
+# ─────────────────────────────────────────────────────────────
 # ALERT RUNNER
 # ─────────────────────────────────────────────────────────────
 
-def run_alerts(sport: str) -> bool:
+def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
     log(f"Fetching {sport.upper()} edges...")
 
     try:
@@ -141,6 +172,11 @@ def run_alerts(sport: str) -> bool:
             if recommended_prob < 55:
                 log(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}%")
                 suppressed.append(bet)
+                continue
+
+            # NEW: skip games already alerted earlier today (retry runs only)
+            if skip_if_already_alerted and already_alerted_today(sport, bet.get("game", "")):
+                log(f"Already alerted today, skipping duplicate: {bet.get('game')}")
                 continue
 
             clean_bets.append(bet)
@@ -225,8 +261,9 @@ def run(sports: list, retry: bool = False):
                 data = r.json()
                 bets = data.get("best_bets", [])
                 if any(b.get("model_prob", 0) >= 55 for b in bets):
-                    log(f"{sport.upper()}: picks found on retry — sending alerts")
-                    run_alerts(sport)
+                    log(f"{sport.upper()}: picks found on retry — checking for duplicates")
+                    # NEW: skip_if_already_alerted=True on retry runs only
+                    run_alerts(sport, skip_if_already_alerted=True)
                 else:
                     log(f"{sport.upper()}: still no edges on retry — skipping")
 
