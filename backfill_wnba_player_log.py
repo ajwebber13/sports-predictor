@@ -109,14 +109,21 @@ def fetch_completed_games_for_date(date: datetime) -> list:
     try:
         r    = requests.get(SCOREBOARD_URL, params={"dates": date_str}, headers=HEADERS, timeout=10)
         data = r.json()
-    except Exception:
+    except Exception as e:
+        print(f"    scoreboard fetch error ({date_str}): {e}")
         return []
 
+    events = data.get("events", [])
+    print(f"    {date_str}: {len(events)} total event(s) from ESPN")
+
     games = []
-    for event in data.get("events", []):
+    for event in events:
         completed = event.get("status", {}).get("type", {}).get("completed", False)
         if completed:
             games.append({"event_id": event["id"], "date": date_str})
+        else:
+            status_desc = event.get("status", {}).get("type", {}).get("description", "unknown")
+            print(f"      skipping event {event.get('id')} — status: {status_desc}")
     return games
 
 
