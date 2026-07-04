@@ -20,6 +20,7 @@ jobs:
       - name: Fetch today's props
         run: python fetch_prizepicks_props.py --sport wnba
         env:
+          PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 
