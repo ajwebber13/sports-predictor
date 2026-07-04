@@ -138,7 +138,9 @@ def fetch_and_save_boxscore(event_id: str, date_str: str, conn) -> int:
         return 0
 
     teams = data.get("boxscore", {}).get("players", [])
+    print(f"      event {event_id}: boxscore has {len(teams)} team block(s)")
     if len(teams) != 2:
+        print(f"      event {event_id}: expected 2 team blocks, got {len(teams)} — skipping. Keys present: {list(data.get('boxscore', {}).keys())}")
         return 0
 
     # Figure out home/away and opponent names from the two team blocks
