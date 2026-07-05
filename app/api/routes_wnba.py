@@ -10,9 +10,13 @@ router = APIRouter(prefix="/wnba", tags=["WNBA"])
 
 
 def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
+    """Returns (home_implied_prob, away_implied_prob, home_odds, away_odds).
+    home_odds/away_odds are the REAL American odds pulled from the book,
+    matched to the same entry used for the median implied probability —
+    not recalculated from the model's own win probability."""
     from services.odds_parser import american_to_implied
-    home_probs = []
-    away_probs = []
+    home_pairs = []  # list of (prob, price)
+    away_pairs = []
     for game in events_odds:
         game_home = (game.get("home_team") or "").lower()
         game_away = (game.get("away_team") or "").lower()
@@ -31,15 +35,17 @@ def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
                         continue
                     prob = round(american_to_implied(price) * 100, 1)
                     if home.lower() in name:
-                        home_probs.append(prob)
+                        home_pairs.append((prob, price))
                     elif away.lower() in name:
-                        away_probs.append(prob)
-    default = round(american_to_implied(-110) * 100, 1)
-    if not home_probs or not away_probs:
-        return default, default
-    home_probs.sort()
-    away_probs.sort()
-    return (home_probs[len(home_probs) // 2], away_probs[len(away_probs) // 2])
+                        away_pairs.append((prob, price))
+    default_prob = round(american_to_implied(-110) * 100, 1)
+    if not home_pairs or not away_pairs:
+        return default_prob, default_prob, -110, -110
+    home_pairs.sort(key=lambda p: p[0])
+    away_pairs.sort(key=lambda p: p[0])
+    home_prob, home_odds = home_pairs[len(home_pairs) // 2]
+    away_prob, away_odds = away_pairs[len(away_pairs) // 2]
+    return home_prob, away_prob, home_odds, away_odds
 
 
 def _get_spread_and_total(events_odds: list, home: str, away: str) -> tuple:
@@ -88,16 +94,18 @@ def wnba_edges(simulations: int = Query(default=10000), min_edge: float = Query(
         spread_line = spread_line if spread_line is not None else 0.0
         over_under = over_under if over_under is not None else 164.0
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, spread_line=spread_line, over_under=over_under, simulations=simulations)
-        implied_home, implied_away = get_market_implied(events_odds, home, away)
+        implied_home, implied_away, odds_home, odds_away = get_market_implied(events_odds, home, away)
         edge_home = pred.home_win_prob - implied_home
         edge_away = pred.away_win_prob - implied_away
         best_edge = max(edge_home, edge_away)
         if best_edge < min_edge:
             continue
         label = f"{away} @ {home}"
-        bet_label = f"{home} ML" if pred.home_win_prob > pred.away_win_prob else f"{away} ML"
+        # Pick the side by which one has the bigger EDGE, not just the higher raw win prob —
+        # bet_label, bet_prob, and the displayed odds must all refer to the SAME side.
+        bet_label = f"{home} ML" if edge_home >= edge_away else f"{away} ML"
         bet_prob = pred.home_win_prob if edge_home >= edge_away else pred.away_win_prob
-        bet_odds = round(-(bet_prob / (100 - bet_prob)) * 100) if bet_prob >= 50 else round(((100 - bet_prob) / bet_prob) * 100)
+        bet_odds = odds_home if edge_home >= edge_away else odds_away
         pred_margin = round(pred.projected_home - pred.projected_away, 1)
         results.append({
             "game": label, "bet": bet_label, "model_prob": pred.home_win_prob,
@@ -164,14 +172,14 @@ def wnba_predictions(simulations: int = Query(default=10000)):
         spread_line = spread_line if spread_line is not None else 0.0
         over_under = over_under if over_under is not None else 164.0
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, spread_line=spread_line, over_under=over_under, simulations=simulations)
-        implied_home, implied_away = get_market_implied(events_odds, home, away)
+        implied_home, implied_away, odds_home, odds_away = get_market_implied(events_odds, home, away)
         e_home = pred.home_win_prob - implied_home
         e_away = pred.away_win_prob - implied_away
         best_edge = max(e_home, e_away)
         label = f"{away} @ {home}"
         bet_label = f"{home} ML" if e_home >= e_away else f"{away} ML"
         bet_prob = pred.home_win_prob if e_home >= e_away else pred.away_win_prob
-        bet_odds = round(-(bet_prob / (100 - bet_prob)) * 100) if bet_prob >= 50 else round(((100 - bet_prob) / bet_prob) * 100)
+        bet_odds = odds_home if e_home >= e_away else odds_away
         pred_margin = round(pred.projected_home - pred.projected_away, 1)
         results.append({
             "game": label, "bet": bet_label, "model_prob": pred.home_win_prob,
