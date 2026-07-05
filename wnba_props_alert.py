@@ -39,6 +39,12 @@ Fade signal (unders):
   surfaced as fades, since a low over-rate is a real signal to play the
   under, not just noise to exclude.
 
+Message formatting (updated 2026-07-05):
+  Teams are shown as 3-letter abbreviations (TEAM_ABBR) instead of full
+  names to cut visual clutter in long alerts. A divider line separates
+  each game block so the audience can tell at a glance where one
+  matchup ends and the next begins.
+
 Run order each day (fully automated via GitHub Actions):
   1. fetch_prizepicks_props.py runs on its own schedule (10 AM CT) —
      pulls today's lines from PropLine, grades them, writes to player_props
@@ -95,6 +101,30 @@ INJURY_FLAG = {
     "Questionable": "Q",
     "Doubtful":    "D",
 }
+
+TEAM_ABBR = {
+    "Atlanta Dream":          "ATL",
+    "Chicago Sky":            "CHI",
+    "Connecticut Sun":        "CON",
+    "Dallas Wings":           "DAL",
+    "Golden State Valkyries": "GSV",
+    "Indiana Fever":          "IND",
+    "Las Vegas Aces":         "LVA",
+    "Los Angeles Sparks":     "LAL",
+    "Minnesota Lynx":         "MIN",
+    "New York Liberty":       "NYL",
+    "Phoenix Mercury":        "PHX",
+    "Portland Fire":          "POR",
+    "Seattle Storm":          "SEA",
+    "Toronto Tempo":          "TOR",
+    "Washington Mystics":     "WAS",
+}
+
+DIVIDER = "\u2501" * 20  # ━━━━━━━━━━━━━━━━━━━━
+
+
+def abbr(team: str) -> str:
+    return TEAM_ABBR.get(team, team.split()[-1] if team else "")
 
 
 def get_today_ct():
@@ -166,7 +196,7 @@ def format_line(prop: dict, team: str, emoji: str, seen_players: set) -> str:
     pct_str    = f"{pct:.1f}".rstrip("0").rstrip(".") if pct % 1 else f"{int(pct)}"
     name       = (prop["player_name"]
                   .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-    team_str   = f" ({team})" if team else ""
+    team_str   = f" ({abbr(team)})" if team else ""
 
     flag = ""
     status = prop.get("injury_status")
@@ -174,7 +204,7 @@ def format_line(prop: dict, team: str, emoji: str, seen_players: set) -> str:
         flag = f" \u26a0\ufe0f {INJURY_FLAG.get(status, status)}"
 
     seen_players.add(prop["player_name"])
-    return f"{emoji} {name}{team_str} {stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
+    return f"{emoji} {name}{team_str} \u2014 {stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
 
 
 def format_fade_line(prop: dict, team: str, seen_players: set) -> str:
@@ -184,7 +214,7 @@ def format_fade_line(prop: dict, team: str, seen_players: set) -> str:
     pct_str    = f"{under_pct:.1f}".rstrip("0").rstrip(".") if under_pct % 1 else f"{int(under_pct)}"
     name       = (prop["player_name"]
                   .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-    team_str   = f" ({team})" if team else ""
+    team_str   = f" ({abbr(team)})" if team else ""
 
     flag = ""
     status = prop.get("injury_status")
@@ -192,12 +222,13 @@ def format_fade_line(prop: dict, team: str, seen_players: set) -> str:
         flag = f" \u26a0\ufe0f {INJURY_FLAG.get(status, status)}"
 
     seen_players.add(prop["player_name"])
-    return f"\U0001f53b {name}{team_str} u{stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
+    return f"\U0001f53b {name}{team_str} \u2014 u{stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
 
 
 def build_message(date_str: str, props: list, fades: list = None) -> str:
     """Groups everything by game (away @ home) so the audience always
-    knows which matchup a player's prop belongs to."""
+    knows which matchup a player's prop belongs to. A divider line
+    separates each game block for readability."""
     fades = fades or []
     if not props and not fades:
         return ""
@@ -206,7 +237,7 @@ def build_message(date_str: str, props: list, fades: list = None) -> str:
     lines = [
         "\U0001f3af <b>C&amp;P Player Props \u2014 WNBA</b>",
         f"\U0001f4c5 {pretty_date}",
-        "",
+        DIVIDER,
     ]
 
     seen = set()
@@ -226,8 +257,11 @@ def build_message(date_str: str, props: list, fades: list = None) -> str:
         games.setdefault(key, {"props": [], "fades": []})
         games[key]["fades"].append(f)
 
-    for (away, home), bucket in games.items():
-        lines.append(f"\U0001f3c0 <b>{away} @ {home}</b>")
+    game_keys = list(games.keys())
+    for i, (away, home) in enumerate(game_keys):
+        bucket = games[(away, home)]
+        lines.append(f"\U0001f3c0 <b>{abbr(away)} @ {abbr(home)}</b>")
+        lines.append("")
 
         for p in sorted(bucket["props"], key=lambda x: x.get("hit_rate_overall", 0), reverse=True):
             tier  = p.get("confidence_tier", "yellow")
@@ -240,7 +274,11 @@ def build_message(date_str: str, props: list, fades: list = None) -> str:
             lines.append(format_fade_line(f, team, seen))
 
         lines.append("")
+        if i < len(game_keys) - 1:
+            lines.append(DIVIDER)
+            lines.append("")
 
+    lines.append(DIVIDER)
     lines.append("<i>Culture &amp; Pulse Analytics</i>")
     lines.append("<i>For entertainment only. Bet responsibly.</i>")
     return "\n".join(lines).strip()
@@ -277,9 +315,9 @@ def run(dry_run: bool = False, date_override: str = None):
         return
 
     message = build_message(date_str, props, fades)
-    print("\n" + "─" * 40)
+    print("\n" + "\u2500" * 40)
     print(message)
-    print("─" * 40 + "\n")
+    print("\u2500" * 40 + "\n")
 
     if dry_run:
         print("DRY RUN — not sent.")
