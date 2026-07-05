@@ -25,7 +25,8 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 
   props_alert:
-    if: github.event.schedule == '15 15 * * *' || github.event_name == 'workflow_dispatch'
+    needs: fetch_props
+    if: always() && (github.event.schedule == '15 15 * * *' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
