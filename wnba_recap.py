@@ -163,6 +163,48 @@ def build_weekly_message(week_start: str, week_end: str) -> str:
     return "\n".join(lines)
 
 
+def build_full_message(end_date: str) -> str:
+    """Full record since the clean-data cutoff — no date window, just
+    everything graded so far. For on-demand checks, not a scheduled alert."""
+    rows = get_results(CLEAN_DATA_START, end_date)
+
+    if not rows:
+        return f"No scored results since {CLEAN_DATA_START} yet."
+
+    all_wins  = sum(1 for r in rows if r["correct"] == 1)
+    edge_rows = [r for r in rows if r["edge"] and r["edge"] >= 10]
+    edge_wins = sum(1 for r in edge_rows if r["correct"] == 1)
+
+    correct_picks = [r for r in rows if r["correct"] == 1 and r["edge"]]
+    best_pick     = max(correct_picks, key=lambda x: x["edge"], default=None)
+
+    wrong_picks = [r for r in rows if r["correct"] == 0 and r["edge"]]
+    worst_miss  = max(wrong_picks, key=lambda x: x["edge"], default=None)
+
+    lines = [
+        "🏀 <b>C&amp;P Picks — Full Record</b>",
+        f"📅 Since {CLEAN_DATA_START}\n",
+        f"📊 Overall: {format_record(all_wins, len(rows))}",
+    ]
+    if edge_rows:
+        lines.append(f"🎯 Edge picks: {format_record(edge_wins, len(edge_rows))}")
+
+    if best_pick:
+        lines.append("")
+        lines.append(f"🔥 <b>Best Pick:</b> {best_pick['bet']} (+{best_pick['edge']}%) ✅")
+        lines.append(f"   {best_pick['game']}")
+
+    if worst_miss:
+        lines.append("")
+        lines.append(f"💔 <b>Worst Miss:</b> {worst_miss['bet']} (+{worst_miss['edge']}%) ❌")
+        lines.append(f"   {worst_miss['game']}")
+
+    lines.append("")
+    lines.append("<i>Culture &amp; Pulse Analytics | For entertainment only.</i>")
+
+    return "\n".join(lines)
+
+
 def run(mode: str, dry_run: bool = False):
     today     = get_today_ct()
     yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -179,6 +221,10 @@ def run(mode: str, dry_run: bool = False):
         msg = build_weekly_message(week_start, week_end)
         print(f"Weekly recap for {week_start} to {week_end}")
 
+    elif mode == "full":
+        msg = build_full_message(yesterday)
+        print(f"Full record since {CLEAN_DATA_START} through {yesterday}")
+
     if dry_run:
         print("\n--- DRY RUN ---")
         print(msg)
@@ -190,6 +236,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--daily",   action="store_true")
     parser.add_argument("--weekly",  action="store_true")
+    parser.add_argument("--full",    action="store_true", help="Full record since the clean-data cutoff — on demand, not scheduled")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -197,5 +244,7 @@ if __name__ == "__main__":
         run("daily", dry_run=args.dry_run)
     elif args.weekly:
         run("weekly", dry_run=args.dry_run)
+    elif args.full:
+        run("full", dry_run=args.dry_run)
     else:
-        print("Usage: python wnba_recap.py --daily or --weekly [--dry-run]")
+        print("Usage: python wnba_recap.py --daily or --weekly or --full [--dry-run]")
