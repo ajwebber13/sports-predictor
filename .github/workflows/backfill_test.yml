@@ -13,8 +13,8 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run backfill (small test range)
-        run: python backfill_wnba_player_log.py 2026-07-01 2026-07-02
+      - name: Run backfill (full season)
+        run: python backfill_wnba_player_log.py 2026-05-08 2026-06-30
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
