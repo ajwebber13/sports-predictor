@@ -180,6 +180,66 @@ def save_all_predictions(bets: list, sport: str):
     print(f"Saved {saved} predictions to data/predictions/")
 
 
+def save_predictions_to_db(bets: list, sport: str):
+    """
+    Write predictions to the Turso `predictions` table so auto_results.py
+    and wnba_recap.py have something to score/report on.
+    This is the write save_all_predictions() (JSON-only) was missing —
+    JSON files live on the GitHub Actions runner and get deleted the
+    moment the job finishes, so nothing ever survived to the next day.
+    """
+    from database import get_conn
+
+    conn = get_conn()
+    saved = 0
+
+    sql = """
+        INSERT INTO predictions (
+            date, sport, game, home_team, away_team, bet, odds,
+            model_prob, implied_prob, edge, predicted_winner
+        ) VALUES (
+            :date, :sport, :game, :home_team, :away_team, :bet, :odds,
+            :model_prob, :implied_prob, :edge, :predicted_winner
+        )
+        ON CONFLICT(date, sport, game, bet) DO UPDATE SET
+            odds          = excluded.odds,
+            model_prob    = excluded.model_prob,
+            implied_prob  = excluded.implied_prob,
+            edge          = excluded.edge
+    """
+
+    for bet in bets:
+        game      = bet.get("game", "")
+        bet_label = bet.get("bet", "")
+        parts     = game.split(" @ ")
+        away_team = parts[0] if len(parts) == 2 else ""
+        home_team = parts[1] if len(parts) == 2 else ""
+
+        row = {
+            "date":             extract_game_date(bet),
+            "sport":            sport,
+            "game":             game,
+            "home_team":        home_team,
+            "away_team":        away_team,
+            "bet":              bet_label,
+            "odds":             bet.get("odds"),
+            "model_prob":       bet.get("model_prob", 0),
+            "implied_prob":     bet.get("implied_prob", 0),
+            "edge":             round(bet.get("edge", 0) * 100, 2),
+            "predicted_winner": bet_label.replace(" ML", "").replace(" +", "").replace(" -", "").strip(),
+        }
+
+        try:
+            conn.execute(sql, row)
+            saved += 1
+        except Exception as e:
+            print(f"  DB save failed for {game}: {e}")
+
+    conn.commit()
+    conn.close()
+    print(f"Saved {saved} predictions to Turso `predictions` table.")
+
+
 def backfill_versions():
     """
     One-time utility: adds model_version to existing prediction files

@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 try:
-    from prediction_logger import save_all_predictions
+    from prediction_logger import save_all_predictions, save_predictions_to_db
     LOGGING_ENABLED = True
 except ImportError:
     LOGGING_ENABLED = False
@@ -414,11 +414,18 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
 
     if not bets:
         print(f"No {label} games today ({today_label}).")
-        send_message(format_no_games(sport))
+        # WNBA slate digest (above) already sends its own "no games" message —
+        # skip the duplicate here.
+        if sport != "wnba":
+            send_message(format_no_games(sport))
         return
 
     if LOGGING_ENABLED:
         save_all_predictions(bets, sport)
+        try:
+            save_predictions_to_db(bets, sport)
+        except Exception as e:
+            print(f"DB prediction save failed: {e}")
 
     # ── THROTTLE: edge filter + correlation filter + slate cap ──
     try:

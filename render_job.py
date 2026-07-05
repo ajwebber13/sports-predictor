@@ -143,8 +143,9 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
         return False
 
     try:
-        from prediction_logger import save_all_predictions
+        from prediction_logger import save_all_predictions, save_predictions_to_db
         save_all_predictions(bets, sport)
+        save_predictions_to_db(bets, sport)
         log(f"Saved {len(bets)} predictions.")
     except Exception as e:
         log(f"Prediction logger error: {e}")
