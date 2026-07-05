@@ -84,7 +84,10 @@ def propline_get(path: str, params: dict = None) -> dict | list | None:
 def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
     """
     Returns a flat list of prop dicts:
-    { player_name, team, opponent, home_away, stat, line, over_odds, under_odds }
+    { player_name, team, opponent, home_away, stat, line, over_odds, under_odds,
+      home_team, away_team }
+    home_team/away_team are the two teams in THIS game — used later to group
+    the Telegram alert by matchup.
     """
     sport_key = SPORT_KEYS.get(sport)
     if not sport_key:
@@ -255,6 +258,8 @@ def run(sport: str = "wnba", dry_run: bool = False):
                 line        = line,
                 over_odds   = over_odds,
                 under_odds  = under_odds,
+                game_home_team = prop.get("home_team", ""),
+                game_away_team = prop.get("away_team", ""),
             )
             saved += 1
 

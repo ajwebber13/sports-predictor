@@ -2,8 +2,9 @@
 wnba_props_alert.py — Culture & Pulse Analytics
 =================================================
 Sends a standalone Telegram alert with today's player props,
-grouped by confidence tier (Green / Yellow), pulled from the
-player_props table (populated daily by fetch_prizepicks_props.py).
+grouped BY GAME (so the audience knows who's playing who), with
+each player labeled by team. Pulled from the player_props table
+(populated daily by fetch_prizepicks_props.py).
 
 IMPORTANT — how tiers work:
   confidence_tier is set in prop_hit_rates.py based on hit_rate_overall
@@ -19,38 +20,31 @@ IMPORTANT — how tiers work:
     < 50% / None  -> red
   "Hit" = actual_value > line, i.e. an OVER.
 
-  NEW — sample size floor:
+  Sample size floor:
   hit_rate_overall alone is meaningless on 1-2 games (it can only be
   0% or 100%). MIN_GAMES filters those out before they ever reach the
   tier logic below, regardless of what the raw rate says.
+
+  Game grouping:
+  player_props stores game_home_team / game_away_team (the two teams
+  in today's specific matchup) as of the 2026-07-04 fix. Each player's
+  own team is looked up separately from their most recent wnba_game_log
+  entry, since PropLine's feed doesn't include team assignment per prop.
 
 Fade signal (unders):
   All prop lines are half-points (X.5), so there's no push case — a game
   either clears the line or doesn't. That means the under rate is exact,
   not approximate: under_rate = 100 - hit_rate_overall. No separate model
   needed. Props with hit_rate_overall <= 35 (i.e. under_rate >= 65) get
-  surfaced in a separate "Fades" section, since a low over-rate is a real
-  signal to play the under, not just noise to exclude.
+  surfaced as fades, since a low over-rate is a real signal to play the
+  under, not just noise to exclude.
 
-Run order each day (fully automated via render.yaml):
+Run order each day (fully automated via GitHub Actions):
   1. fetch_prizepicks_props.py runs on its own schedule (10 AM CT) —
      pulls today's lines from PropLine, grades them, writes to player_props
-  2. wnba_props_alert.py runs shortly after (10:15 AM CT) — reads whatever
+  2. wnba_props_alert.py runs shortly after (10:15 AM CT, waits on
+     fetch_props via needs: in the workflow) — reads whatever
      fetch_prizepicks_props.py just wrote and sends this alert
-  No manual steps required. props_today.txt / load_props.py are now a
-  manual fallback only — see load_props.py's docstring.
-
-Schema note:
-  setup_props_table() is called at the top of run() so this script is
-  safe to run against a database that predates the injury_status column
-  (e.g. the live one on Render) — the ALTER TABLE migration lives inside
-  setup_props_table() in prop_hit_rates.py.
-
-  ⚠️ VERIFY: the queries below assume player_props has a column that
-  stores the games-played sample size behind hit_rate_overall. Guessed
-  name: "games_overall". Open prop_hit_rates.py / setup_props_table()
-  and confirm the actual column name, then fix MIN_GAMES_COLUMN below
-  if it's different (e.g. "sample_size", "games_played", "n_games").
 
 Usage:
     py wnba_props_alert.py            # send today's alert
@@ -76,12 +70,11 @@ TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
 FADE_THRESHOLD = 35  # hit_rate_overall <= this -> under_rate >= 65 -> fade candidate
 
-# NEW — minimum games behind a hit rate before it's trusted enough to alert on.
+# Minimum games behind a hit rate before it's trusted enough to alert on.
 # 1-2 games can only produce 0% or 100%, which looks like a strong signal
-# but is actually a coin flip. Raise/lower based on how conservative you want
-# to be — 5 is a reasonable floor to start with.
+# but is actually a coin flip.
 MIN_GAMES = 5
-MIN_GAMES_COLUMN = "games_overall"  # ⚠️ confirm this matches your actual column name
+MIN_GAMES_COLUMN = "games_overall"
 
 STAT_LABELS = {
     "pts": "PTS",
@@ -96,9 +89,6 @@ STAT_LABELS = {
     "ra":  "RA",
 }
 
-# Injury statuses worth flagging inline. Wire this dict up to your real
-# injury source (e.g. wnba_data.py) once that lookup exists — for now it's
-# a stub so the alert doesn't break if injury data isn't passed in.
 WATCH_STATUSES = {"Day-To-Day", "Questionable", "Doubtful"}
 INJURY_FLAG = {
     "Day-To-Day":  "DTD",
@@ -111,17 +101,33 @@ def get_today_ct():
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
 
 
+def get_player_team(player_name: str) -> str:
+    """Look up a player's most recent team from wnba_game_log.
+    Returns '' if not found (e.g. brand new player with no logged games)."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT team_name FROM wnba_game_log
+        WHERE player_name = ?
+        ORDER BY date DESC
+        LIMIT 1
+    """, (player_name,))
+    row = c.fetchone()
+    conn.close()
+    return row["team_name"] if row else ""
+
+
 def fetch_today_props(date_str: str):
     """Pull today's Green/Yellow (over) props, sorted by tier then hit rate descending.
     Excludes anything below MIN_GAMES sample size."""
     conn = get_conn()
     c = conn.cursor()
     c.execute(f"""
-        SELECT player_name, stat, line, hit_rate_overall, confidence_tier, injury_status
+        SELECT player_name, stat, line, hit_rate_overall, confidence_tier, injury_status,
+               game_home_team, game_away_team
         FROM player_props
         WHERE date = ? AND sport = 'wnba'
           AND confidence_tier IN ('green', 'yellow')
-          AND confidence_tier != 'insufficient'
           AND hit_rate_overall IS NOT NULL
           AND {MIN_GAMES_COLUMN} >= ?
         ORDER BY
@@ -139,7 +145,8 @@ def fetch_fade_props(date_str: str):
     conn = get_conn()
     c = conn.cursor()
     c.execute(f"""
-        SELECT player_name, stat, line, hit_rate_overall, injury_status
+        SELECT player_name, stat, line, hit_rate_overall, injury_status,
+               game_home_team, game_away_team
         FROM player_props
         WHERE date = ? AND sport = 'wnba'
           AND hit_rate_overall IS NOT NULL
@@ -153,12 +160,13 @@ def fetch_fade_props(date_str: str):
     return rows
 
 
-def format_line(prop: dict, seen_players: set) -> str:
+def format_line(prop: dict, team: str, emoji: str, seen_players: set) -> str:
     stat_label = STAT_LABELS.get(prop["stat"], prop["stat"].upper())
     pct        = prop["hit_rate_overall"]
     pct_str    = f"{pct:.1f}".rstrip("0").rstrip(".") if pct % 1 else f"{int(pct)}"
     name       = (prop["player_name"]
                   .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    team_str   = f" ({team})" if team else ""
 
     flag = ""
     status = prop.get("injury_status")
@@ -166,16 +174,17 @@ def format_line(prop: dict, seen_players: set) -> str:
         flag = f" \u26a0\ufe0f {INJURY_FLAG.get(status, status)}"
 
     seen_players.add(prop["player_name"])
-    return f"\u2022 {name} {stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
+    return f"{emoji} {name}{team_str} {stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
 
 
-def format_fade_line(prop: dict, seen_players: set) -> str:
+def format_fade_line(prop: dict, team: str, seen_players: set) -> str:
     stat_label = STAT_LABELS.get(prop["stat"], prop["stat"].upper())
     over_pct   = prop["hit_rate_overall"]
     under_pct  = round(100 - over_pct, 1)
     pct_str    = f"{under_pct:.1f}".rstrip("0").rstrip(".") if under_pct % 1 else f"{int(under_pct)}"
     name       = (prop["player_name"]
                   .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    team_str   = f" ({team})" if team else ""
 
     flag = ""
     status = prop.get("injury_status")
@@ -183,16 +192,15 @@ def format_fade_line(prop: dict, seen_players: set) -> str:
         flag = f" \u26a0\ufe0f {INJURY_FLAG.get(status, status)}"
 
     seen_players.add(prop["player_name"])
-    return f"\U0001f53b {name} u{stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
+    return f"\U0001f53b {name}{team_str} u{stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
 
 
 def build_message(date_str: str, props: list, fades: list = None) -> str:
+    """Groups everything by game (away @ home) so the audience always
+    knows which matchup a player's prop belongs to."""
     fades = fades or []
     if not props and not fades:
         return ""
-
-    green  = [p for p in props if p["confidence_tier"] == "green"]
-    yellow = [p for p in props if p["confidence_tier"] == "yellow"]
 
     pretty_date = datetime.strptime(date_str, "%Y-%m-%d").strftime("%B %d, %Y")
     lines = [
@@ -203,22 +211,34 @@ def build_message(date_str: str, props: list, fades: list = None) -> str:
 
     seen = set()
 
-    if green:
-        lines.append("\U0001f7e2 <b>Green (play these):</b>")
-        for p in green:
-            lines.append(format_line(p, seen))
-        lines.append("")
+    games = {}
+    for p in props:
+        away = p.get("game_away_team") or ""
+        home = p.get("game_home_team") or ""
+        key  = (away, home) if (away or home) else ("Unknown", "Matchup")
+        games.setdefault(key, {"props": [], "fades": []})
+        games[key]["props"].append(p)
 
-    if yellow:
-        lines.append("\U0001f7e1 <b>Yellow (monitor):</b>")
-        for p in yellow:
-            lines.append(format_line(p, seen))
-        lines.append("")
+    for f in fades:
+        away = f.get("game_away_team") or ""
+        home = f.get("game_home_team") or ""
+        key  = (away, home) if (away or home) else ("Unknown", "Matchup")
+        games.setdefault(key, {"props": [], "fades": []})
+        games[key]["fades"].append(f)
 
-    if fades:
-        lines.append("\U0001f53b <b>Fades (play the under):</b>")
-        for p in fades:
-            lines.append(format_fade_line(p, seen))
+    for (away, home), bucket in games.items():
+        lines.append(f"\U0001f3c0 <b>{away} @ {home}</b>")
+
+        for p in sorted(bucket["props"], key=lambda x: x.get("hit_rate_overall", 0), reverse=True):
+            tier  = p.get("confidence_tier", "yellow")
+            emoji = "\U0001f7e2" if tier == "green" else "\U0001f7e1"
+            team  = get_player_team(p["player_name"])
+            lines.append(format_line(p, team, emoji, seen))
+
+        for f in bucket["fades"]:
+            team = get_player_team(f["player_name"])
+            lines.append(format_fade_line(f, team, seen))
+
         lines.append("")
 
     lines.append("<i>Culture &amp; Pulse Analytics</i>")
@@ -237,8 +257,6 @@ def send_message(text: str):
 
 
 def run(dry_run: bool = False, date_override: str = None):
-    # Self-heal schema first — safe on a fresh DB or one that predates
-    # the injury_status column (e.g. the live one on Render).
     setup_props_table()
 
     if date_override:

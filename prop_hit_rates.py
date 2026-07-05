@@ -93,6 +93,18 @@ def setup_props_table():
     except Exception:
         pass  # column already exists
 
+    # Migration: store which two teams are playing in this prop's game, so
+    # alerts can be grouped by matchup instead of showing a flat player list.
+    try:
+        c.execute("ALTER TABLE player_props ADD COLUMN game_home_team TEXT")
+    except Exception:
+        pass  # column already exists
+
+    try:
+        c.execute("ALTER TABLE player_props ADD COLUMN game_away_team TEXT")
+    except Exception:
+        pass  # column already exists
+
     conn.commit()
     conn.close()
 
@@ -372,10 +384,16 @@ def save_prop_with_hit_rates(
     over_odds: int  = None,
     under_odds: int = None,
     is_b2b: bool    = False,
+    game_home_team: str = None,
+    game_away_team: str = None,
 ) -> dict:
     """
     Calculate hit rates for a prop line and save to player_props table.
     Call this when ingesting prop lines from the Odds API.
+
+    game_home_team / game_away_team: the two teams in TODAY'S game (not the
+    player's season-long team history) — used to group props by matchup
+    in the Telegram alert.
     """
     setup_props_table()
 
@@ -394,8 +412,8 @@ def save_prop_with_hit_rates(
              stat, line, over_odds, under_odds,
              hit_rate_overall, hit_rate_vs_opp, hit_rate_home_away,
              games_overall, games_vs_opp, games_home_away,
-             confidence_tier, captured_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             confidence_tier, captured_at, game_home_team, game_away_team)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             date, player_name, team_name, opponent, home_away,
             stat, line, over_odds, under_odds,
@@ -403,6 +421,7 @@ def save_prop_with_hit_rates(
             overall.get("games"), vs_opp.get("games"), ha.get("games"),
             data.get("confidence_tier"),
             datetime.now(timezone.utc).isoformat(),
+            game_home_team, game_away_team,
         ))
         conn.commit()
     except Exception as e:
