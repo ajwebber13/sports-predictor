@@ -847,7 +847,6 @@ def format_digest(
                         )
 
             lines.append(f"📊 {abbr(away)} {away_prob}% · {abbr(home)} {home_prob}%")
-            lines.append(f"🤖 <b>Pick: {abbr(winner)} ({w_prob}%)</b>")
             if divergence_line:
                 lines.append(divergence_line)
 
