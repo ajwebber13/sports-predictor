@@ -24,22 +24,22 @@ TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 CENTRAL_OFFSET   = -5
 
 # Add a sport here and every recap (daily + weekly) picks it up automatically.
-SPORTS = ["wnba", "nfl", "cfb", "ncaab"]
+SPORTS = ["wnba", "nfl", "cfb", "ncaab", "mlb"]
 
 SPORT_LABELS = {
     "wnba":  "🏀 WNBA",
     "nfl":   "🏈 NFL",
     "cfb":   "🏈 CFB",
     "ncaab": "🏀 NCAAB",
+    "mlb":   "⚾ MLB",
 }
 
-# Per-sport "season record" start date — the point each sport's data is
-# considered clean enough to count toward a running record.
 CLEAN_DATA_START = {
     "wnba":  "2026-06-22",
     "nfl":   "2026-07-05",
     "cfb":   "2026-07-05",
     "ncaab": "2026-07-05",
+    "mlb":   "2026-07-06",   # MLB's first live day
 }
 
 
