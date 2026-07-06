@@ -1,7 +1,7 @@
 """
 fetch_prizepicks_props.py — Culture & Pulse Analytics
 ======================================================
-Pulls today's WNBA (and NBA) player prop lines from PropLine API (free tier,
+Pulls today's WNBA/NBA/MLB player prop lines from PropLine API (free tier,
 1,000 requests/day, no credit card). Enriches each prop with hit rates from
 prop_hit_rates.py and saves to the player_props table.
 
@@ -12,6 +12,7 @@ Usage:
     python fetch_prizepicks_props.py              # fetch WNBA + save to DB
     python fetch_prizepicks_props.py --dry-run    # print without saving
     python fetch_prizepicks_props.py --sport nba  # different sport
+    python fetch_prizepicks_props.py --sport mlb  # baseball props
 """
 
 import os
@@ -21,7 +22,6 @@ import argparse
 import requests
 from datetime import datetime, timezone, timedelta
 
-# Load .env file if present
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -36,9 +36,11 @@ PROPLINE_KEY   = os.getenv("PROPLINE_API_KEY", "")
 SPORT_KEYS = {
     "wnba": "basketball_wnba",
     "nba":  "basketball_nba",
+    "mlb":  "baseball_mlb",
 }
 
 # PropLine market keys → our stat key
+# Basketball (WNBA/NBA)
 MARKET_MAP = {
     "player_points":                   "pts",
     "player_rebounds":                 "reb",
@@ -49,21 +51,50 @@ MARKET_MAP = {
     "player_points_rebounds":          "pr",
     "player_points_assists":           "pa",
     "player_rebounds_assists":         "ra",
+    # Baseball (MLB) — batter and pitcher markets
+    "batter_hits":                     "hits",
+    "batter_total_bases":              "total_bases",
+    "batter_rbis":                     "rbis",
+    "batter_runs_scored":               "runs",
+    "batter_home_runs":                "hr",
+    "batter_stolen_bases":              "sb",
+    "pitcher_strikeouts":              "k",
+    "pitcher_hits_allowed":            "hits_allowed",
+    "pitcher_walks":                   "walks_allowed",
+    "pitcher_earned_runs":             "earned_runs",
 }
 
-MARKETS = ",".join(MARKET_MAP.keys())
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Accept":     "application/json",
+# Sport-specific market subsets — sent to PropLine per sport since
+# basketball and baseball markets are mutually exclusive.
+MARKET_MAP = {
+    "player_points":                   "pts",
+    "player_rebounds":                 "reb",
+    "player_assists":                  "ast",
+    "player_steals":                   "stl",
+    "player_blocks":                   "blk",
+    "player_points_rebounds_assists":  "pra",
+    "player_points_rebounds":          "pr",
+    "player_points_assists":           "pa",
+    "player_rebounds_assists":         "ra",
+    "batter_hits":                     "hits",
+    "batter_rbis":                     "rbis",
+    "batter_runs_scored":              "runs",
+    "batter_home_runs":                "hr",
 }
 
+SPORT_MARKETS = {
+    "wnba": "player_points,player_rebounds,player_assists,player_steals,player_blocks,"
+            "player_points_rebounds_assists,player_points_rebounds,player_points_assists,player_rebounds_assists",
+    "nba":  "player_points,player_rebounds,player_assists,player_steals,player_blocks,"
+            "player_points_rebounds_assists,player_points_rebounds,player_points_assists,player_rebounds_assists",
+    "mlb":  "batter_hits,batter_rbis,batter_runs_scored,batter_home_runs",
+}
 
 def get_today_ct() -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=-5)).strftime("%Y-%m-%d")
 
 
-def propline_get(path: str, params: dict = None) -> dict | list | None:
+def propline_get(path: str, params: dict = None):
     if not PROPLINE_KEY:
         print("  ❌ PROPLINE_API_KEY not set. Get a free key at https://prop-line.com")
         return None
@@ -94,7 +125,11 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
         print(f"  ❌ Unknown sport: {sport}")
         return []
 
-    # Step 1 — get today's events
+    markets = SPORT_MARKETS.get(sport, "")
+    if not markets:
+        print(f"  ❌ No market map configured for sport: {sport}")
+        return []
+
     events = propline_get(f"/sports/{sport_key}/events")
     if not events:
         return []
@@ -127,15 +162,13 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
         home_team = event.get("home_team", "")
         away_team = event.get("away_team", "")
 
-        # Step 2 — get props per event
-        data = propline_get(f"/sports/{sport_key}/events/{event_id}/odds", {"markets": MARKETS})
+        data = propline_get(f"/sports/{sport_key}/events/{event_id}/odds", {"markets": markets})
         if not data:
             continue
 
-        time.sleep(0.3)  # be polite to the API
+        time.sleep(0.3)
 
         for bookmaker in data.get("bookmakers", []):
-            # Use DraftKings as primary source, fall back to first available
             bm_key = bookmaker.get("key", "")
             if bm_key not in ("draftkings", "fanduel", "bovada"):
                 continue
@@ -146,13 +179,12 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
                 if not stat:
                     continue
 
-                # Group outcomes by player (Over/Under pairs)
                 player_outcomes = {}
                 for outcome in market.get("outcomes", []):
                     player_name = outcome.get("description", "").strip()
                     if not player_name:
                         continue
-                    direction = outcome.get("name", "")  # Over or Under
+                    direction = outcome.get("name", "")
                     price     = outcome.get("price")
                     line      = outcome.get("point")
                     if player_name not in player_outcomes:
@@ -168,7 +200,6 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
                     if not line:
                         continue
 
-                    # Strip team abbreviation e.g. "Kamilla Cardoso (CHI)" -> "Kamilla Cardoso"
                     import re
                     clean_name = re.sub(r'\s*\([A-Z]{2,4}\)\s*$', '', player_name).strip()
 
@@ -184,11 +215,9 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
                         "bookmaker":   bm_key,
                     })
 
-            # Only use one bookmaker per event (DraftKings first)
             if bm_key == "draftkings":
                 break
 
-    # Deduplicate — keep best odds per player/stat/line
     seen    = {}
     deduped = []
     for p in all_props:
@@ -225,14 +254,13 @@ def run(sport: str = "wnba", dry_run: bool = False):
 
     saved = 0
     for prop in props:
-        player    = prop["player_name"]
-        stat      = prop["stat"]
-        line      = prop["line"]
-        over_odds = prop.get("over_odds")
+        player     = prop["player_name"]
+        stat       = prop["stat"]
+        line       = prop["line"]
+        over_odds  = prop.get("over_odds")
         under_odds = prop.get("under_odds")
 
-        # Get hit rate from our game log
-        data    = get_hit_rate(player, stat, line)
+        data    = get_hit_rate(player, stat, line, sport=sport)
         overall = data.get("overall", {})
         hr      = overall.get("hit_rate")
         games   = overall.get("games", 0)
@@ -260,6 +288,7 @@ def run(sport: str = "wnba", dry_run: bool = False):
                 under_odds  = under_odds,
                 game_home_team = prop.get("home_team", ""),
                 game_away_team = prop.get("away_team", ""),
+                sport       = sport,
             )
             saved += 1
 

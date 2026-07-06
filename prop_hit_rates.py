@@ -1,20 +1,8 @@
 """
 prop_hit_rates.py — Culture & Pulse Analytics
 ==============================================
-Calculates player prop hit rates from wnba_game_log with situational filters.
-
-Situational filters:
-  - vs opponent (how does this player perform against today's defense)
-  - home / away split
-  - back-to-back (rest days <= 1)
-  - teammate out (key player missing from same team)
-
-Also creates/maintains the player_props table for storing prop lines
-when the Odds API player props endpoint becomes available.
-
-Usage:
-    from prop_hit_rates import get_hit_rate, get_situational_report
-    from prop_hit_rates import setup_props_table
+Calculates player prop hit rates from sport-specific game logs with
+situational filters (WNBA) or basic overall hit rate (MLB).
 """
 
 import os
@@ -25,37 +13,37 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn as _get_conn
 
-# Minimum games needed for a hit rate to be considered reliable
 MIN_GAMES_OVERALL    = 5
 MIN_GAMES_SITUATIONAL = 3
 
-SUPPORTED_STATS = ["pts", "reb", "ast", "stl", "blk", "pra", "pr", "pa", "ra"]
+SUPPORTED_STATS = ["pts", "reb", "ast", "stl", "blk", "pra", "pr", "pa", "ra",
+                    "hits", "runs", "rbis", "hr"]
 
-# SQL expression per stat. Combo stats (pra/pr/pa/ra) are computed on the fly —
-# wnba_game_log only stores the base columns (pts/reb/ast/stl/blk), so a combo
-# prop like Points+Rebounds+Assists is graded as (pts + reb + ast) > line.
+# Per-sport table + column mapping. MLB only has 4 verified stats right now —
+# total_bases/stolen_bases/pitcher props are NOT supported since
+# mlb_player_stats.py doesn't capture doubles/triples/steals/pitching data.
+SPORT_TABLES = {
+    "wnba": "wnba_game_log",
+    "mlb":  "mlb_game_log",
+}
+
 STAT_EXPR = {
-    "pts": "pts",
-    "reb": "reb",
-    "ast": "ast",
-    "stl": "stl",
-    "blk": "blk",
-    "pra": "(pts + reb + ast)",
-    "pr":  "(pts + reb)",
-    "pa":  "(pts + ast)",
-    "ra":  "(reb + ast)",
+    "wnba": {
+        "pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
+        "pra": "(pts + reb + ast)", "pr": "(pts + reb)", "pa": "(pts + ast)", "ra": "(reb + ast)",
+    },
+    "mlb": {
+        "hits": "hits", "runs": "runs", "rbis": "rbis", "hr": "hrs",
+    },
+}
+
+MIN_GAMES_FILTER = {
+    "wnba": "minutes > 0",
+    "mlb":  "at_bats > 0",
 }
 
 
-# ─────────────────────────────────────────────
-# DB SETUP
-# ─────────────────────────────────────────────
-
 def setup_props_table():
-    """
-    Create the player_props table if it doesn't exist.
-    This is where Odds API prop lines will be stored once that feed is active.
-    """
     conn = _get_conn()
     c    = conn.cursor()
     c.execute("""
@@ -67,51 +55,34 @@ def setup_props_table():
             team_name       TEXT NOT NULL,
             opponent        TEXT NOT NULL,
             home_away       TEXT,
-            stat            TEXT NOT NULL,         -- pts, reb, ast, stl, blk, pra, pr, pa, ra
-            line            REAL NOT NULL,          -- e.g. 18.5
-            over_odds       INTEGER,                -- American odds for Over
-            under_odds      INTEGER,                -- American odds for Under
-            hit_rate_overall   REAL,               -- % of games player hit this line
-            hit_rate_vs_opp    REAL,               -- % vs this specific opponent
-            hit_rate_home_away REAL,               -- % home or away (matches today)
-            hit_rate_b2b       REAL,               -- % on back-to-backs (if applicable)
+            stat            TEXT NOT NULL,
+            line            REAL NOT NULL,
+            over_odds       INTEGER,
+            under_odds      INTEGER,
+            hit_rate_overall   REAL,
+            hit_rate_vs_opp    REAL,
+            hit_rate_home_away REAL,
+            hit_rate_b2b       REAL,
             games_overall      INTEGER,
             games_vs_opp       INTEGER,
             games_home_away    INTEGER,
-            confidence_tier    TEXT,               -- green / yellow / red
+            confidence_tier    TEXT,
             source          TEXT DEFAULT 'odds_api',
             captured_at     TEXT,
-            injury_status   TEXT,                  -- Day-To-Day / Questionable / Doubtful, etc.
-            UNIQUE(date, player_name, stat)
+            injury_status   TEXT,
+            UNIQUE(date, sport, player_name, stat)
         )
     """)
 
-    # Migration for DBs created before injury_status existed — wnba_props_alert.py
-    # selects this column, so a fresh table without it would crash that query.
-    try:
-        c.execute("ALTER TABLE player_props ADD COLUMN injury_status TEXT")
-    except Exception:
-        pass  # column already exists
-
-    # Migration: store which two teams are playing in this prop's game, so
-    # alerts can be grouped by matchup instead of showing a flat player list.
-    try:
-        c.execute("ALTER TABLE player_props ADD COLUMN game_home_team TEXT")
-    except Exception:
-        pass  # column already exists
-
-    try:
-        c.execute("ALTER TABLE player_props ADD COLUMN game_away_team TEXT")
-    except Exception:
-        pass  # column already exists
+    for col_def in ("injury_status TEXT", "game_home_team TEXT", "game_away_team TEXT"):
+        try:
+            c.execute(f"ALTER TABLE player_props ADD COLUMN {col_def}")
+        except Exception:
+            pass
 
     conn.commit()
     conn.close()
 
-
-# ─────────────────────────────────────────────
-# CORE HIT RATE CALCULATION
-# ─────────────────────────────────────────────
 
 def get_hit_rate(
     player_name: str,
@@ -121,38 +92,30 @@ def get_hit_rate(
     home_away: str  = None,
     is_b2b: bool    = False,
     season: str     = "2026",
+    sport: str      = "wnba",
 ) -> dict:
-    """
-    Calculate hit rate for a player/stat/line combo with situational breakdowns.
+    if sport not in SPORT_TABLES:
+        return {"error": f"Unsupported sport: {sport}"}
 
-    Returns:
-        {
-          overall:      { hit_rate, games, hits },
-          vs_opponent:  { hit_rate, games, hits } | None,
-          home_away:    { hit_rate, games, hits } | None,
-          b2b:          { hit_rate, games, hits } | None,
-          confidence_tier: "green" | "yellow" | "red" | "insufficient",
-          flag:         str | None   -- warning message if situational is worse than overall
-        }
-    """
-    if stat not in SUPPORTED_STATS:
-        return {"error": f"Unsupported stat: {stat}. Use one of {SUPPORTED_STATS}"}
+    stat_map = STAT_EXPR.get(sport, {})
+    if stat not in stat_map:
+        return {"error": f"Unsupported stat '{stat}' for {sport}. Use one of {list(stat_map.keys())}"}
+
+    table      = SPORT_TABLES[sport]
+    row_filter = MIN_GAMES_FILTER.get(sport, "1=1")
+    stat_sql   = stat_map[stat]
 
     conn = _get_conn()
     c    = conn.cursor()
-
-    # Filter to season (dates start with the year)
     season_prefix = f"{season}%"
 
-    # ── Overall hit rate ──
-    stat_sql = STAT_EXPR[stat]
     c.execute(f"""
         SELECT COUNT(*) as games,
                SUM(CASE WHEN {stat_sql} > ? THEN 1 ELSE 0 END) as hits
-        FROM wnba_game_log
+        FROM {table}
         WHERE player_name = ?
           AND date LIKE ?
-          AND minutes > 0
+          AND {row_filter}
     """, (line, player_name, season_prefix))
     row = c.fetchone()
     overall_games = row["games"] or 0
@@ -160,92 +123,60 @@ def get_hit_rate(
     overall_rate  = round(overall_hits / overall_games * 100, 1) if overall_games >= 1 else None
 
     result = {
-        "overall": {
-            "hit_rate": overall_rate,
-            "games":    overall_games,
-            "hits":     overall_hits,
-        },
-        "vs_opponent":  None,
-        "home_away":    None,
-        "b2b":          None,
-        "confidence_tier": "insufficient",
-        "flag": None,
+        "overall": {"hit_rate": overall_rate, "games": overall_games, "hits": overall_hits},
+        "vs_opponent": None, "home_away": None, "b2b": None,
+        "confidence_tier": "insufficient", "flag": None,
     }
 
     if overall_games < MIN_GAMES_OVERALL:
         conn.close()
         return result
 
-    # ── vs Opponent ──
-    if opponent:
-        c.execute(f"""
-            SELECT COUNT(*) as games,
-                   SUM(CASE WHEN {stat_sql} > ? THEN 1 ELSE 0 END) as hits
-            FROM wnba_game_log
-            WHERE player_name = ?
-              AND opponent = ?
-              AND date LIKE ?
-              AND minutes > 0
-        """, (line, player_name, opponent, season_prefix))
-        row = c.fetchone()
-        opp_games = row["games"] or 0
-        opp_hits  = row["hits"]  or 0
-        opp_rate  = round(opp_hits / opp_games * 100, 1) if opp_games >= MIN_GAMES_SITUATIONAL else None
-        result["vs_opponent"] = {
-            "hit_rate": opp_rate,
-            "games":    opp_games,
-            "hits":     opp_hits,
-        }
+    # Situational breakdowns (opponent/home-away/B2B) only built out for WNBA —
+    # MLB doesn't track opponent/home_away columns per at-bat yet.
+    if sport == "wnba":
+        if opponent:
+            c.execute(f"""
+                SELECT COUNT(*) as games,
+                       SUM(CASE WHEN {stat_sql} > ? THEN 1 ELSE 0 END) as hits
+                FROM {table}
+                WHERE player_name = ? AND opponent = ? AND date LIKE ? AND {row_filter}
+            """, (line, player_name, opponent, season_prefix))
+            row = c.fetchone()
+            opp_games = row["games"] or 0
+            opp_hits  = row["hits"]  or 0
+            opp_rate  = round(opp_hits / opp_games * 100, 1) if opp_games >= MIN_GAMES_SITUATIONAL else None
+            result["vs_opponent"] = {"hit_rate": opp_rate, "games": opp_games, "hits": opp_hits}
 
-    # ── Home / Away ──
-    if home_away:
-        c.execute(f"""
-            SELECT COUNT(*) as games,
-                   SUM(CASE WHEN {stat_sql} > ? THEN 1 ELSE 0 END) as hits
-            FROM wnba_game_log
-            WHERE player_name = ?
-              AND home_away = ?
-              AND date LIKE ?
-              AND minutes > 0
-        """, (line, player_name, home_away, season_prefix))
-        row = c.fetchone()
-        ha_games = row["games"] or 0
-        ha_hits  = row["hits"]  or 0
-        ha_rate  = round(ha_hits / ha_games * 100, 1) if ha_games >= MIN_GAMES_SITUATIONAL else None
-        result["home_away"] = {
-            "hit_rate": ha_rate,
-            "games":    ha_games,
-            "hits":     ha_hits,
-        }
+        if home_away:
+            c.execute(f"""
+                SELECT COUNT(*) as games,
+                       SUM(CASE WHEN {stat_sql} > ? THEN 1 ELSE 0 END) as hits
+                FROM {table}
+                WHERE player_name = ? AND home_away = ? AND date LIKE ? AND {row_filter}
+            """, (line, player_name, home_away, season_prefix))
+            row = c.fetchone()
+            ha_games = row["games"] or 0
+            ha_hits  = row["hits"]  or 0
+            ha_rate  = round(ha_hits / ha_games * 100, 1) if ha_games >= MIN_GAMES_SITUATIONAL else None
+            result["home_away"] = {"hit_rate": ha_rate, "games": ha_games, "hits": ha_hits}
 
-    # ── Back-to-back ──
-    if is_b2b:
-        # B2B = rest_days <= 1; we approximate by checking games on consecutive dates
-        # For now pull last 5 games and flag if overall trend is negative
-        c.execute(f"""
-            SELECT date, {stat_sql} AS stat_value
-            FROM wnba_game_log
-            WHERE player_name = ?
-              AND date LIKE ?
-              AND minutes > 0
-            ORDER BY date DESC
-            LIMIT 20
-        """, (player_name, season_prefix))
-        rows = c.fetchall()
-        b2b_games = [(r["date"], r["stat_value"]) for r in rows if _is_b2b(r["date"], rows)]
-        b2b_hits  = sum(1 for _, v in b2b_games if v > line)
-        b2b_count = len(b2b_games)
-        b2b_rate  = round(b2b_hits / b2b_count * 100, 1) if b2b_count >= MIN_GAMES_SITUATIONAL else None
-        result["b2b"] = {
-            "hit_rate": b2b_rate,
-            "games":    b2b_count,
-            "hits":     b2b_hits,
-        }
+        if is_b2b:
+            c.execute(f"""
+                SELECT date, {stat_sql} AS stat_value
+                FROM {table}
+                WHERE player_name = ? AND date LIKE ? AND {row_filter}
+                ORDER BY date DESC LIMIT 20
+            """, (player_name, season_prefix))
+            rows = c.fetchall()
+            b2b_games = [(r["date"], r["stat_value"]) for r in rows if _is_b2b(r["date"], rows)]
+            b2b_hits  = sum(1 for _, v in b2b_games if v > line)
+            b2b_count = len(b2b_games)
+            b2b_rate  = round(b2b_hits / b2b_count * 100, 1) if b2b_count >= MIN_GAMES_SITUATIONAL else None
+            result["b2b"] = {"hit_rate": b2b_rate, "games": b2b_count, "hits": b2b_hits}
 
-    # ── Confidence tier ──
-    result["confidence_tier"] = _confidence_tier(result, overall_rate, player_name, stat)
+    result["confidence_tier"] = _confidence_tier(result, overall_rate, player_name, stat, sport)
 
-    # ── Flag if situational is significantly worse than overall ──
     flags = []
     opp_r = (result["vs_opponent"] or {}).get("hit_rate")
     ha_r  = (result["home_away"]   or {}).get("hit_rate")
@@ -265,7 +196,6 @@ def get_hit_rate(
 
 
 def _is_b2b(date_str: str, all_rows: list) -> bool:
-    """Check if a game date is a back-to-back (previous day also has a game)."""
     from datetime import datetime, timedelta
     try:
         d = datetime.strptime(date_str, "%Y%m%d")
@@ -275,23 +205,7 @@ def _is_b2b(date_str: str, all_rows: list) -> bool:
         return False
 
 
-def _confidence_tier(
-    result: dict,
-    overall_rate: float | None,
-    player_name: str = None,
-    stat: str = None,
-) -> str:
-    """
-    Green:  overall >= 65% and no significant situational downgrade
-    Yellow: overall >= 50% or situational concern exists
-    Red:    overall < 50% or significant situational flag
-
-    Off-role downgrade: a PTS/REB/AST prop on a player whose primary
-    category (scorer/rebounder/playmaker) doesn't match the stat gets
-    knocked down one tier. Points is the highest-variance stat, so this
-    matters most there — e.g. a playmaker's PTS line is riskier than
-    their AST line even at the same hit rate. See wnba_player_categories.py.
-    """
+def _confidence_tier(result: dict, overall_rate, player_name: str = None, stat: str = None, sport: str = "wnba") -> str:
     if overall_rate is None:
         return "insufficient"
 
@@ -299,14 +213,13 @@ def _confidence_tier(
 
     if overall_rate >= 65 and not has_flag:
         tier = "green"
-    elif overall_rate >= 50 and not has_flag:
-        tier = "yellow"
-    elif overall_rate >= 50 and has_flag:
+    elif overall_rate >= 50:
         tier = "yellow"
     else:
         tier = "red"
 
-    if player_name and stat and is_off_role(player_name, stat):
+    # Off-role downgrade only applies to WNBA (relies on wnba_player_categories.py)
+    if sport == "wnba" and player_name and stat and is_off_role(player_name, stat):
         if tier == "green":
             tier = "yellow"
         elif tier == "yellow":
@@ -315,25 +228,8 @@ def _confidence_tier(
     return tier
 
 
-# ─────────────────────────────────────────────
-# SITUATIONAL REPORT
-# ─────────────────────────────────────────────
-
-def get_situational_report(
-    player_name: str,
-    stat: str,
-    line: float,
-    opponent: str,
-    home_away: str,
-    is_b2b: bool = False,
-) -> str:
-    """
-    Returns a human-readable summary for use in the digest or Telegram alert.
-
-    Example:
-        "A'ja Wilson o18.5 pts — 72% overall (18G) | 67% vs Connecticut (3G) ✅"
-    """
-    data = get_hit_rate(player_name, stat, line, opponent, home_away, is_b2b)
+def get_situational_report(player_name, stat, line, opponent, home_away, is_b2b=False, sport="wnba") -> str:
+    data = get_hit_rate(player_name, stat, line, opponent, home_away, is_b2b, sport=sport)
 
     if "error" in data:
         return f"{player_name} — {data['error']}"
@@ -342,10 +238,7 @@ def get_situational_report(
     if overall["games"] < MIN_GAMES_OVERALL:
         return f"{player_name} o{line} {stat} — insufficient data ({overall['games']}G)"
 
-    tier_emoji = {"green": "✅", "yellow": "⚠️", "red": "❌", "insufficient": "❓"}.get(
-        data["confidence_tier"], ""
-    )
-
+    tier_emoji = {"green": "✅", "yellow": "⚠️", "red": "❌", "insufficient": "❓"}.get(data["confidence_tier"], "")
     parts = [f"{overall['hit_rate']}% overall ({overall['games']}G)"]
 
     opp = data.get("vs_opponent") or {}
@@ -362,60 +255,39 @@ def get_situational_report(
         parts.append(f"{b2b['hit_rate']}% B2B ({b2b['games']}G)")
 
     summary = f"{player_name} o{line} {stat} — " + " | ".join(parts) + f" {tier_emoji}"
-
     if data.get("flag"):
         summary += f"\n    ⚠️ {data['flag']}"
 
     return summary
 
 
-# ─────────────────────────────────────────────
-# SAVE PROP LINE WITH HIT RATES
-# ─────────────────────────────────────────────
-
 def save_prop_with_hit_rates(
-    date: str,
-    player_name: str,
-    team_name: str,
-    opponent: str,
-    home_away: str,
-    stat: str,
-    line: float,
-    over_odds: int  = None,
-    under_odds: int = None,
-    is_b2b: bool    = False,
-    game_home_team: str = None,
-    game_away_team: str = None,
+    date: str, player_name: str, team_name: str, opponent: str, home_away: str,
+    stat: str, line: float, over_odds: int = None, under_odds: int = None,
+    is_b2b: bool = False, game_home_team: str = None, game_away_team: str = None,
+    sport: str = "wnba",
 ) -> dict:
-    """
-    Calculate hit rates for a prop line and save to player_props table.
-    Call this when ingesting prop lines from the Odds API.
-
-    game_home_team / game_away_team: the two teams in TODAY'S game (not the
-    player's season-long team history) — used to group props by matchup
-    in the Telegram alert.
-    """
     setup_props_table()
 
-    data = get_hit_rate(player_name, stat, line, opponent, home_away, is_b2b)
+    data = get_hit_rate(player_name, stat, line, opponent, home_away, is_b2b, sport=sport)
 
-    overall   = data.get("overall", {})
-    vs_opp    = data.get("vs_opponent") or {}
-    ha        = data.get("home_away")   or {}
+    overall = data.get("overall", {})
+    vs_opp  = data.get("vs_opponent") or {}
+    ha      = data.get("home_away")   or {}
 
     conn = _get_conn()
     c    = conn.cursor()
     try:
         c.execute("""
             INSERT OR REPLACE INTO player_props
-            (date, player_name, team_name, opponent, home_away,
+            (date, sport, player_name, team_name, opponent, home_away,
              stat, line, over_odds, under_odds,
              hit_rate_overall, hit_rate_vs_opp, hit_rate_home_away,
              games_overall, games_vs_opp, games_home_away,
              confidence_tier, captured_at, game_home_team, game_away_team)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            date, player_name, team_name, opponent, home_away,
+            date, sport, player_name, team_name, opponent, home_away,
             stat, line, over_odds, under_odds,
             overall.get("hit_rate"), vs_opp.get("hit_rate"), ha.get("hit_rate"),
             overall.get("games"), vs_opp.get("games"), ha.get("games"),
@@ -432,15 +304,7 @@ def save_prop_with_hit_rates(
     return data
 
 
-# ─────────────────────────────────────────────
-# QUICK LOOKUP — TODAY'S STRONG PROPS
-# ─────────────────────────────────────────────
-
-def get_strong_props(date: str = None, min_hit_rate: float = 65.0) -> list:
-    """
-    Return saved props from player_props with hit_rate_overall >= threshold.
-    Used by the digest to surface strong prop signals.
-    """
+def get_strong_props(date: str = None, min_hit_rate: float = 65.0, sport: str = "wnba") -> list:
     if not date:
         from datetime import datetime, timezone, timedelta
         date = (datetime.now(timezone.utc) + timedelta(hours=-5)).strftime("%Y-%m-%d")
@@ -448,45 +312,32 @@ def get_strong_props(date: str = None, min_hit_rate: float = 65.0) -> list:
     conn = _get_conn()
     c    = conn.cursor()
     c.execute("""
-        SELECT *
-        FROM player_props
-        WHERE date = ?
-          AND hit_rate_overall >= ?
+        SELECT * FROM player_props
+        WHERE date = ? AND sport = ? AND hit_rate_overall >= ?
         ORDER BY hit_rate_overall DESC
-    """, (date, min_hit_rate))
+    """, (date, sport, min_hit_rate))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
 
 
-# ─────────────────────────────────────────────
-# CLI — test a player on the command line
-# ─────────────────────────────────────────────
-
 if __name__ == "__main__":
     import argparse
-
     setup_props_table()
 
     parser = argparse.ArgumentParser(description="Player prop hit rate checker")
-    parser.add_argument("--player",   required=True,  help="Player name")
-    parser.add_argument("--stat",     required=True,  help="pts / reb / ast / stl / blk")
-    parser.add_argument("--line",     required=True,  type=float, help="Prop line (e.g. 18.5)")
-    parser.add_argument("--opponent", default=None,   help="Today's opponent team name")
-    parser.add_argument("--home-away", default=None,  dest="home_away", help="home or away")
-    parser.add_argument("--b2b",      action="store_true", help="Is this a back-to-back?")
+    parser.add_argument("--player", required=True)
+    parser.add_argument("--stat", required=True)
+    parser.add_argument("--line", required=True, type=float)
+    parser.add_argument("--opponent", default=None)
+    parser.add_argument("--home-away", default=None, dest="home_away")
+    parser.add_argument("--b2b", action="store_true")
+    parser.add_argument("--sport", default="wnba")
     args = parser.parse_args()
 
-    report = get_situational_report(
-        args.player, args.stat, args.line,
-        args.opponent, args.home_away, args.b2b
-    )
+    report = get_situational_report(args.player, args.stat, args.line, args.opponent, args.home_away, args.b2b, sport=args.sport)
     print(f"\n{report}\n")
 
-    # Full breakdown
-    data = get_hit_rate(
-        args.player, args.stat, args.line,
-        args.opponent, args.home_away, args.b2b
-    )
+    data = get_hit_rate(args.player, args.stat, args.line, args.opponent, args.home_away, args.b2b, sport=args.sport)
     import json
     print(json.dumps(data, indent=2))
