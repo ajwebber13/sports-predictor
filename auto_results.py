@@ -167,11 +167,7 @@ def insert_result(conn, result: dict, dry_run: bool = False):
             date, sport, game, home_team, away_team,
             home_score, away_score, actual_winner,
             prediction_id, correct, edge_at_pick, odds_at_pick, updated_at
-        ) VALUES (
-            :date, :sport, :game, :home_team, :away_team,
-            :home_score, :away_score, :actual_winner,
-            :prediction_id, :correct, :edge_at_pick, :odds_at_pick, :updated_at
-        )
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(date, sport, game) DO UPDATE SET
             home_score = excluded.home_score,
             away_score = excluded.away_score,
@@ -181,7 +177,14 @@ def insert_result(conn, result: dict, dry_run: bool = False):
             odds_at_pick = excluded.odds_at_pick,
             updated_at = excluded.updated_at
     """
-    conn.execute(sql, result)
+    params = (
+        result["date"], result["sport"], result["game"],
+        result["home_team"], result["away_team"],
+        result["home_score"], result["away_score"], result["actual_winner"],
+        result["prediction_id"], result["correct"],
+        result["edge_at_pick"], result["odds_at_pick"], result["updated_at"],
+    )
+    conn.execute(sql, params)
     conn.commit()
     status = "CORRECT" if result["correct"] == 1 else "WRONG"
     print(f"    [{result['sport'].upper()}] {status} -> {result['game']} -> {result['actual_winner']} (saved)")
