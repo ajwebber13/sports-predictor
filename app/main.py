@@ -5,6 +5,7 @@ from app.api.routes_edges   import router as edges_router
 from app.api.routes_wnba    import router as wnba_router
 from app.api.routes_cfb     import router as cfb_router
 from app.api.routes_nfl     import router as nfl_router
+from app.api.routes_mlb     import router as mlb_router
 
 app = FastAPI(title="Sports Betting Model API", version="1.0")
 
@@ -14,6 +15,7 @@ app.include_router(edges_router,   prefix="/edges",   tags=["Edges"])
 app.include_router(wnba_router,    tags=["WNBA"])
 app.include_router(cfb_router,     tags=["CFB"])
 app.include_router(nfl_router,     tags=["NFL"])
+app.include_router(mlb_router,     tags=["MLB"])
 
 
 @app.get("/")
@@ -144,4 +146,3 @@ def ncaab_preview(home: str, away: str, simulations: int = Query(default=10000))
                    for p in (away_roster.players[:10] if away_roster else [])],
         },
     }
-
