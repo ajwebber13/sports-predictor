@@ -6,7 +6,10 @@ low, discrete, and can't go negative — normal distribution breaks down here).
 """
 
 import numpy as np
-from mlb_data import get_mlb_events, get_team_stats, get_starting_pitcher, get_pitcher_stats
+from mlb_data import (
+    get_mlb_events, get_team_stats, get_starting_pitcher, get_pitcher_stats,
+    get_team_record, get_team_injuries, get_team_rest_days,
+)
 from mlb_weather import get_stadium_weather, get_weather_adj
 
 MLB_CONSTANTS = {
@@ -76,6 +79,8 @@ def predict_game(event):
 
     home_team = home_comp["team"]["displayName"]
     away_team = away_comp["team"]["displayName"]
+    home_id = home_comp["team"]["id"]
+    away_id = away_comp["team"]["id"]
 
     home_stats = get_team_stats(home_team)
     away_stats = get_team_stats(away_team)
@@ -94,6 +99,13 @@ def predict_game(event):
     result["home_team"] = home_team
     result["away_team"] = away_team
     result["weather"] = weather.get("conditions", "unknown")
+
+    result["home_record"] = get_team_record(home_comp)
+    result["away_record"] = get_team_record(away_comp)
+    result["home_injuries"] = get_team_injuries(home_comp)
+    result["away_injuries"] = get_team_injuries(away_comp)
+    result["home_rest"] = get_team_rest_days(home_id)
+    result["away_rest"] = get_team_rest_days(away_id)
 
     return result
 

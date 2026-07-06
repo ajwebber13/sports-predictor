@@ -65,6 +65,12 @@ def mlb_edges(min_edge: float = 3.0):
                 "implied_prob": implied_home,
                 "edge": round(edge_home / 100, 4),
                 "projected": projected,
+                "home_record": pred.get("home_record", ""),
+                "away_record": pred.get("away_record", ""),
+                "home_injuries": pred.get("home_injuries", ""),
+                "away_injuries": pred.get("away_injuries", ""),
+                "home_rest": pred.get("home_rest"),
+                "away_rest": pred.get("away_rest"),
             })
 
         if edge_away >= min_edge:
@@ -76,6 +82,12 @@ def mlb_edges(min_edge: float = 3.0):
                 "implied_prob": implied_home,
                 "edge": round(edge_away / 100, 4),
                 "projected": projected,
+                "home_record": pred.get("home_record", ""),
+                "away_record": pred.get("away_record", ""),
+                "home_injuries": pred.get("home_injuries", ""),
+                "away_injuries": pred.get("away_injuries", ""),
+                "home_rest": pred.get("home_rest"),
+                "away_rest": pred.get("away_rest"),
             })
 
     best_bets.sort(key=lambda x: x["edge"], reverse=True)

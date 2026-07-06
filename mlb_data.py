@@ -4,7 +4,7 @@ Live MLB data pipeline — mirrors cfb_data.py / nfl_data.py pattern.
 """
 
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
 ESPN_TEAM_STATS_URL = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/teams/{team_id}/statistics"
@@ -42,7 +42,6 @@ MLB_TEAM_IDS = {
     "Washington Nationals": 20,
 }
 
-# League-average flat defaults — used only when ESPN returns nothing at all
 FLAT_DEFAULTS = {
     "runs_per_game": 4.5,
     "era": 4.20,
@@ -91,7 +90,6 @@ def get_team_stats(team_name, season=None):
 
     stats = _parse_stat_categories(categories)
 
-    # Sanity clamps — same defensive pattern as CFB/NFL
     if stats["runs_per_game"] > 12 or stats["runs_per_game"] <= 0:
         stats["runs_per_game"] = FLAT_DEFAULTS["runs_per_game"]
     if stats["era"] > 9 or stats["era"] <= 0:
@@ -157,7 +155,7 @@ def get_starting_pitcher(event):
     try:
         competitors = event["competitions"][0]["competitors"]
         for comp in competitors:
-            side = comp.get("homeAway")  # "home" or "away"
+            side = comp.get("homeAway")
             probables = comp.get("probables", [])
             if probables:
                 result[side] = probables[0]
@@ -166,23 +164,6 @@ def get_starting_pitcher(event):
     return result
 
 
-def get_pitcher_stats(probable):
-    """
-    ESPN embeds the pitcher's ERA directly in the scoreboard's probables
-    data — no separate athlete-stats API call needed.
-    """
-    if not probable:
-        return {"era": FLAT_DEFAULTS["era"]}
-
-    stats = {s["name"]: s.get("displayValue") for s in probable.get("statistics", [])}
-    era_str = stats.get("ERA")
-
-    try:
-        era = float(era_str)
-    except (TypeError, ValueError):
-        era = FLAT_DEFAULTS["era"]
-
-    return {"era": era}
 def get_pitcher_stats(probable):
     """
     ESPN embeds the pitcher's ERA and WHIP directly in the scoreboard's
@@ -204,39 +185,6 @@ def get_pitcher_stats(probable):
         whip = FLAT_DEFAULTS["whip"]
 
     return {"era": era, "whip": whip}
-
-def get_moneyline_odds(event):
-    """
-    Pulls DraftKings moneyline odds from the scoreboard's odds block.
-    Returns {"home": american_odds_int, "away": american_odds_int} or None if missing.
-    """
-    try:
-        odds_list = event["competitions"][0].get("odds", [])
-        if not odds_list:
-            return None
-        moneyline = odds_list[0]["moneyline"]
-        home_odds = int(moneyline["home"]["close"]["odds"])
-        away_odds = int(moneyline["away"]["close"]["odds"])
-        return {"home": home_odds, "away": away_odds}
-    except (KeyError, IndexError, ValueError, TypeError):
-        return None
-
-
-def get_moneyline_odds(event):
-    """
-    Pulls DraftKings moneyline odds from the scoreboard's odds block.
-    Returns {"home": american_odds_int, "away": american_odds_int} or None if missing.
-    """
-    try:
-        odds_list = event["competitions"][0].get("odds", [])
-        if not odds_list:
-            return None
-        moneyline = odds_list[0]["moneyline"]
-        home_odds = int(moneyline["home"]["close"]["odds"])
-        away_odds = int(moneyline["away"]["close"]["odds"])
-        return {"home": home_odds, "away": away_odds}
-    except (KeyError, IndexError, ValueError, TypeError):
-        return None
 
 
 def get_moneyline_odds(event):
@@ -262,3 +210,52 @@ def american_to_implied(odds):
         return -odds / (-odds + 100)
     else:
         return 100 / (odds + 100)
+
+
+def get_team_record(competitor: dict) -> str:
+    """Pulls W-L record directly from the scoreboard competitor object."""
+    records = competitor.get("records", [])
+    return records[0].get("summary", "") if records else ""
+
+
+def get_team_injuries(competitor: dict) -> str:
+    """Pulls Out/Doubtful/Day-To-Day players from the scoreboard competitor object."""
+    injuries = []
+    for player in competitor.get("injuries", []):
+        name = player.get("athlete", {}).get("displayName", "")
+        status = player.get("status", "")
+        if name and status in ["Out", "Doubtful", "Day-To-Day"]:
+            injuries.append(f"{name} ({status})")
+    return ", ".join(injuries)
+
+
+def get_team_rest_days(team_id: str):
+    """
+    Days since this team's last completed game.
+    Mirrors the WNBA streak-fetch pattern — one ESPN schedule call per team.
+    """
+    url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/teams/{team_id}/schedule"
+    try:
+        r = requests.get(url, timeout=10)
+        data = r.json()
+    except Exception:
+        return None
+
+    today = (datetime.now(timezone.utc) + timedelta(hours=-5)).date()
+    past_dates = []
+    for event in data.get("events", []):
+        completed = event.get("competitions", [{}])[0].get("status", {}).get("type", {}).get("completed", False)
+        if not completed:
+            continue
+        utc_str = event.get("date", "")
+        try:
+            utc_dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
+            game_day = (utc_dt + timedelta(hours=-5)).date()
+        except Exception:
+            continue
+        if game_day < today:
+            past_dates.append(game_day)
+
+    if not past_dates:
+        return None
+    return (today - max(past_dates)).days
