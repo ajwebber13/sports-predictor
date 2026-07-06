@@ -18,7 +18,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 try:
-    from prediction_logger import save_all_predictions, save_predictions_to_db
+    from database import log_prediction
     LOGGING_ENABLED = True
 except ImportError:
     LOGGING_ENABLED = False
@@ -421,11 +421,11 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         return
 
     if LOGGING_ENABLED:
-        save_all_predictions(bets, sport)
-        try:
-            save_predictions_to_db(bets, sport)
-        except Exception as e:
-            print(f"DB prediction save failed: {e}")
+        for bet in bets:
+            try:
+                log_prediction(bet, sport)
+            except Exception as e:
+                print(f"DB prediction save failed: {e}")
 
     # ── THROTTLE: edge filter + correlation filter + slate cap ──
     try:

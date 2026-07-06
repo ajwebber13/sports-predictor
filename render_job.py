@@ -141,14 +141,7 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
     if not bets:
         log(f"No {sport.upper()} edges found today.")
         return False
-
-    try:
-        from prediction_logger import save_predictions_to_db
-        save_predictions_to_db(bets, sport)
-        log(f"Saved {len(bets)} predictions.")
-    except Exception as e:
-        log(f"Prediction logger error: {e}")
-
+    
     try:
         from telegram_alerts import (
             format_header, format_alert, get_game_times,
@@ -221,12 +214,16 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
 def run_results():
     log("Pulling ESPN results...")
     try:
-        from results_tracker import load_results, auto_pull_results, save_results, print_report
-        results = load_results()
-        results = auto_pull_results(results)
-        save_results(results)
-        print_report(results)
-        log("Results updated.")
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "auto_results.py", "yesterday"],
+            capture_output=True, text=True, timeout=120,
+        )
+        log(result.stdout)
+        if result.returncode != 0:
+            log(f"auto_results.py error: {result.stderr}")
+        else:
+            log("Results updated.")
     except Exception as e:
         log(f"Results tracker error: {e}")
 
