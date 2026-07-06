@@ -31,17 +31,17 @@ def mlb_edges(min_edge: float = 3.0):
     """
     Returns games where model probability diverges from DraftKings
     implied probability by >= min_edge (percentage points).
+    Matches the best_bets schema used by NBA/NFL/CFB/NCAAB routes
+    so it plugs into render_job.py and telegram_alerts.py unchanged.
     """
     events = get_mlb_events()
-    results = []
+    best_bets = []
 
     for event in events:
         pred = predict_game(event)
         odds = get_moneyline_odds(event)
 
         if not odds:
-            pred["has_edge"] = False
-            results.append(pred)
             continue
 
         implied_home = round(american_to_implied(odds["home"]) * 100, 1)
@@ -53,16 +53,33 @@ def mlb_edges(min_edge: float = 3.0):
         edge_home = round(model_home - implied_home, 2)
         edge_away = round(model_away - implied_away, 2)
 
-        pred["implied_home_prob"] = implied_home
-        pred["implied_away_prob"] = implied_away
-        pred["edge_home"] = edge_home
-        pred["edge_away"] = edge_away
-        pred["has_edge"] = bool(edge_home >= min_edge or edge_away >= min_edge)
+        game_label = f"{pred['away_team']} @ {pred['home_team']}"
+        projected = f"{pred['proj_home_runs']}-{pred['proj_away_runs']}"
 
-        results.append(pred)
+        if edge_home >= min_edge:
+            best_bets.append({
+                "game": game_label,
+                "bet": f"{pred['home_team']} ML",
+                "odds": odds["home"],
+                "model_prob": model_home,
+                "implied_prob": implied_home,
+                "edge": round(edge_home / 100, 4),
+                "projected": projected,
+            })
 
-    edge_games = [g for g in results if g["has_edge"]]
-    return {"count": len(edge_games), "games": edge_games}
+        if edge_away >= min_edge:
+            best_bets.append({
+                "game": game_label,
+                "bet": f"{pred['away_team']} ML",
+                "odds": odds["away"],
+                "model_prob": model_home,
+                "implied_prob": implied_home,
+                "edge": round(edge_away / 100, 4),
+                "projected": projected,
+            })
+
+    best_bets.sort(key=lambda x: x["edge"], reverse=True)
+    return {"count": len(best_bets), "best_bets": best_bets}
 
 
 @router.get("/preview")
