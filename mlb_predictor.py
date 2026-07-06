@@ -7,6 +7,7 @@ low, discrete, and can't go negative — normal distribution breaks down here).
 
 import numpy as np
 from mlb_data import get_mlb_events, get_team_stats, get_starting_pitcher, get_pitcher_stats
+from mlb_weather import get_stadium_weather, get_weather_adj
 
 MLB_CONSTANTS = {
     "home_adv": 0.35,      # home teams average ~0.35 more runs/game than road teams
@@ -17,12 +18,11 @@ MLB_CONSTANTS = {
 SIMS = 10000
 
 
-def project_runs(team_stats, pitcher_stats, is_home):
+def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0):
     """
     Build a team's projected runs for the game.
-    Base runs_per_game, adjusted for home/away split and opposing pitcher quality.
-    Uses BOTH ERA and WHIP — ERA alone can be misleading (a pitcher can post
-    a decent ERA with bad luck-driven low hit totals, WHIP catches that).
+    Base runs_per_game, adjusted for home/away split, opposing pitcher
+    quality (ERA + WHIP blend), and stadium weather.
     """
     base = team_stats.get("runs_per_game", 4.5)
 
@@ -34,15 +34,15 @@ def project_runs(team_stats, pitcher_stats, is_home):
     if pitcher_stats:
         era = pitcher_stats.get("era", 4.20)
         whip = pitcher_stats.get("whip", 1.30)
-
         era_factor = era / 4.20
         whip_factor = whip / 1.30
-
-        # Weighted blend: ERA carries more signal (70%), WHIP fills the gap (30%)
         combined_factor = (era_factor * 0.7) + (whip_factor * 0.3)
         base *= combined_factor
 
+    base *= weather_adj
+
     return max(base, 0.5)
+
 
 def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS):
     home_scores = np.random.poisson(lam=home_runs_proj, size=sims)
@@ -84,12 +84,16 @@ def predict_game(event):
     home_pitcher_stats = get_pitcher_stats(pitchers["away"])
     away_pitcher_stats = get_pitcher_stats(pitchers["home"])
 
-    home_runs_proj = project_runs(home_stats, home_pitcher_stats, is_home=True)
-    away_runs_proj = project_runs(away_stats, away_pitcher_stats, is_home=False)
+    weather = get_stadium_weather(home_team)
+    weather_adj = get_weather_adj(weather)
+
+    home_runs_proj = project_runs(home_stats, home_pitcher_stats, is_home=True, weather_adj=weather_adj)
+    away_runs_proj = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj)
 
     result = simulate_game(home_runs_proj, away_runs_proj)
     result["home_team"] = home_team
     result["away_team"] = away_team
+    result["weather"] = weather.get("conditions", "unknown")
 
     return result
 

@@ -98,7 +98,6 @@ def already_alerted_today(sport: str, game: str) -> bool:
         return (row["cnt"] if row else 0) > 0
     except Exception as e:
         log(f"Dedup check failed ({e}) — defaulting to NOT alerting to avoid duplicates.")
-        # Fail-safe: if we can't confirm it's new, don't send a duplicate.
         return True
 
 
@@ -122,7 +121,19 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
     try:
         from services.odds_parser import get_live_odds
         from database import log_odds, log_injuries, log_situational_factors
-        games = get_live_odds(sport)
+
+        if sport == "mlb":
+            from mlb_data import get_mlb_events
+            mlb_events = get_mlb_events()
+            games = []
+            for event in mlb_events:
+                competitors = event["competitions"][0]["competitors"]
+                home = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "home")
+                away = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "away")
+                games.append({"home_team": home, "away_team": away})
+        else:
+            games = get_live_odds(sport)
+
         log_odds(sport, games, source="odds_api" if games else "espn")
         log(f"Odds logged for {sport}")
 
@@ -159,7 +170,6 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
 
         game_times, game_times_raw = get_game_times(sport)
 
-        # ── Date filter: only today's games ──
         from telegram_alerts import get_raw_time_for_bet, is_today_ct
         clean_bets = []
         suppressed = []
@@ -169,14 +179,12 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
                 log(f"Skipping stale game: {bet.get('game')} — {raw_time}")
                 continue
 
-            # Confidence filter — 55% minimum based on calibration data
             recommended_prob = get_recommended_prob(bet)
             if recommended_prob < 55:
                 log(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}%")
                 suppressed.append(bet)
                 continue
 
-            # NEW: skip games already alerted earlier today (retry runs only)
             if skip_if_already_alerted and already_alerted_today(sport, bet.get("game", "")):
                 log(f"Already alerted today, skipping duplicate: {bet.get('game')}")
                 continue
@@ -268,12 +276,10 @@ def run(sports: list, retry: bool = False):
                 bets = data.get("best_bets", [])
                 if any(b.get("model_prob", 0) >= 55 for b in bets):
                     log(f"{sport.upper()}: picks found on retry — checking for duplicates")
-                    # NEW: skip_if_already_alerted=True on retry runs only
                     run_alerts(sport, skip_if_already_alerted=True)
                 else:
                     log(f"{sport.upper()}: still no edges on retry — skipping")
 
-                # Capture closing line movement
                 try:
                     from services.odds_parser import get_live_odds
                     from database import log_line_movement, update_closing_odds
@@ -310,7 +316,6 @@ if __name__ == "__main__":
                         help="Noon retry run for missed morning picks")
     args = parser.parse_args()
 
-    # Build sport list from flags
     if args.sport:
         sports = [args.sport.lower()]
     elif args.exclude:
