@@ -40,12 +40,8 @@ ESPN_SCHEDULE_ENDPOINTS = {
     "ncaab": "basketball/mens-college-basketball",
     "ncaaw": "basketball/womens-college-basketball",
     "wnba":  "basketball/wnba",
+    "mlb":   "baseball/mlb",
 }
-
-
-# ─────────────────────────────────────────────────────────────
-# SEASON GATES
-# ─────────────────────────────────────────────────────────────
 
 SEASON_WINDOWS = {
     "nfl":   (9, 2),
@@ -54,6 +50,7 @@ SEASON_WINDOWS = {
     "ncaaw": (11, 4),
     "wnba":  (5, 10),
     "nba":   (10, 5),
+    "mlb":   (3, 10),   # spring training through World Series
 }
 
 def is_in_season(sport: str) -> bool:
@@ -146,9 +143,8 @@ def send_message(text: str):
     else:
         print(f"Failed: {r.status_code} {r.text}")
 
-
 def sport_emoji(sport: str) -> str:
-    return "🏈" if sport in ["ncaaf", "nfl"] else "🏀"
+    return "🏈" if sport in ["ncaaf", "nfl"] else "⚾" if sport == "mlb" else "🏀"
 
 
 def sport_label(sport: str) -> str:
@@ -159,6 +155,7 @@ def sport_label(sport: str) -> str:
         "ncaaw": "College Basketball (Women)",
         "wnba":  "WNBA",
         "nba":   "NBA",
+        "mlb":   "MLB",
     }
     return labels.get(sport, sport.upper())
 
@@ -359,6 +356,7 @@ def get_edges_url(sport: str, simulations: int) -> str:
         "ncaaw": f"{API_BASE}/ncaaw/edges",
         "wnba":  f"{API_BASE}/wnba/edges",
         "nba":   f"{API_BASE}/nba/edges",
+        "mlb":   f"{API_BASE}/mlb/edges",
     }
     url = endpoints.get(sport)
     if not url:
