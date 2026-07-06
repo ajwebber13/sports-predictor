@@ -149,7 +149,7 @@ def save_prediction(bet: dict, sport: str):
         "date":          date_str,
         "event_id":      event_id,
         "game_type":     game_type,
-        "model_version": CURRENT_MODEL_VERSION,   # ← NEW
+        "model_version": CURRENT_MODEL_VERSION,
         "bet":           bet_label,
         "odds":          odds,
         "model_prob":    bet.get("model_prob", 0),
@@ -183,10 +183,14 @@ def save_all_predictions(bets: list, sport: str):
 def save_predictions_to_db(bets: list, sport: str):
     """
     Write predictions to the Turso `predictions` table so auto_results.py
-    and wnba_recap.py have something to score/report on.
-    This is the write save_all_predictions() (JSON-only) was missing —
-    JSON files live on the GitHub Actions runner and get deleted the
-    moment the job finishes, so nothing ever survived to the next day.
+    and recap_engine.py have something to score/report on.
+
+    ON CONFLICT(date, sport, game) — NOT including `bet` in the key.
+    If the model flips its pick between the morning run and the noon
+    retry, this overwrites the existing row for that game instead of
+    creating a second, duplicate prediction. (Fixed 2026-07-06 — the
+    old version keyed on (date, sport, game, bet), which let a flipped
+    pick create a ghost duplicate that got scored independently.)
     """
     from database import get_conn
 
@@ -197,15 +201,14 @@ def save_predictions_to_db(bets: list, sport: str):
         INSERT INTO predictions (
             date, sport, game, home_team, away_team, bet, odds,
             model_prob, implied_prob, edge, predicted_winner
-        ) VALUES (
-            :date, :sport, :game, :home_team, :away_team, :bet, :odds,
-            :model_prob, :implied_prob, :edge, :predicted_winner
-        )
-        ON CONFLICT(date, sport, game, bet) DO UPDATE SET
-            odds          = excluded.odds,
-            model_prob    = excluded.model_prob,
-            implied_prob  = excluded.implied_prob,
-            edge          = excluded.edge
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(date, sport, game) DO UPDATE SET
+            bet               = excluded.bet,
+            odds              = excluded.odds,
+            model_prob        = excluded.model_prob,
+            implied_prob      = excluded.implied_prob,
+            edge              = excluded.edge,
+            predicted_winner  = excluded.predicted_winner
     """
 
     for bet in bets:
@@ -215,22 +218,22 @@ def save_predictions_to_db(bets: list, sport: str):
         away_team = parts[0] if len(parts) == 2 else ""
         home_team = parts[1] if len(parts) == 2 else ""
 
-        row = {
-            "date":             extract_game_date(bet),
-            "sport":            sport,
-            "game":             game,
-            "home_team":        home_team,
-            "away_team":        away_team,
-            "bet":              bet_label,
-            "odds":             bet.get("odds"),
-            "model_prob":       bet.get("model_prob", 0),
-            "implied_prob":     bet.get("implied_prob", 0),
-            "edge":             round(bet.get("edge", 0) * 100, 2),
-            "predicted_winner": bet_label.replace(" ML", "").replace(" +", "").replace(" -", "").strip(),
-        }
+        params = (
+            extract_game_date(bet),
+            sport,
+            game,
+            home_team,
+            away_team,
+            bet_label,
+            bet.get("odds"),
+            bet.get("model_prob", 0),
+            bet.get("implied_prob", 0),
+            round(bet.get("edge", 0) * 100, 2),
+            bet_label.replace(" ML", "").replace(" +", "").replace(" -", "").strip(),
+        )
 
         try:
-            conn.execute(sql, row)
+            conn.execute(sql, params)
             saved += 1
         except Exception as e:
             print(f"  DB save failed for {game}: {e}")
