@@ -23,13 +23,13 @@ API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
-ALL_SPORTS = ["nba", "wnba", "nfl", "ncaaf", "ncaab"]
+ALL_SPORTS = ["nba", "wnba", "nfl", "cfb", "ncaab"]
 
 SPORT_ENDPOINTS = {
     "nba":   f"{API_BASE}/nba/edges",
     "wnba":  f"{API_BASE}/wnba/edges",
     "nfl":   f"{API_BASE}/nfl/edges",
-    "ncaaf": f"{API_BASE}/ncaaf/edges",
+    "cfb":   f"{API_BASE}/cfb/edges",
     "ncaab": f"{API_BASE}/ncaab/edges",
 }
 

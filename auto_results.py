@@ -1,13 +1,14 @@
 """
 auto_results.py — Culture & Pulse Analytics
 ============================================
-Scores yesterday's predictions against ESPN final scores.
-Populates the results table so wnba_recap.py has data to report.
+Scores yesterday's predictions against ESPN final scores, across ALL sports.
+Populates the results table so recap scripts have data to report.
 
 Usage:
-    python auto_results.py yesterday     # score yesterday's games (Render cron)
-    python auto_results.py 2026-06-28    # score a specific date
-    python auto_results.py --dry-run     # print without writing to DB
+    python auto_results.py yesterday             # score yesterday, all sports
+    python auto_results.py yesterday --sport nfl # score just one sport
+    python auto_results.py 2026-06-28
+    python auto_results.py --dry-run
 """
 
 import os
@@ -18,11 +19,20 @@ from datetime import datetime, timezone, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 
-CENTRAL_OFFSET       = -5
-ESPN_WNBA_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard"
+CENTRAL_OFFSET = -5
+
+# One entry per sport. Add a new sport here and auto_results.py picks it up
+# automatically — no other code changes needed.
+SPORT_CONFIG = {
+    "wnba": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
+    "nfl": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+    "cfb": "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
+    "ncaab": "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+}
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept":     "application/json",
+    "Accept": "application/json",
 }
 
 
@@ -41,32 +51,41 @@ def parse_target_date(arg: str):
         sys.exit(1)
 
 
-def fetch_espn_results(date_str: str) -> list:
+def fetch_espn_results(date_str: str, sport: str) -> list:
     """
-    Returns list of completed games with scores from ESPN.
-    Each item: {home_team, away_team, home_score, away_score, actual_winner}
+    Returns list of completed games with scores from ESPN for one sport.
+    Each item: {game_id, home_team, away_team, home_score, away_score, actual_winner}
+    game_id is ESPN's numeric event id — captured here but not yet stored in
+    the predictions/results tables (that's Phase 2 of the unification).
     """
+    base_url = SPORT_CONFIG.get(sport)
+    if not base_url:
+        print(f"  No ESPN endpoint configured for sport '{sport}' — skipping.")
+        return []
+
     date_fmt = date_str.replace("-", "")
-    url      = f"{ESPN_WNBA_SCOREBOARD}?dates={date_fmt}"
-    games    = []
+    url = f"{base_url}?dates={date_fmt}"
+    games = []
+
     try:
-        r    = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(url, headers=HEADERS, timeout=10)
         data = r.json()
     except Exception as e:
-        print(f"ESPN fetch error: {e}")
+        print(f"  ESPN fetch error ({sport}): {e}")
         return games
 
     for event in data.get("events", []):
         completed = event.get("status", {}).get("type", {}).get("completed", False)
         if not completed:
             continue
-        comps       = event.get("competitions", [{}])
+
+        comps = event.get("competitions", [{}])
         competitors = comps[0].get("competitors", []) if comps else []
         home = next((c for c in competitors if c.get("homeAway") == "home"), {})
         away = next((c for c in competitors if c.get("homeAway") == "away"), {})
 
-        home_name  = home.get("team", {}).get("displayName", "")
-        away_name  = away.get("team", {}).get("displayName", "")
+        home_name = home.get("team", {}).get("displayName", "")
+        away_name = away.get("team", {}).get("displayName", "")
         home_score = int(home.get("score", 0) or 0)
         away_score = int(away.get("score", 0) or 0)
 
@@ -76,18 +95,21 @@ def fetch_espn_results(date_str: str) -> list:
         actual_winner = home_name if home_score > away_score else away_name
 
         games.append({
-            "home_team":     home_name,
-            "away_team":     away_name,
-            "home_score":    home_score,
-            "away_score":    away_score,
+            "game_id": event.get("id"),
+            "home_team": home_name,
+            "away_team": away_name,
+            "home_score": home_score,
+            "away_score": away_score,
             "actual_winner": actual_winner,
         })
-        print(f"  ESPN: {away_name} @ {home_name} → {away_score}-{home_score} ({actual_winner} wins)")
+
+        print(f"  [{sport.upper()}] ESPN: {away_name} @ {home_name} -> "
+              f"{away_score}-{home_score} ({actual_winner} wins)")
 
     return games
 
 
-def fetch_predictions(conn, date_str: str, sport: str = "wnba") -> list:
+def fetch_predictions(conn, date_str: str, sport: str) -> list:
     c = conn.cursor()
     c.execute("""
         SELECT * FROM predictions
@@ -96,10 +118,11 @@ def fetch_predictions(conn, date_str: str, sport: str = "wnba") -> list:
     return [dict(r) for r in c.fetchall()]
 
 
-def match_game(prediction: dict, espn_games: list) -> dict | None:
-    """Match a prediction to an ESPN result by team name."""
+def match_game(prediction: dict, espn_games: list):
+    """Match a prediction to an ESPN result by team name (unchanged logic)."""
     pred_home = prediction.get("home_team", "")
     pred_away = prediction.get("away_team", "")
+
     for g in espn_games:
         if (pred_home.lower() in g["home_team"].lower() or g["home_team"].lower() in pred_home.lower()) and \
            (pred_away.lower() in g["away_team"].lower() or g["away_team"].lower() in pred_away.lower()):
@@ -108,37 +131,35 @@ def match_game(prediction: dict, espn_games: list) -> dict | None:
 
 
 def score_prediction(prediction: dict, espn_game: dict) -> dict:
-    """Determine if the prediction was correct."""
-    bet           = prediction.get("bet", "")
+    """Determine if the prediction was correct (unchanged logic)."""
+    bet = prediction.get("bet", "")
     actual_winner = espn_game["actual_winner"]
 
-    # Extract picked team from bet label (e.g. "Las Vegas Aces ML")
     picked_team = bet.replace(" ML", "").replace(" ml", "").strip()
-
     correct = 1 if picked_team.lower() in actual_winner.lower() or \
                    actual_winner.lower() in picked_team.lower() else 0
 
     return {
-        "date":           prediction["date"],
-        "sport":          prediction["sport"],
-        "game":           prediction["game"],
-        "home_team":      espn_game["home_team"],
-        "away_team":      espn_game["away_team"],
-        "home_score":     espn_game["home_score"],
-        "away_score":     espn_game["away_score"],
-        "actual_winner":  actual_winner,
-        "prediction_id":  prediction["id"],
-        "correct":        correct,
-        "edge_at_pick":   prediction.get("edge"),
-        "odds_at_pick":   prediction.get("odds"),
-        "updated_at":     datetime.now(timezone.utc).isoformat(),
+        "date": prediction["date"],
+        "sport": prediction["sport"],
+        "game": prediction["game"],
+        "home_team": espn_game["home_team"],
+        "away_team": espn_game["away_team"],
+        "home_score": espn_game["home_score"],
+        "away_score": espn_game["away_score"],
+        "actual_winner": actual_winner,
+        "prediction_id": prediction["id"],
+        "correct": correct,
+        "edge_at_pick": prediction.get("edge"),
+        "odds_at_pick": prediction.get("odds"),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def insert_result(conn, result: dict, dry_run: bool = False):
     if dry_run:
-        status = "✅ CORRECT" if result["correct"] == 1 else "❌ WRONG"
-        print(f"  {status} — {result['game']} → {result['actual_winner']}")
+        status = "CORRECT" if result["correct"] == 1 else "WRONG"
+        print(f"    [{result['sport'].upper()}] {status} -> {result['game']} -> {result['actual_winner']}")
         return
 
     sql = """
@@ -152,24 +173,24 @@ def insert_result(conn, result: dict, dry_run: bool = False):
             :prediction_id, :correct, :edge_at_pick, :odds_at_pick, :updated_at
         )
         ON CONFLICT(date, sport, game) DO UPDATE SET
-            home_score    = excluded.home_score,
-            away_score    = excluded.away_score,
+            home_score = excluded.home_score,
+            away_score = excluded.away_score,
             actual_winner = excluded.actual_winner,
-            correct       = excluded.correct,
-            edge_at_pick  = excluded.edge_at_pick,
-            odds_at_pick  = excluded.odds_at_pick,
-            updated_at    = excluded.updated_at
+            correct = excluded.correct,
+            edge_at_pick = excluded.edge_at_pick,
+            odds_at_pick = excluded.odds_at_pick,
+            updated_at = excluded.updated_at
     """
     conn.execute(sql, result)
     conn.commit()
-    status = "✅ CORRECT" if result["correct"] == 1 else "❌ WRONG"
-    print(f"  {status} — {result['game']} → {result['actual_winner']} (saved)")
+    status = "CORRECT" if result["correct"] == 1 else "WRONG"
+    print(f"    [{result['sport'].upper()}] {status} -> {result['game']} -> {result['actual_winner']} (saved)")
 
 
-def score_prop_results(conn, date_str: str, espn_games: list, dry_run: bool = False):
+def score_prop_results(conn, date_str: str, dry_run: bool = False):
     """
-    Score player prop results by checking actual box scores.
-    Updates hit_rate fields aren't touched here — just logs whether prop hit.
+    WNBA-only for now — props only exist for WNBA. Unchanged placeholder
+    from the original file; full scoring pending a prop-result tracking table.
     """
     c = conn.cursor()
     c.execute("""
@@ -179,78 +200,90 @@ def score_prop_results(conn, date_str: str, espn_games: list, dry_run: bool = Fa
     props = [dict(r) for r in c.fetchall()]
 
     if not props:
-        print("  No props to score for this date.")
         return
-
-    print(f"\nScoring {len(props)} prop(s)...")
-    # Props scoring would require box score lookup per player
-    # Placeholder — full implementation after prop result tracking table is added
-    print("  Prop scoring logged (result tracking table pending).")
+    print(f"\n  {len(props)} WNBA prop(s) logged (result tracking table pending).")
 
 
-def run(date_str: str, dry_run: bool = False):
-    print(f"Scoring predictions for {date_str}...")
-
-    print("\nFetching ESPN final scores...")
-    espn_games = fetch_espn_results(date_str)
+def score_sport(conn, date_str: str, sport: str, dry_run: bool = False):
+    """Score one sport for one date. Returns (scored_count, prediction_count)."""
+    print(f"\n--- {sport.upper()} ---")
+    espn_games = fetch_espn_results(date_str, sport)
     print(f"  Found {len(espn_games)} completed game(s)")
 
     if not espn_games:
-        print("No completed games found — nothing to score.")
-        return
+        return 0, 0
 
-    conn        = get_conn()
-    predictions = fetch_predictions(conn, date_str, sport="wnba")
-    print(f"\nFound {len(predictions)} prediction(s) logged for {date_str}")
+    predictions = fetch_predictions(conn, date_str, sport)
+    print(f"  Found {len(predictions)} prediction(s) logged")
 
     if not predictions:
-        print("No predictions found for this date.")
-        conn.close()
-        return
+        return 0, 0
 
     scored = 0
     for pred in predictions:
         espn_game = match_game(pred, espn_games)
         if not espn_game:
-            print(f"  No ESPN match for: {pred.get('game')} — skipping")
+            print(f"    No ESPN match for: {pred.get('game')} — skipping")
             continue
         result = score_prediction(pred, espn_game)
         insert_result(conn, result, dry_run=dry_run)
         scored += 1
 
-    score_prop_results(conn, date_str, espn_games, dry_run=dry_run)
+    if sport == "wnba":
+        score_prop_results(conn, date_str, dry_run=dry_run)
+
+    return scored, len(predictions)
+
+
+def run(date_str: str, sport_filter: str = None, dry_run: bool = False):
+    print(f"Scoring predictions for {date_str}...")
+
+    sports = [sport_filter] if sport_filter else list(SPORT_CONFIG.keys())
+
+    conn = get_conn()
+    totals = {}
+
+    for sport in sports:
+        scored, total = score_sport(conn, date_str, sport, dry_run=dry_run)
+        if total:
+            totals[sport] = (scored, total)
 
     conn.close()
 
-    # Print daily summary
-    print(f"\n{'DRY RUN — ' if dry_run else ''}Scored {scored}/{len(predictions)} prediction(s) for {date_str}")
+    print(f"\n{'DRY RUN — ' if dry_run else ''}Summary for {date_str}:")
+    if not totals:
+        print("  No predictions found for this date, any sport.")
+        return
 
-    # Quick record summary
+    for sport, (scored, total) in totals.items():
+        print(f"  {sport.upper()}: scored {scored}/{total}")
+
     if not dry_run:
         conn2 = get_conn()
-        c     = conn2.cursor()
-        c.execute("""
-            SELECT
-                COUNT(*) as total,
-                SUM(correct) as wins
-            FROM results
-            WHERE date = ? AND sport = 'wnba'
-        """, (date_str,))
-        row = c.fetchone()
-        if row and row["total"]:
-            losses = row["total"] - (row["wins"] or 0)
-            print(f"Daily record: {row['wins'] or 0}-{losses}")
+        c = conn2.cursor()
+        for sport in totals:
+            c.execute("""
+                SELECT COUNT(*) as total, SUM(correct) as wins
+                FROM results WHERE date = ? AND sport = ?
+            """, (date_str, sport))
+            row = c.fetchone()
+            if row and row["total"]:
+                losses = row["total"] - (row["wins"] or 0)
+                print(f"  {sport.upper()} daily record: {row['wins'] or 0}-{losses}")
         conn2.close()
 
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("date", nargs="?", default="yesterday",
-                        help="Date to score: 'yesterday' or YYYY-MM-DD")
+                         help="Date to score: 'yesterday' or YYYY-MM-DD")
+    parser.add_argument("--sport", default=None,
+                         help="Score only this sport (wnba, nfl, cfb, ncaab). Default: all.")
     parser.add_argument("--dry-run", action="store_true",
-                        help="Print results without writing to DB")
+                         help="Print results without writing to DB")
     args = parser.parse_args()
 
     target = parse_target_date(args.date)
-    run(target, dry_run=args.dry_run)
+    run(target, sport_filter=args.sport, dry_run=args.dry_run)
