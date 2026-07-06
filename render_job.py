@@ -23,7 +23,7 @@ API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
-ALL_SPORTS = ["nba", "wnba", "nfl", "cfb", "ncaab"]
+ALL_SPORTS = ["nba", "wnba", "nfl", "cfb", "ncaab", "mlb"]
 
 SPORT_ENDPOINTS = {
     "nba":   f"{API_BASE}/nba/edges",
@@ -31,6 +31,7 @@ SPORT_ENDPOINTS = {
     "nfl":   f"{API_BASE}/nfl/edges",
     "cfb":   f"{API_BASE}/cfb/edges",
     "ncaab": f"{API_BASE}/ncaab/edges",
+    "mlb":   f"{API_BASE}/mlb/edges",
 }
 
 
@@ -133,6 +134,14 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
             except Exception as e:
                 log(f"WNBA player stats error: {e}")
 
+        if sport == "mlb":
+            try:
+                from mlb_player_stats import update_recent
+                update_recent(days=2)
+                log("MLB player stats updated")
+            except Exception as e:
+                log(f"MLB player stats error: {e}")
+
         log_situational_factors(sport, games)
         log(f"Situational factors logged for {sport}")
     except Exception as e:
@@ -141,7 +150,7 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
     if not bets:
         log(f"No {sport.upper()} edges found today.")
         return False
-    
+
     try:
         from telegram_alerts import (
             format_header, format_alert, get_game_times,
