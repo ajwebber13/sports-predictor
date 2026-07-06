@@ -57,7 +57,7 @@ def mlb_edges(min_edge: float = 3.0):
         pred["implied_away_prob"] = implied_away
         pred["edge_home"] = edge_home
         pred["edge_away"] = edge_away
-        pred["has_edge"] = edge_home >= min_edge or edge_away >= min_edge
+        pred["has_edge"] = bool(edge_home >= min_edge or edge_away >= min_edge)
 
         results.append(pred)
 

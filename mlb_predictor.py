@@ -45,14 +45,9 @@ def project_runs(team_stats, pitcher_stats, is_home):
     return max(base, 0.5)
 
 def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS):
-    """
-    Poisson-based Monte Carlo — NOT normal distribution.
-    Runs are rare discrete events, not a continuous bell curve, and can't be negative.
-    """
     home_scores = np.random.poisson(lam=home_runs_proj, size=sims)
     away_scores = np.random.poisson(lam=away_runs_proj, size=sims)
 
-    # Baseball games can't end in ties — re-sim any tied outcomes
     ties = home_scores == away_scores
     while ties.sum() > 0:
         n = ties.sum()
@@ -67,10 +62,10 @@ def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS):
     avg_away_score = np.mean(away_scores)
 
     return {
-        "home_win_prob": round(win_prob, 4),
-        "away_win_prob": round(1 - win_prob, 4),
-        "proj_home_runs": round(avg_home_score, 1),
-        "proj_away_runs": round(avg_away_score, 1),
+        "home_win_prob": float(round(win_prob, 4)),
+        "away_win_prob": float(round(1 - win_prob, 4)),
+        "proj_home_runs": float(round(avg_home_score, 1)),
+        "proj_away_runs": float(round(avg_away_score, 1)),
     }
 
 
