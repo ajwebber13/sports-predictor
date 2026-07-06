@@ -21,6 +21,8 @@ def project_runs(team_stats, pitcher_stats, is_home):
     """
     Build a team's projected runs for the game.
     Base runs_per_game, adjusted for home/away split and opposing pitcher quality.
+    Uses BOTH ERA and WHIP — ERA alone can be misleading (a pitcher can post
+    a decent ERA with bad luck-driven low hit totals, WHIP catches that).
     """
     base = team_stats.get("runs_per_game", 4.5)
 
@@ -29,16 +31,18 @@ def project_runs(team_stats, pitcher_stats, is_home):
     else:
         base -= MLB_CONSTANTS["home_adv"] / 2
 
-    # Pitcher matchup adjustment — the new signal MLB needs that other sports don't.
-    # Facing a strong starter (low ERA) suppresses runs; weak starter inflates them.
     if pitcher_stats:
         era = pitcher_stats.get("era", 4.20)
-        # League-average ERA ~4.20 — scale runs down/up relative to that baseline
+        whip = pitcher_stats.get("whip", 1.30)
+
         era_factor = era / 4.20
-        base *= era_factor
+        whip_factor = whip / 1.30
 
-    return max(base, 0.5)  # floor so Poisson lambda never hits 0 or negative
+        # Weighted blend: ERA carries more signal (70%), WHIP fills the gap (30%)
+        combined_factor = (era_factor * 0.7) + (whip_factor * 0.3)
+        base *= combined_factor
 
+    return max(base, 0.5)
 
 def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS):
     """
@@ -71,23 +75,22 @@ def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS):
 
 
 def predict_game(event):
-    """
-    Full pipeline for one game: pull team stats, pull starting pitchers,
-    project runs, run the sim, return prediction dict.
-    """
-    home_team = event["home_team"]
-    away_team = event["away_team"]
+    competitors = event["competitions"][0]["competitors"]
+    home_comp = next(c for c in competitors if c["homeAway"] == "home")
+    away_comp = next(c for c in competitors if c["homeAway"] == "away")
+
+    home_team = home_comp["team"]["displayName"]
+    away_team = away_comp["team"]["displayName"]
 
     home_stats = get_team_stats(home_team)
     away_stats = get_team_stats(away_team)
 
     pitchers = get_starting_pitcher(event)
-    home_pitcher_stats = get_pitcher_stats(pitchers.get("home_id")) if pitchers else None
-    away_pitcher_stats = get_pitcher_stats(pitchers.get("away_id")) if pitchers else None
+    home_pitcher_stats = get_pitcher_stats(pitchers["away"])
+    away_pitcher_stats = get_pitcher_stats(pitchers["home"])
 
-    # Home team's runs are suppressed/inflated by the AWAY pitcher they're facing, and vice versa
-    home_runs_proj = project_runs(home_stats, away_pitcher_stats, is_home=True)
-    away_runs_proj = project_runs(away_stats, home_pitcher_stats, is_home=False)
+    home_runs_proj = project_runs(home_stats, home_pitcher_stats, is_home=True)
+    away_runs_proj = project_runs(away_stats, away_pitcher_stats, is_home=False)
 
     result = simulate_game(home_runs_proj, away_runs_proj)
     result["home_team"] = home_team

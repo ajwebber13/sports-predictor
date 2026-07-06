@@ -9,13 +9,37 @@ from datetime import datetime, timedelta
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
 ESPN_TEAM_STATS_URL = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/teams/{team_id}/statistics"
 
-# TODO: fill in all 30 team ESPN IDs (same pattern as NFL_TEAM_IDS)
-# Get these from ESPN's team list endpoint or team page URLs
 MLB_TEAM_IDS = {
-    "Yankees": 10,
-    "Red Sox": 2,
-    "Dodgers": 19,
-    # ... fill in remaining 27 teams
+    "Arizona Diamondbacks": 29,
+    "Athletics": 11,
+    "Atlanta Braves": 15,
+    "Baltimore Orioles": 1,
+    "Boston Red Sox": 2,
+    "Chicago Cubs": 16,
+    "Chicago White Sox": 4,
+    "Cincinnati Reds": 17,
+    "Cleveland Guardians": 5,
+    "Colorado Rockies": 27,
+    "Detroit Tigers": 6,
+    "Houston Astros": 18,
+    "Kansas City Royals": 7,
+    "Los Angeles Angels": 3,
+    "Los Angeles Dodgers": 19,
+    "Miami Marlins": 28,
+    "Milwaukee Brewers": 8,
+    "Minnesota Twins": 9,
+    "New York Mets": 21,
+    "New York Yankees": 10,
+    "Philadelphia Phillies": 22,
+    "Pittsburgh Pirates": 23,
+    "San Diego Padres": 25,
+    "San Francisco Giants": 26,
+    "Seattle Mariners": 12,
+    "St. Louis Cardinals": 24,
+    "Tampa Bay Rays": 30,
+    "Texas Rangers": 13,
+    "Toronto Blue Jays": 14,
+    "Washington Nationals": 20,
 }
 
 # League-average flat defaults — used only when ESPN returns nothing at all
@@ -60,14 +84,11 @@ def get_team_stats(team_name, season=None):
         return _flat_defaults()
 
     data = resp.json()
-    categories = data.get("results", {}).get("stats", {}).get("categories", [])
+    categories = data.get("splits", [])
 
     if not categories:
         return _flat_defaults()
 
-    # TODO: parse actual stat category names once we see real ESPN response —
-    # MLB stat keys differ from NFL/CFB (confirmed pattern: always verify
-    # actual key names against a live API call before trusting field names)
     stats = _parse_stat_categories(categories)
 
     # Sanity clamps — same defensive pattern as CFB/NFL
@@ -80,8 +101,46 @@ def get_team_stats(team_name, season=None):
 
 
 def _parse_stat_categories(categories):
-    """Placeholder — fill in once we confirm real ESPN key names."""
-    return dict(FLAT_DEFAULTS)
+    """
+    Pulls team-level runs/game and ERA from the ESPN statistics response.
+    ESPN returns multiple splits (batting order slots, Pre/Post All-Star, etc.) —
+    the real team totals are the split with the highest at-bats count, not
+    any specific named split (label changes after the All-Star break).
+    """
+    best_split = None
+    best_atbats = -1
+
+    for split in categories:
+        for cat in split.get("categories", []):
+            if cat["name"] != "batting":
+                continue
+            stats = {s["name"]: s["value"] for s in cat["stats"]}
+            atbats = stats.get("atBats", 0)
+            if atbats > best_atbats:
+                best_atbats = atbats
+                best_split = split
+
+    if not best_split:
+        return dict(FLAT_DEFAULTS)
+
+    batting_stats = {}
+    pitching_stats = {}
+    for cat in best_split.get("categories", []):
+        stats = {s["name"]: s["value"] for s in cat["stats"]}
+        if cat["name"] == "batting":
+            batting_stats = stats
+        elif cat["name"] == "pitching":
+            pitching_stats = stats
+
+    games = batting_stats.get("teamGamesPlayed", 1)
+    runs = batting_stats.get("runs", games * FLAT_DEFAULTS["runs_per_game"])
+
+    return {
+        "runs_per_game": round(runs / games, 2) if games else FLAT_DEFAULTS["runs_per_game"],
+        "era": pitching_stats.get("ERA", FLAT_DEFAULTS["era"]),
+        "whip": pitching_stats.get("WHIP", FLAT_DEFAULTS["whip"]),
+        "batting_avg": batting_stats.get("avg", FLAT_DEFAULTS["batting_avg"]),
+    }
 
 
 def _flat_defaults():
@@ -90,25 +149,116 @@ def _flat_defaults():
 
 def get_starting_pitcher(event):
     """
-    NEW for MLB — no equivalent in CFB/NFL/WNBA.
-    ESPN scoreboard events include probable pitcher data under
-    competitions[0].competitors[].probables — needs live-response
-    confirmation before trusting the exact path.
+    Starting pitcher data lives inside each COMPETITOR, not at the
+    top level of the competition — confirmed via live API check.
+    Returns {"home": probable_dict_or_None, "away": probable_dict_or_None}
+    """
+    result = {"home": None, "away": None}
+    try:
+        competitors = event["competitions"][0]["competitors"]
+        for comp in competitors:
+            side = comp.get("homeAway")  # "home" or "away"
+            probables = comp.get("probables", [])
+            if probables:
+                result[side] = probables[0]
+    except (KeyError, IndexError):
+        pass
+    return result
+
+
+def get_pitcher_stats(probable):
+    """
+    ESPN embeds the pitcher's ERA directly in the scoreboard's probables
+    data — no separate athlete-stats API call needed.
+    """
+    if not probable:
+        return {"era": FLAT_DEFAULTS["era"]}
+
+    stats = {s["name"]: s.get("displayValue") for s in probable.get("statistics", [])}
+    era_str = stats.get("ERA")
+
+    try:
+        era = float(era_str)
+    except (TypeError, ValueError):
+        era = FLAT_DEFAULTS["era"]
+
+    return {"era": era}
+def get_pitcher_stats(probable):
+    """
+    ESPN embeds the pitcher's ERA and WHIP directly in the scoreboard's
+    probables data — no separate athlete-stats API call needed.
+    """
+    if not probable:
+        return {"era": FLAT_DEFAULTS["era"], "whip": FLAT_DEFAULTS["whip"]}
+
+    stats = {s["name"]: s.get("displayValue") for s in probable.get("statistics", [])}
+
+    try:
+        era = float(stats.get("ERA"))
+    except (TypeError, ValueError):
+        era = FLAT_DEFAULTS["era"]
+
+    try:
+        whip = float(stats.get("WHIP"))
+    except (TypeError, ValueError):
+        whip = FLAT_DEFAULTS["whip"]
+
+    return {"era": era, "whip": whip}
+
+def get_moneyline_odds(event):
+    """
+    Pulls DraftKings moneyline odds from the scoreboard's odds block.
+    Returns {"home": american_odds_int, "away": american_odds_int} or None if missing.
     """
     try:
-        competitors = event["competitions"][0].get("probables", [])
-        return competitors  # list of {athlete, statistics} per side
-    except (KeyError, IndexError):
-        return []
+        odds_list = event["competitions"][0].get("odds", [])
+        if not odds_list:
+            return None
+        moneyline = odds_list[0]["moneyline"]
+        home_odds = int(moneyline["home"]["close"]["odds"])
+        away_odds = int(moneyline["away"]["close"]["odds"])
+        return {"home": home_odds, "away": away_odds}
+    except (KeyError, IndexError, ValueError, TypeError):
+        return None
 
 
-def get_pitcher_stats(pitcher_id, season=None):
+def get_moneyline_odds(event):
     """
-    Fetch a starting pitcher's ERA, WHIP, K/9, recent form.
-    This is the new signal MLB needs that other sports don't —
-    a single player who dominates the day's outcome more than any
-    one player does in football/basketball.
+    Pulls DraftKings moneyline odds from the scoreboard's odds block.
+    Returns {"home": american_odds_int, "away": american_odds_int} or None if missing.
     """
-    # TODO: ESPN athlete stats endpoint —
-    # https://site.api.espn.com/apis/common/v3/sports/baseball/mlb/athletes/{pitcher_id}/stats
-    pass
+    try:
+        odds_list = event["competitions"][0].get("odds", [])
+        if not odds_list:
+            return None
+        moneyline = odds_list[0]["moneyline"]
+        home_odds = int(moneyline["home"]["close"]["odds"])
+        away_odds = int(moneyline["away"]["close"]["odds"])
+        return {"home": home_odds, "away": away_odds}
+    except (KeyError, IndexError, ValueError, TypeError):
+        return None
+
+
+def get_moneyline_odds(event):
+    """
+    Pulls DraftKings moneyline odds from the scoreboard's odds block.
+    Returns {"home": american_odds_int, "away": american_odds_int} or None if missing.
+    """
+    try:
+        odds_list = event["competitions"][0].get("odds", [])
+        if not odds_list:
+            return None
+        moneyline = odds_list[0]["moneyline"]
+        home_odds = int(moneyline["home"]["close"]["odds"])
+        away_odds = int(moneyline["away"]["close"]["odds"])
+        return {"home": home_odds, "away": away_odds}
+    except (KeyError, IndexError, ValueError, TypeError):
+        return None
+
+
+def american_to_implied(odds):
+    """Converts American odds to implied win probability (0-1 scale)."""
+    if odds < 0:
+        return -odds / (-odds + 100)
+    else:
+        return 100 / (odds + 100)
