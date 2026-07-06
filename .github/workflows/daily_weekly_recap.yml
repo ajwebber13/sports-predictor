@@ -25,6 +25,7 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 
   daily_recap:
+    needs: score_results
     if: github.event.schedule == '30 11 * * *' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -35,13 +36,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Send daily recap
-        run: python wnba_recap.py --daily
+        run: python recap_engine.py --daily
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 
   weekly_recap:
+    needs: score_results
     if: github.event.schedule == '0 14 * * 0' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
@@ -52,7 +54,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Send weekly recap
-        run: python wnba_recap.py --weekly
+        run: python recap_engine.py --weekly
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
