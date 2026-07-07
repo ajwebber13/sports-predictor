@@ -3,8 +3,8 @@ Culture & Pulse Picks — Tracking Dashboard
 Pulls game picks + player props from Turso (cp-analytics DB).
 
 SETUP:
-1. pip install streamlit libsql-experimental pandas plotly
-2. Set env vars: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
+1. pip install streamlit libsql-experimental pandas
+2. Set env vars: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, DASHBOARD_PASSWORD
 3. Deploy on Render (libsql-experimental has no Windows wheel — Linux only)
 
 Schemas used:
@@ -26,9 +26,42 @@ import os
 import streamlit as st
 import pandas as pd
 import libsql_experimental as libsql
-import plotly.graph_objects as go
 
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
+
+# ---------- PASSWORD GATE ----------
+# Set DASHBOARD_PASSWORD in Render's env vars. Anyone with the URL otherwise
+# sees your model's edge %, picks, and full performance — lock it before
+# sharing this link with anyone outside yourself.
+def check_password():
+    def password_entered():
+        if st.session_state.get("pw_input") == os.environ.get("DASHBOARD_PASSWORD", ""):
+            st.session_state["authenticated"] = True
+            del st.session_state["pw_input"]
+        else:
+            st.session_state["authenticated"] = False
+
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.markdown(
+        '<div style="text-align:center;margin-top:80px;">'
+        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;color:#fff;">Culture & Pulse Picks</div>'
+        '<div style="color:#8a7d55;font-size:12px;margin-bottom:20px;">Enter password to continue</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        st.text_input("Password", type="password", key="pw_input", on_change=password_entered, label_visibility="collapsed")
+        if st.session_state.get("authenticated") is False:
+            st.error("Incorrect password")
+    return False
+
+if not os.environ.get("DASHBOARD_PASSWORD"):
+    st.warning("DASHBOARD_PASSWORD not set — dashboard is unprotected. Add it in Render's environment variables.")
+elif not check_password():
+    st.stop()
 
 # ---------- TEAM LOGO LOOKUP ----------
 # ESPN team IDs, copied from mlb_data.py / advanced_metrics.py so this file
@@ -133,6 +166,8 @@ def load_picks():
     conn.sync()
     query = """
         SELECT p.date, p.sport, p.game, p.bet, p.odds, p.edge,
+               p.model_prob, p.implied_prob, p.home_record, p.away_record,
+               p.home_rest, p.away_rest, p.home_injuries, p.away_injuries,
                r.home_team, r.away_team, r.home_score, r.away_score, r.correct
         FROM predictions p
         LEFT JOIN results r ON r.prediction_id = p.id
@@ -141,6 +176,8 @@ def load_picks():
     cur = conn.execute(query)
     rows = cur.fetchall()
     cols = ["date", "sport", "game", "bet", "odds", "edge",
+            "model_prob", "implied_prob", "home_record", "away_record",
+            "home_rest", "away_rest", "home_injuries", "away_injuries",
             "result_home_team", "result_away_team", "home_score", "away_score", "correct"]
     return pd.DataFrame(rows, columns=cols)
 
@@ -220,6 +257,41 @@ with tab_games:
             return f"{row['result_away_team'] or ''} {int(row['away_score'])} - {int(row['home_score'])} {row['result_home_team'] or ''}"
         df["final_score"] = df.apply(build_score, axis=1)
 
+        # ---------- DATE RANGE FILTER (applies to everything below: cards, streaks, table) ----------
+        df["date_parsed"] = pd.to_datetime(df["date"], errors="coerce")
+        min_date = df["date_parsed"].min()
+        max_date = df["date_parsed"].max()
+
+        date_range = st.date_input(
+            "Date range",
+            value=(min_date.date(), max_date.date()) if pd.notna(min_date) else None,
+            min_value=min_date.date() if pd.notna(min_date) else None,
+            max_value=max_date.date() if pd.notna(max_date) else None,
+            key="g_date_range",
+        )
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            start, end = date_range
+            df = df[(df["date_parsed"].dt.date >= start) & (df["date_parsed"].dt.date <= end)]
+
+        def current_streak(group):
+            """Count consecutive WIN or LOSS from most recent game backward."""
+            ordered = group.sort_values("date_parsed", ascending=False)
+            statuses = ordered["status"].tolist()
+            if not statuses or statuses[0] == "PENDING":
+                return None
+            streak_type = statuses[0]
+            count = 0
+            for s in statuses:
+                if s == streak_type:
+                    count += 1
+                else:
+                    break
+            return (streak_type, count)
+
+        streaks = {}
+        for sport, group in df[df["status"].isin(["WIN", "LOSS"])].groupby("sport"):
+            streaks[sport] = current_streak(group)
+
         settled = df[df["status"].isin(["WIN", "LOSS"])]
         summary = settled.groupby("sport")["status"].value_counts().unstack(fill_value=0)
 
@@ -242,29 +314,27 @@ with tab_games:
             for sport, row in summary.iterrows():
                 pct = row["win_pct"]
                 pct_class = "pct-up" if pct >= 50 else "pct-down"
+                streak = streaks.get(sport)
+                if streak:
+                    s_type, s_count = streak
+                    s_color = "#3ecf8e" if s_type == "WIN" else "#ff5c5c"
+                    s_letter = "W" if s_type == "WIN" else "L"
+                    streak_html = f'<span style="color:{s_color};font-size:11px;font-weight:700;margin-left:8px;">{s_letter}{s_count} streak</span>'
+                else:
+                    streak_html = ""
                 cards.append(
                     f'<div class="cp-card"><div class="sport-name">{sport}</div>'
                     f'<div class="record">{int(row.get("WIN", 0))}-{int(row.get("LOSS", 0))}</div>'
-                    f'<div class="pct-row"><span class="{pct_class}">{pct}%</span></div></div>'
+                    f'<div class="pct-row"><span class="{pct_class}">{pct}%</span>{streak_html}</div></div>'
                 )
             cards.append('</div>')
             st.markdown(''.join(cards), unsafe_allow_html=True)
-
-            fig = go.Figure(go.Bar(
-                x=summary.index, y=summary["win_pct"],
-                marker_color=["#3ecf8e" if p >= 50 else "#ff5c5c" for p in summary["win_pct"]],
-                text=summary["win_pct"], texttemplate="%{text}%", textposition="outside",
-                textfont=dict(color="#ffffff"),
-            ))
-            fig.update_layout(
-                plot_bgcolor="#0A0A0A", paper_bgcolor="#0A0A0A", font_color="#8a7d55",
-                yaxis=dict(range=[0, 115], gridcolor="#2a2416", zeroline=False),
-                xaxis=dict(gridcolor="#2a2416"), height=280,
-                margin=dict(t=20, b=20, l=10, r=10), bargap=0.4,
-            )
-            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No settled picks yet.")
+
+        # Reserved slot for the clicked-game detail card — filled in further
+        # down after we know which row (if any) got selected in the table.
+        detail_slot = st.empty()
 
         st.markdown("---")
         col1, col2 = st.columns(2)
@@ -282,9 +352,11 @@ with tab_games:
             return team_logo_url(row["sport"], team_guess)
         filtered["pick_logo"] = filtered.apply(pick_logo, axis=1)
 
+        sorted_full = filtered.sort_values("date", ascending=False).reset_index(drop=True)
         display_cols = ["pick_logo", "date", "sport", "game", "bet", "odds", "edge", "final_score", "status"]
-        st.dataframe(
-            filtered[display_cols].sort_values("date", ascending=False),
+
+        event = st.dataframe(
+            sorted_full[display_cols],
             use_container_width=True, hide_index=True,
             column_config={
                 "pick_logo": st.column_config.ImageColumn(""),
@@ -292,7 +364,44 @@ with tab_games:
                 "final_score": st.column_config.TextColumn("Score"),
                 "edge": st.column_config.NumberColumn("Edge %", format="%.1f"),
             },
+            on_select="rerun",
+            selection_mode="single-row",
+            key="picks_table",
         )
+
+        if event and event.selection and event.selection.rows:
+            g = sorted_full.iloc[event.selection.rows[0]]
+            model_prob = f"{g['model_prob']:.1f}%" if pd.notna(g["model_prob"]) else "—"
+            implied_prob = f"{g['implied_prob']:.1f}%" if pd.notna(g["implied_prob"]) else "—"
+            score_line = g["final_score"] if g["final_score"] else "Not yet played"
+            status_color = {"WIN": "#3ecf8e", "LOSS": "#ff5c5c", "PENDING": "#8a7d55"}[g["status"]]
+
+            detail_slot.markdown(f"""
+<div class="cp-overall" style="border-left-color:{status_color};">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;">
+<div>
+<div class="label">{g['date']} &middot; {g['sport'].upper()}</div>
+<div class="value" style="font-size:20px;">{g['game']}</div>
+<div style="color:#8a7d55;font-size:13px;margin-top:6px;">Pick: <span style="color:#fff;font-weight:700;">{g['bet']}</span> ({g['odds']})</div>
+</div>
+<div style="text-align:right;">
+<div class="label">Result</div>
+<div style="color:{status_color};font-size:20px;font-weight:800;">{g['status']}</div>
+<div style="color:#8a7d55;font-size:12px;margin-top:4px;">{score_line}</div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid #2a2416;">
+<div><div class="label">Model prob</div><div style="color:#D4AF37;font-weight:700;">{model_prob}</div></div>
+<div><div class="label">Market implied</div><div style="color:#fff;font-weight:700;">{implied_prob}</div></div>
+<div><div class="label">Edge</div><div style="color:#fff;font-weight:700;">{g['edge']}%</div></div>
+<div><div class="label">Home record</div><div style="color:#fff;font-weight:700;">{g['home_record'] or '—'}</div></div>
+<div><div class="label">Away record</div><div style="color:#fff;font-weight:700;">{g['away_record'] or '—'}</div></div>
+<div><div class="label">Rest (H/A)</div><div style="color:#fff;font-weight:700;">{g['home_rest'] if pd.notna(g['home_rest']) else '—'}d / {g['away_rest'] if pd.notna(g['away_rest']) else '—'}d</div></div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+        else:
+            detail_slot.info("Click a game in the table below to see full details.")
 
 # =========================================================
 # TAB 2: PLAYER PROPS
