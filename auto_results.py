@@ -29,7 +29,7 @@ SPORT_CONFIG = {
     "cfb": "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
     "ncaab": "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
     "mlb": "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
-    "nba": ""nba": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",",
+    "nba": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
 }
 
 HEADERS = {
@@ -215,9 +215,6 @@ def score_sport(conn, date_str: str, sport: str, dry_run: bool = False):
     espn_games = fetch_espn_results(date_str, sport)
     print(f"  Found {len(espn_games)} completed game(s)")
 
-    if not espn_games:
-        return 0, 0
-
     predictions = fetch_predictions(conn, date_str, sport)
     print(f"  Found {len(predictions)} prediction(s) logged")
 
@@ -227,6 +224,18 @@ def score_sport(conn, date_str: str, sport: str, dry_run: bool = False):
     scored = 0
     for pred in predictions:
         espn_game = match_game(pred, espn_games)
+
+        # If no match on the exact date, check the day before/after —
+        # ESPN sometimes logs late games under a different calendar date.
+        if not espn_game:
+            for offset in (-1, 1):
+                nearby_date = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=offset)).strftime("%Y-%m-%d")
+                nearby_games = fetch_espn_results(nearby_date, sport)
+                espn_game = match_game(pred, nearby_games)
+                if espn_game:
+                    print(f"    Matched via {nearby_date} instead of {date_str}")
+                    break
+
         if not espn_game:
             print(f"    No ESPN match for: {pred.get('game')} — skipping")
             continue
