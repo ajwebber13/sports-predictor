@@ -148,7 +148,11 @@ def load_picks():
 def load_props():
     conn = get_connection()
     conn.sync()
-    query = """
+    cols = ["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
+            "over_odds", "hit_rate_overall", "confidence_tier",
+            "actual_value", "hit", "team_won"]
+
+    query_with_results = """
         SELECT pp.date, pp.sport, pp.player_name, pp.team_name, pp.opponent,
                pp.stat, pp.line, pp.over_odds, pp.hit_rate_overall, pp.confidence_tier,
                pr.actual_value, pr.hit, pr.team_won
@@ -157,12 +161,28 @@ def load_props():
           ON pr.date = pp.date AND pr.player_name = pp.player_name AND pr.stat = pp.stat
         ORDER BY pp.date DESC
     """
-    cur = conn.execute(query)
-    rows = cur.fetchall()
-    cols = ["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
-            "over_odds", "hit_rate_overall", "confidence_tier",
-            "actual_value", "hit", "team_won"]
-    return pd.DataFrame(rows, columns=cols)
+    # prop_results only gets created once prop_tracker.py runs for the first
+    # time — until then, fall back to player_props alone so props still show
+    # as PENDING instead of crashing the whole dashboard.
+    try:
+        cur = conn.execute(query_with_results)
+        rows = cur.fetchall()
+        return pd.DataFrame(rows, columns=cols)
+    except Exception:
+        query_no_results = """
+            SELECT date, sport, player_name, team_name, opponent,
+                   stat, line, over_odds, hit_rate_overall, confidence_tier
+            FROM player_props
+            ORDER BY date DESC
+        """
+        cur = conn.execute(query_no_results)
+        rows = cur.fetchall()
+        base_cols = cols[:10]
+        df = pd.DataFrame(rows, columns=base_cols)
+        df["actual_value"] = None
+        df["hit"] = None
+        df["team_won"] = None
+        return df
 
 
 # ---------- HEADER ----------
