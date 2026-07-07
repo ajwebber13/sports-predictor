@@ -170,7 +170,7 @@ def insert_result(conn, result: dict, dry_run: bool = False):
             home_score, away_score, actual_winner,
             prediction_id, correct, edge_at_pick, odds_at_pick, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(date, sport, game) DO UPDATE SET
+        ON CONFLICT(prediction_id) DO UPDATE SET
             home_score = excluded.home_score,
             away_score = excluded.away_score,
             actual_winner = excluded.actual_winner,
