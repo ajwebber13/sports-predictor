@@ -1,11 +1,14 @@
-name: Daily and Weekly Recap
-
 on:
   schedule:
-    - cron: '30 10 * * *'   # 5:30 AM CT daily — score yesterday's games
-    - cron: '30 11 * * *'   # 6:30 AM CT daily — send daily recap
-    - cron: '0 14 * * 0'    # 9 AM CT Sunday — send weekly recap
+    - cron: '30 10 * * *'
+    - cron: '30 11 * * *'
+    - cron: '0 14 * * 0'
   workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'Date to score (YYYY-MM-DD), leave blank for yesterday'
+        required: false
+        default: ''
 
 jobs:
   score_results:
@@ -18,44 +21,8 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Score yesterday's results
-        run: python auto_results.py yesterday
+      - name: Score results
+        run: python auto_results.py ${{ github.event.inputs.target_date || 'yesterday' }}
         env:
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-
-  daily_recap:
-    needs: score_results
-    if: github.event.schedule == '30 11 * * *' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Send daily recap
-        run: python recap_engine.py --daily
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-
-  weekly_recap:
-    needs: score_results
-    if: github.event.schedule == '0 14 * * 0' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Send weekly recap
-        run: python recap_engine.py --weekly
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
