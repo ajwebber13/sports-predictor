@@ -26,16 +26,22 @@ def mlb_predictions():
     return {"count": len(results), "games": results}
 
 
+from collections import Counter
+
 @router.get("/edges")
 def mlb_edges(min_edge: float = 3.0):
-    """
-    Returns games where model probability diverges from DraftKings
-    implied probability by >= min_edge (percentage points).
-    Matches the best_bets schema used by NBA/NFL/CFB/NCAAB routes
-    so it plugs into render_job.py and telegram_alerts.py unchanged.
-    """
     events = get_mlb_events()
     best_bets = []
+
+    # Count how many times each matchup appears today — 2+ means doubleheader
+    matchup_counts = Counter()
+    for event in events:
+        competitors = event["competitions"][0]["competitors"]
+        home = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "home")
+        away = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "away")
+        matchup_counts[(home, away)] += 1
+
+    game_number = Counter()  # tracks which game # we're on per matchup as we loop
 
     for event in events:
         pred = predict_game(event)
@@ -53,7 +59,13 @@ def mlb_edges(min_edge: float = 3.0):
         edge_home = round(model_home - implied_home, 2)
         edge_away = round(model_away - implied_away, 2)
 
+        matchup_key = (pred["home_team"], pred["away_team"])
+        game_number[matchup_key] += 1
+
         game_label = f"{pred['away_team']} @ {pred['home_team']}"
+        if matchup_counts[matchup_key] > 1:
+            game_label += f" (DH Game {game_number[matchup_key]})"
+
         projected = f"{pred['proj_home_runs']}-{pred['proj_away_runs']}"
 
         if edge_home >= min_edge:
@@ -78,8 +90,8 @@ def mlb_edges(min_edge: float = 3.0):
                 "game": game_label,
                 "bet": f"{pred['away_team']} ML",
                 "odds": odds["away"],
-                "model_prob": model_home,
-                "implied_prob": implied_home,
+                "model_prob": model_away,       # fixed from last message
+                "implied_prob": implied_away,   # fixed from last message
                 "edge": round(edge_away / 100, 4),
                 "projected": projected,
                 "home_record": pred.get("home_record", ""),

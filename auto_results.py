@@ -29,6 +29,7 @@ SPORT_CONFIG = {
     "cfb": "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
     "ncaab": "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
     "mlb": "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
+    "nba": ""nba": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",",
 }
 
 HEADERS = {

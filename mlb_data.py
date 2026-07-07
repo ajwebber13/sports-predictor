@@ -63,8 +63,9 @@ def get_mlb_events(days_window=1):
         data = resp.json()
         for event in data.get("events", []):
             games.append(event)
+    games.sort(key=lambda e: e.get("date", ""))  # chronological — ensures DH Game 1 comes before Game 2
     return games
-
+    
 
 def get_team_stats(team_name, season=None):
     """
