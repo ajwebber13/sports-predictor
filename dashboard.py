@@ -329,6 +329,34 @@ with tab_games:
                 )
             cards.append('</div>')
             st.markdown(''.join(cards), unsafe_allow_html=True)
+
+            # ---------- BEST / WORST PICK HIGHLIGHT ----------
+            wins = settled[settled["status"] == "WIN"]
+            losses = settled[settled["status"] == "LOSS"]
+            best = wins.loc[wins["edge"].idxmax()] if not wins.empty else None
+            worst = losses.loc[losses["edge"].idxmax()] if not losses.empty else None
+
+            hl_cols = st.columns(2)
+            if best is not None:
+                with hl_cols[0]:
+                    st.markdown(f"""
+<div class="cp-card" style="border-left:3px solid #3ecf8e;">
+<div class="sport-name">Best pick &middot; {best['sport']}</div>
+<div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{best['bet']}</div>
+<div style="color:#8a7d55;font-size:12px;margin-top:4px;">{best['game']} &middot; {best['date']}</div>
+<div style="color:#3ecf8e;font-weight:800;font-size:14px;margin-top:8px;">+{best['edge']}% edge &middot; WIN</div>
+</div>
+""", unsafe_allow_html=True)
+            if worst is not None:
+                with hl_cols[1]:
+                    st.markdown(f"""
+<div class="cp-card" style="border-left:3px solid #ff5c5c;">
+<div class="sport-name">Worst pick &middot; {worst['sport']}</div>
+<div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{worst['bet']}</div>
+<div style="color:#8a7d55;font-size:12px;margin-top:4px;">{worst['game']} &middot; {worst['date']}</div>
+<div style="color:#ff5c5c;font-weight:800;font-size:14px;margin-top:8px;">+{worst['edge']}% edge &middot; LOSS</div>
+</div>
+""", unsafe_allow_html=True)
         else:
             st.info("No settled picks yet.")
 
