@@ -153,12 +153,20 @@ def fetch_espn_box_scores(date_str: str) -> dict:
                         except:
                             return None
 
+                    pts = gs("points")
+                    reb = gs("rebounds")
+                    ast = gs("assists")
+
                     results[t_name][p_name] = {
-                        "pts":      gs("points"),
-                        "reb":      gs("rebounds"),
-                        "ast":      gs("assists"),
+                        "pts":      pts,
+                        "reb":      reb,
+                        "ast":      ast,
                         "stl":      gs("steals"),
                         "blk":      gs("blocks"),
+                        "pr":  (pts + reb) if pts is not None and reb is not None else None,
+                        "pa":  (pts + ast) if pts is not None and ast is not None else None,
+                        "ra":  (reb + ast) if reb is not None and ast is not None else None,
+                        "pra": (pts + reb + ast) if None not in (pts, reb, ast) else None,
                         "team_won": 1 if t_won else 0,
                         "opponent": away_name if t_name == home_name else home_name,
                         "home_away": "home" if t_name == home_name else "away",
@@ -196,7 +204,7 @@ def score_props(date_str: str, dry_run: bool = False):
     for prop in props:
         player    = prop["player_name"]
         team      = prop["team_name"]
-        stat      = prop["stat"]
+        stat      = prop["stat"].lower()
         line      = prop["line"]
         opponent  = prop.get("opponent", "")
         home_away = prop.get("home_away", "")
