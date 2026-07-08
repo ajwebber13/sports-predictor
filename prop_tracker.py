@@ -178,8 +178,7 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
             r2   = requests.get(summary_url, headers=HEADERS, timeout=10)
             data2 = r2.json()
             boxscore = data2.get("boxscore", {})
-            print(f"    DEBUG game {game_id}: boxscore keys = {list(boxscore.keys())}, players count = {len(boxscore.get('players', []))}")
-
+         
             for team_data in boxscore.get("players", []):
                 t_name = team_data.get("team", {}).get("displayName", "")
                 t_won  = home_won if t_name == home_name else not home_won
