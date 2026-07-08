@@ -33,6 +33,11 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
 PROPLINE_BASE  = "https://api.prop-line.com/v1"
 PROPLINE_KEY   = os.getenv("PROPLINE_API_KEY", "")
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "application/json",
+}
+
 SPORT_KEYS = {
     "wnba": "basketball_wnba",
     "nba":  "basketball_nba",
@@ -65,7 +70,9 @@ MARKET_MAP = {
 }
 
 # Sport-specific market subsets — sent to PropLine per sport since
-# basketball and baseball markets are mutually exclusive.
+# basketball and baseball markets are mutually exclusive. MLB only
+# includes the 4 verified stats prop_hit_rates.py can actually calculate
+# (mlb_player_stats.py doesn't capture doubles/triples/steals/pitching yet).
 MARKET_MAP = {
     "player_points":                   "pts",
     "player_rebounds":                 "reb",
