@@ -236,8 +236,9 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
     return deduped
 
 
-def run(sport: str = "wnba", dry_run: bool = False):
+def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players: bool = False):
     from prop_hit_rates import get_hit_rate, setup_props_table, save_prop_with_hit_rates
+    from star_players import get_star_players, filter_to_stars
 
     today = get_today_ct()
     setup_props_table()
@@ -257,6 +258,22 @@ def run(sport: str = "wnba", dry_run: bool = False):
 
     if not props:
         print("  No props returned.\n")
+        return
+
+    star_config_exists = bool(get_star_players(sport, top_n=top_n))
+
+    if all_players:
+        print(f"  --all-players set: skipping star filter, using full board ({len(props)} props)\n")
+    elif not star_config_exists:
+        print(f"  ⚠️  No star-player config for '{sport}' yet (needs a game log table) — "
+              f"using full board ({len(props)} props). Filtering not applied.\n")
+    else:
+        props, dropped = filter_to_stars(sport, props, top_n=top_n)
+        print(f"  Star filter: kept {len(props)} props (top {top_n}/team), "
+              f"dropped {len(dropped)} bench/role-player props\n")
+
+    if not props:
+        print("  Nothing left after filtering.\n")
         return
 
     saved = 0
@@ -282,6 +299,71 @@ def run(sport: str = "wnba", dry_run: bool = False):
         else:
             print(f"insufficient data ({games}G) ❓")
 
+        projection = None
+        if sport == "wnba":
+            from wnba_projections import project_prop, get_player_team
+            player_team = get_player_team(player)
+            home_team   = prop.get("home_team", "")
+            away_team   = prop.get("away_team", "")
+            opponent_team = None
+            if player_team == home_team:
+                opponent_team = away_team
+            elif player_team == away_team:
+                opponent_team = home_team
+
+            projection = project_prop(player, stat, line, opponent_team=opponent_team)
+            if projection.get("error"):
+                print(f"      projection: insufficient recent data")
+            else:
+                df = projection["defense_factor"]
+                df_str = f" | vs {opponent_team} D-factor {df}" if opponent_team else " | opponent unknown, no D adj"
+                print(f"      projection: {projection['projected_minutes']} min x "
+                      f"{projection['per_min_rate']}/min = {projection['projected_stat']} "
+                      f"({projection['direction']} {projection['edge_pct']}%){df_str} "
+                      f"{ {'green': '✅', 'yellow': '⚠️', 'red': '❌'}.get(projection['confidence_tier'], '') }")
+        elif sport == "mlb":
+            from mlb_projections import project_prop, get_player_team
+            player_team = get_player_team(player)
+            home_team   = prop.get("home_team", "")
+            away_team   = prop.get("away_team", "")
+            opponent_team = None
+            if player_team == home_team:
+                opponent_team = away_team
+            elif player_team == away_team:
+                opponent_team = home_team
+
+            projection = project_prop(player, stat, line, opponent_team=opponent_team)
+            if projection.get("error"):
+                print(f"      projection: insufficient recent data")
+            else:
+                df = projection["defense_factor"]
+                df_str = f" | vs {opponent_team} D-factor {df}" if opponent_team else " | opponent unknown, no D adj"
+                print(f"      projection: {projection['projected_at_bats']} AB x "
+                      f"{projection['per_ab_rate']}/AB = {projection['projected_stat']} "
+                      f"({projection['direction']} {projection['edge_pct']}%){df_str} "
+                      f"{ {'green': '✅', 'yellow': '⚠️', 'red': '❌'}.get(projection['confidence_tier'], '') }")
+        elif sport == "nba":
+            from nba_projections import project_prop, get_player_team
+            player_team = get_player_team(player)
+            home_team   = prop.get("home_team", "")
+            away_team   = prop.get("away_team", "")
+            opponent_team = None
+            if player_team == home_team:
+                opponent_team = away_team
+            elif player_team == away_team:
+                opponent_team = home_team
+
+            projection = project_prop(player, stat, line, opponent_team=opponent_team)
+            if projection.get("error"):
+                print(f"      projection: insufficient recent data")
+            else:
+                df = projection["defense_factor"]
+                df_str = f" | vs {opponent_team} D-factor {df}" if opponent_team else " | opponent unknown, no D adj"
+                print(f"      projection: {projection['projected_minutes']} min x "
+                      f"{projection['per_min_rate']}/min = {projection['projected_stat']} "
+                      f"({projection['direction']} {projection['edge_pct']}%){df_str} "
+                      f"{ {'green': '✅', 'yellow': '⚠️', 'red': '❌'}.get(projection['confidence_tier'], '') }")
+
         if not dry_run:
             save_prop_with_hit_rates(
                 date        = today,
@@ -297,6 +379,15 @@ def run(sport: str = "wnba", dry_run: bool = False):
                 game_away_team = prop.get("away_team", ""),
                 sport       = sport,
             )
+            if sport == "wnba" and projection:
+                from wnba_projections import save_projection
+                save_projection(today, sport, player, stat, projection)
+            elif sport == "mlb" and projection:
+                from mlb_projections import save_projection
+                save_projection(today, sport, player, stat, projection)
+            elif sport == "nba" and projection:
+                from nba_projections import save_projection
+                save_projection(today, sport, player, stat, projection)
             saved += 1
 
     print(f"\n{'='*55}")
@@ -311,5 +402,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--sport",   default="wnba")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--top-n",   type=int, default=3, help="Star players per team to keep (default 3)")
+    parser.add_argument("--all-players", action="store_true", help="Skip star filter, use full board")
     args = parser.parse_args()
-    run(sport=args.sport, dry_run=args.dry_run)
+    run(sport=args.sport, dry_run=args.dry_run, top_n=args.top_n, all_players=args.all_players)

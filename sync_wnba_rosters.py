@@ -243,6 +243,45 @@ def update_team_keywords(rosters: dict, filepath: str, dry_run: bool = False):
         print(f"  WARNING: Could not find TEAM_KEYWORDS in {filepath}")
 
 
+def update_player_teams(rosters: dict, filepath: str, dry_run: bool = False):
+    """
+    Update WNBA_PLAYER_TEAMS in load_props.py.
+    Unlike WNBA_STAR_PLAYERS (capped at 6 per team for display purposes),
+    this maps EVERY active roster player to their team. PropLine can post
+    a prop line for any active player, not just top-6 stars — capping this
+    dict is what caused players like Flau'jae Johnson and Dominique Malonga
+    to silently drop out of props on June 30. Full roster coverage closes
+    that gap for good.
+    """
+    new_player_teams = {}
+    for team, roster in rosters.items():
+        for player in roster:
+            new_player_teams[player] = team
+
+    lines = ["WNBA_PLAYER_TEAMS = {"]
+    for player, team in sorted(new_player_teams.items()):
+        lines.append(f'    "{player}": "{team}",')
+    lines.append("}")
+    new_block = "\n".join(lines)
+
+    if dry_run:
+        print(f"\n--- WNBA_PLAYER_TEAMS (dry run, {len(new_player_teams)} players) ---")
+        print(new_block)
+        return
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    pattern = r"WNBA_PLAYER_TEAMS\s*=\s*\{[^}]*\}"
+    if re.search(pattern, content, re.DOTALL):
+        new_content = re.sub(pattern, new_block, content, flags=re.DOTALL)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        print(f"  Updated WNBA_PLAYER_TEAMS in {filepath} ({len(new_player_teams)} players)")
+    else:
+        print(f"  WARNING: Could not find WNBA_PLAYER_TEAMS in {filepath}")
+
+
 def run(dry_run: bool = False):
     print(f"WNBA Roster Sync — {datetime.now().strftime('%B %d, %Y %I:%M %p')}")
     print("Fetching live rosters from ESPN...")
@@ -250,9 +289,10 @@ def run(dry_run: bool = False):
     rosters = build_rosters()
 
     # Paths relative to this script
-    base_dir  = os.path.dirname(os.path.abspath(__file__))
-    digest    = os.path.join(base_dir, "wnba_slate_digest.py")
-    news_feed = os.path.join(base_dir, "wnba_news_feed.py")
+    base_dir   = os.path.dirname(os.path.abspath(__file__))
+    digest     = os.path.join(base_dir, "wnba_slate_digest.py")
+    news_feed  = os.path.join(base_dir, "wnba_news_feed.py")
+    load_props = os.path.join(base_dir, "load_props.py")
 
     print("\nUpdating WNBA_STAR_PLAYERS...")
     update_star_players(rosters, digest, dry_run=dry_run)
@@ -260,9 +300,12 @@ def run(dry_run: bool = False):
     print("\nUpdating TEAM_KEYWORDS...")
     update_team_keywords(rosters, news_feed, dry_run=dry_run)
 
+    print("\nUpdating WNBA_PLAYER_TEAMS (full roster)...")
+    update_player_teams(rosters, load_props, dry_run=dry_run)
+
     print("\nDone.")
     if not dry_run:
-        print("Commit and push wnba_slate_digest.py and wnba_news_feed.py to deploy.")
+        print("Commit and push wnba_slate_digest.py, wnba_news_feed.py, and load_props.py to deploy.")
 
 
 if __name__ == "__main__":

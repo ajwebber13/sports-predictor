@@ -1,4 +1,4 @@
-# WNBA Props — Edit each morning before running load_props.py
+﻿# WNBA Props  Edit each morning before running load_props.py
 # Format: player_name, stat, line, over_odds, under_odds
 # Stats: pts, reb, ast, stl, blk
 # Odds are American format (e.g. -115, +105). Leave blank if unknown.
@@ -8,8 +8,53 @@
 # A'ja Wilson, pts, 22.5, -115, -105
 # Caitlin Clark, ast, 7.5, -110, -110
 
-A'ja Wilson, pts, 22.5, -115, -105
-Jackie Young, pts, 16.5, -110, -110
-Kamilla Cardoso, reb, 8.5, -115, -105
-Caitlin Clark, ast, 7.5, -120, +100
-Paige Bueckers, pts, 18.5, -110, -110
+Rhyne Howard, pts, 17.5, -127
+Allisha Gray, pts, 16.5, -126
+Angel Reese, pts, 14.5, -124
+Rhyne Howard, 3s, 2.5, -173
+Allisha Gray, 3s, 1.5, -154
+Angel Reese, reb, 11.5, -145
+Shakira Austin, reb, 7.5, -145
+Angel Reese, pra, 29.5, -124
+Rhyne Howard, pra, 25.5, -119
+Allisha Gray, pra, 22.5, -107
+Jordin Canada, pra, 20.5, -116
+
+Paige Bueckers, pts, 20.5, -114
+Azzi Fudd, pts, 13.5, -116
+Arike Ogunbowale, pts, 13.5, -117
+Brittney Griner, pts, 12.5, -105
+Aaliyah Edwards, pts, 8.5, -111
+Azzi Fudd, 3s, 1.5, -154
+Paige Bueckers, 3s, 1.5, -126
+Arike Ogunbowale, 3s, 1.5, -113
+Leila Lacan, 3s, 0.5, -297
+Kennedy Burke, 3s, 0.5, -237
+Olivia Nelson-Ododa, reb, 6.5, -117
+Brittney Griner, reb, 4.5, -112
+Paige Bueckers, reb, 3.5, -150
+Arike Ogunbowale, reb, 2.5, -216
+Aaliyah Edwards, reb, 3.5, -114
+Paige Bueckers, ast, 5.5, -152
+Leila Lacan, ast, 4.5, -110
+Charlisse Leger-Walker, ast, 2.5, -181
+Arike Ogunbowale, ast, 2.5, -146
+Paige Bueckers, pra, 30.5, -128
+Arike Ogunbowale, pra, 20.5, -106
+Brittney Griner, pra, 19.5, -105
+
+Alyssa Thomas, pts, 14.5, -125
+Flau'jae Johnson, pts, 12.5, -105
+DeWanna Bonner, pts, 12.5, -102
+DeWanna Bonner, 3s, 0.5, -366
+Kahleah Copper, 3s, 1.5, -145
+Natisha Hiedeman, 3s, 1.5, -198
+Dominique Malonga, reb, 8.5, -138
+DeWanna Bonner, reb, 6.5, -127
+Alyssa Thomas, reb, 5.5, -152
+Alyssa Thomas, ast, 7.5, -166
+Natisha Hiedeman, ast, 4.5, -116
+Flau'jae Johnson, ast, 2.5, -109
+Flau'jae Johnson, pra, 20.5, -108
+Alyssa Thomas, pra, 29.5, -120
+Dominique Malonga, pra, 28.5, -116

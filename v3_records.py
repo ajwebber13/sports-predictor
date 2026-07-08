@@ -1,7 +1,10 @@
-import sqlite3
+import os
+import sys
 
-conn = sqlite3.connect("cp_analytics.db")
-conn.row_factory = sqlite3.Row
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from database import get_conn
+
+conn = get_conn()
 c = conn.cursor()
 
 V3_START = "2026-06-19"

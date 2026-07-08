@@ -163,16 +163,12 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
         return False
 
     try:
-        from telegram_alerts import (
-            format_header, format_alert, get_game_times,
-            get_recommended_prob, format_slate_summary
-        )
+        from telegram_alerts import format_game_card, get_game_times, get_recommended_prob
 
         game_times, game_times_raw = get_game_times(sport)
 
         from telegram_alerts import get_raw_time_for_bet, is_today_ct
         clean_bets = []
-        suppressed = []
         for bet in bets:
             raw_time = get_raw_time_for_bet(bet, game_times_raw)
             if raw_time and not is_today_ct(raw_time):
@@ -182,7 +178,6 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
             recommended_prob = get_recommended_prob(bet)
             if recommended_prob < 55:
                 log(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}%")
-                suppressed.append(bet)
                 continue
 
             if skip_if_already_alerted and already_alerted_today(sport, bet.get("game", "")):
@@ -194,9 +189,6 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
         if not clean_bets:
             log(f"No {sport.upper()} bets met confidence threshold.")
             return False
-
-        send_telegram(format_slate_summary(clean_bets, sport, suppressed=suppressed))
-        time.sleep(1)
 
         for bet in clean_bets:
             try:
@@ -213,7 +205,7 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
                 if len(parts) == 2:
                     game_time = game_times.get(parts[0], game_times.get(parts[1], "Time TBD"))
 
-            send_telegram(format_alert(bet, sport, game_time))
+            send_telegram(format_game_card(bet, sport, game_time))
             time.sleep(1)
 
         log(f"Sent {len(clean_bets)} {sport.upper()} alerts.")

@@ -485,3 +485,65 @@ if __name__ == "__main__":
     parser.add_argument("--sims", type=int, default=10000)
     args = parser.parse_args()
     run_alerts(sport=args.sport, simulations=args.sims)
+
+def format_game_card(bet: dict, sport: str, game_time: str) -> str:
+    emoji     = sport_emoji(sport)
+    game      = bet.get("game", "")
+    bet_label = bet.get("bet", "")
+    odds      = bet.get("odds")
+    projected = bet.get("projected")
+
+    home_record   = bet.get("home_record", "")
+    away_record   = bet.get("away_record", "")
+    home_rest     = bet.get("home_rest")
+    away_rest     = bet.get("away_rest")
+    home_injuries = bet.get("home_injuries", "")
+    away_injuries = bet.get("away_injuries", "")
+
+    parts     = game.split(" @ ")
+    away_team = parts[0] if len(parts) == 2 else ""
+    home_team = parts[1] if len(parts) == 2 else ""
+
+    model_prob  = bet.get("model_prob", 50)
+    home_prob   = round(float(model_prob), 1)
+    away_prob   = round(100 - home_prob, 1)
+    winner      = home_team if home_prob > away_prob else away_team
+    winner_prob = max(home_prob, away_prob)
+
+    lines = [f"{emoji} <b>{game}</b>", f"🕐 {game_time}"]
+
+    context_lines = []
+    rec = []
+    if away_record: rec.append(f"{away_team.split()[-1]} {away_record}")
+    if home_record: rec.append(f"{home_team.split()[-1]} {home_record}")
+    if rec: context_lines.append("📋 " + " | ".join(rec))
+
+    rest = []
+    if away_rest is not None: rest.append(f"{away_team.split()[-1]}: {away_rest}d rest")
+    if home_rest is not None: rest.append(f"{home_team.split()[-1]}: {home_rest}d rest")
+    if rest: context_lines.append("🔥 " + " | ".join(rest))
+
+    if away_injuries: context_lines.append(f"🚑 {away_team.split()[-1]}: {away_injuries}")
+    if home_injuries: context_lines.append(f"🚑 {home_team.split()[-1]}: {home_injuries}")
+
+    if context_lines:
+        lines.append("───────────────────")
+        lines.extend(context_lines)
+
+    lines.append("───────────────────")
+    lines.append(f"📊 {away_team.split()[-1]} {away_prob}% · {home_team.split()[-1]} {home_prob}%")
+
+    has_edge = bool(bet_label)
+    if has_edge:
+        odds_str = f" ({fmt_odds(odds)})" if odds else ""
+        lines.append(f"✅ <b>Pick: {winner} ({winner_prob}%)</b>{odds_str}")
+    else:
+        lines.append(f"🤖 Model: {winner} ({winner_prob}%)")
+        lines.append("🔴 No edge pick")
+
+    if projected:
+        lines.append(f"📐 Projected: {projected}")
+
+    lines.append("")
+    lines.append("<i>Culture &amp; Pulse Analytics | For entertainment only.</i>")
+    return "\n".join(lines)

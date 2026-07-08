@@ -1,0 +1,57 @@
+# ── PATCH: Wire hbcu_rivalries.py into hbcu_predict.py ──────────────────────
+#
+# In hbcu_predict.py, replace the format_alert() function with this version.
+# It adds rivalry records, cultural story, and "Did You Know" to every alert.
+#
+# Also add this import at the top of hbcu_predict.py:
+#   from hbcu_rivalries import get_rivalry_context
+
+def format_alert(pred: dict, game_date: str, sport_key: str) -> str:
+    config   = SPORT_CONFIGS[sport_key]
+    emoji    = config["emoji"]
+    label    = config["label"]
+    home     = pred["home_team"]
+    away     = pred["away_team"]
+    fav      = pred["favorite"]
+    conf     = round(pred["confidence"], 1)
+
+    home_conf_tag = f" ({pred['home_conf']})" if pred["home_conf"] else ""
+    away_conf_tag = f" ({pred['away_conf']})" if pred["away_conf"] else ""
+    stars = "★★★" if conf >= 70 else "★★" if conf >= 60 else "★"
+
+    # ── Rivalry context ──
+    rivalry_block = ""
+    try:
+        from hbcu_rivalries import get_rivalry_context
+        ctx = get_rivalry_context(home, away, sport_key)
+        if ctx:
+            rivalry_block = ctx["telegram_block"]
+    except Exception:
+        pass
+
+    alert = (
+        f"{emoji} <b>{label.upper()} — GAME PREVIEW</b>\n\n"
+        f"<b>{away}{away_conf_tag} @ {home}{home_conf_tag}</b>\n"
+        f"📅 {game_date}\n\n"
+        f"🏆 <b>Model Favorite: {fav} {stars}</b>\n\n"
+        f"<b>WIN PROBABILITY</b>\n"
+        f"{home}: {pred['home_prob']}%\n"
+        f"{away}: {pred['away_prob']}%\n\n"
+        f"<b>ELO RATINGS</b>\n"
+        f"{home}: {pred['home_elo']}\n"
+        f"{away}: {pred['away_elo']}\n\n"
+        f"<b>NET RATING</b>\n"
+        f"{home}: {pred['home_net']:+.1f}\n"
+        f"{away}: {pred['away_net']:+.1f}"
+    )
+
+    if rivalry_block:
+        alert += f"\n{rivalry_block}"
+
+    alert += (
+        f"\n{'─' * 24}\n"
+        f"<i>Culture &amp; Pulse Analytics\n"
+        f"For entertainment only.</i>"
+    )
+
+    return alert

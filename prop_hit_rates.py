@@ -25,10 +25,15 @@ SUPPORTED_STATS = ["pts", "reb", "ast", "stl", "blk", "pra", "pr", "pa", "ra",
 SPORT_TABLES = {
     "wnba": "wnba_game_log",
     "mlb":  "mlb_game_log",
+    "nba":  "nba_game_log",
 }
 
 STAT_EXPR = {
     "wnba": {
+        "pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
+        "pra": "(pts + reb + ast)", "pr": "(pts + reb)", "pa": "(pts + ast)", "ra": "(reb + ast)",
+    },
+    "nba": {
         "pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
         "pra": "(pts + reb + ast)", "pr": "(pts + reb)", "pa": "(pts + ast)", "ra": "(reb + ast)",
     },
@@ -39,6 +44,7 @@ STAT_EXPR = {
 
 MIN_GAMES_FILTER = {
     "wnba": "minutes > 0",
+    "nba":  "minutes > 0",
     "mlb":  "at_bats > 0",
 }
 

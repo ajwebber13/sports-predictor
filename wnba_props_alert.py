@@ -157,12 +157,10 @@ def fetch_today_props(date_str: str):
                game_home_team, game_away_team
         FROM player_props
         WHERE date = ? AND sport = 'wnba'
-          AND confidence_tier IN ('green', 'yellow')
+          AND confidence_tier = 'green'
           AND hit_rate_overall IS NOT NULL
           AND {MIN_GAMES_COLUMN} >= ?
-        ORDER BY
-            CASE confidence_tier WHEN 'green' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END,
-            hit_rate_overall DESC
+        ORDER BY hit_rate_overall DESC
     """, (date_str, MIN_GAMES))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
