@@ -8,9 +8,19 @@ What it does:
   2. Scores today's props against ESPN box scores
   3. Reports historical records for any player/stat/line combo
 
+Multi-sport design:
+  Only WNBA has a props pipeline today. PROP_SPORT_CONFIG holds
+  everything sport-specific (ESPN endpoints, game log table name).
+  Adding a second sport later means adding one entry to that dict —
+  not rewriting the scoring/reporting logic below it. Don't add an
+  entry for a sport before its props pipeline (fetch + hit-rate +
+  alert) actually exists; an empty config with no real data behind
+  it just adds a silent no-op path.
+
 Usage:
     py prop_tracker.py --score yesterday        # score yesterday's props
     py prop_tracker.py --score 2026-06-28       # score a specific date
+    py prop_tracker.py --score yesterday --sport wnba  # explicit sport (default: wnba)
     py prop_tracker.py --report                 # print all prop records
     py prop_tracker.py --report "A'ja Wilson"   # print one player's records
     py prop_tracker.py --team-record "Las Vegas Aces" pts 20  # team record when player hits
@@ -26,20 +36,27 @@ from datetime import datetime, timezone, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 
-CENTRAL_OFFSET       = -5
-ESPN_WNBA_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard"
-ESPN_WNBA_SUMMARY    = "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/summary"
+CENTRAL_OFFSET = -5
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept":     "application/json",
 }
 
-STAT_KEY_MAP = {
-    "pts": "points",
-    "reb": "rebounds",
-    "ast": "assists",
-    "stl": "steals",
-    "blk": "blocks",
+# One entry per sport with a real props pipeline. Add a new sport here
+# once its fetch/hit-rate/alert scripts exist — the scoring logic below
+# picks it up automatically, same pattern as auto_results.py's SPORT_CONFIG.
+PROP_SPORT_CONFIG = {
+    "wnba": {
+        "scoreboard_url": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
+        "summary_url":    "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/summary",
+        "game_log_table": "wnba_game_log",
+    },
+    # "nba": {
+    #     "scoreboard_url": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+    #     "summary_url":    "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary",
+    #     "game_log_table": "nba_game_log",
+    # },
 }
 
 
@@ -84,13 +101,49 @@ def ensure_table(conn):
     conn.commit()
 
 
+# ── Look up a player's team ───────────────────────────────────────────────────
+def get_player_team(player_name: str, sport: str = "wnba") -> str:
+    """
+    player_props.team_name is never actually populated by the props
+    pipeline (game_home_team / game_away_team hold the matchup, not
+    each player's own team) — so team lookup always goes through each
+    sport's game log table instead, same approach wnba_props_alert.py
+    already uses for Telegram alerts. Returns '' if no config exists
+    for this sport, or no game log entry is found for this player.
+    """
+    config = PROP_SPORT_CONFIG.get(sport)
+    if not config:
+        return ""
+
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(f"""
+        SELECT team_name FROM {config['game_log_table']}
+        WHERE player_name = ?
+        ORDER BY date DESC
+        LIMIT 1
+    """, (player_name,))
+    row = c.fetchone()
+    conn.close()
+    return row["team_name"] if row else ""
+
+
 # ── Fetch ESPN box score for a date ──────────────────────────────────────────
-def fetch_espn_box_scores(date_str: str) -> dict:
+def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
     """
     Returns {team_name: {player_name: {stat: value, team_won: bool}}}
+    Includes both single stats (pts, reb, ast, stl, blk) and combo stats
+    (pr, pa, ra, pra) since props are logged using combo lines too —
+    without these, any PR/PA/RA/PRA prop would always come back as
+    "no data" even though the underlying box score numbers exist.
     """
+    config = PROP_SPORT_CONFIG.get(sport)
+    if not config:
+        print(f"  No prop config for sport '{sport}' — skipping.")
+        return {}
+
     date_fmt = date_str.replace("-", "")
-    url      = f"{ESPN_WNBA_SCOREBOARD}?dates={date_fmt}"
+    url      = f"{config['scoreboard_url']}?dates={date_fmt}"
     results  = {}
 
     try:
@@ -120,11 +173,12 @@ def fetch_espn_box_scores(date_str: str) -> dict:
             continue
 
         # Fetch box score
-        summary_url = f"{ESPN_WNBA_SUMMARY}?event={game_id}"
+        summary_url = f"{config['summary_url']}?event={game_id}"
         try:
             r2   = requests.get(summary_url, headers=HEADERS, timeout=10)
             data2 = r2.json()
             boxscore = data2.get("boxscore", {})
+            print(f"    DEBUG game {game_id}: boxscore keys = {list(boxscore.keys())}, players count = {len(boxscore.get('players', []))}")
 
             for team_data in boxscore.get("players", []):
                 t_name = team_data.get("team", {}).get("displayName", "")
@@ -163,6 +217,10 @@ def fetch_espn_box_scores(date_str: str) -> dict:
                         "ast":      ast,
                         "stl":      gs("steals"),
                         "blk":      gs("blocks"),
+                        # Combo stats — required for PR/PA/RA/PRA props.
+                        # None-safe: if either component is missing (DNP,
+                        # bad parse), the combo is also None rather than
+                        # silently computing a wrong partial total.
                         "pr":  (pts + reb) if pts is not None and reb is not None else None,
                         "pa":  (pts + ast) if pts is not None and ast is not None else None,
                         "ra":  (reb + ast) if reb is not None and ast is not None else None,
@@ -179,8 +237,13 @@ def fetch_espn_box_scores(date_str: str) -> dict:
 
 
 # ── Score props for a date ────────────────────────────────────────────────────
-def score_props(date_str: str, dry_run: bool = False):
-    print(f"Scoring props for {date_str}...")
+def score_props(date_str: str, sport: str = "wnba", dry_run: bool = False):
+    print(f"Scoring {sport.upper()} props for {date_str}...")
+
+    if sport not in PROP_SPORT_CONFIG:
+        print(f"  No prop config for sport '{sport}' — nothing to score.")
+        return
+
     conn = get_conn()
     ensure_table(conn)
 
@@ -188,8 +251,8 @@ def score_props(date_str: str, dry_run: bool = False):
     c = conn.cursor()
     c.execute("""
         SELECT * FROM player_props
-        WHERE date = ? AND sport = 'wnba'
-    """, (date_str,))
+        WHERE date = ? AND sport = ?
+    """, (date_str, sport))
     props = [dict(r) for r in c.fetchall()]
 
     if not props:
@@ -198,12 +261,12 @@ def score_props(date_str: str, dry_run: bool = False):
         return
 
     print(f"  Found {len(props)} prop(s) — fetching ESPN box scores...")
-    box_scores = fetch_espn_box_scores(date_str)
+    box_scores = fetch_espn_box_scores(date_str, sport=sport)
 
     scored = 0
     for prop in props:
         player    = prop["player_name"]
-        team      = prop["team_name"]
+        team      = get_player_team(player, sport=sport)
         stat      = prop["stat"].lower()
         line      = prop["line"]
         opponent  = prop.get("opponent", "")
@@ -236,14 +299,14 @@ def score_props(date_str: str, dry_run: bool = False):
                 date, sport, player_name, team_name, opponent, home_away,
                 stat, line, actual_value, hit, team_won,
                 over_odds, under_odds, source, scored_at
-            ) VALUES (?, 'wnba', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
             ON CONFLICT(date, player_name, stat) DO UPDATE SET
                 actual_value = excluded.actual_value,
                 hit          = excluded.hit,
                 team_won     = excluded.team_won,
                 scored_at    = excluded.scored_at
         """, (
-            date_str, player, team, opponent, home_away,
+            date_str, sport, player, team, opponent, home_away,
             stat, line, actual_value, hit, team_won,
             prop.get("over_odds"), prop.get("under_odds"),
             datetime.now(timezone.utc).isoformat()
@@ -256,7 +319,7 @@ def score_props(date_str: str, dry_run: bool = False):
 
 
 # ── Report: player prop records ───────────────────────────────────────────────
-def report_player(player_name: str = None):
+def report_player(player_name: str = None, sport: str = "wnba"):
     conn = get_conn()
     ensure_table(conn)
     c    = conn.cursor()
@@ -267,21 +330,21 @@ def report_player(player_name: str = None):
                    SUM(hit) as hits, COUNT(*) as total,
                    SUM(CASE WHEN hit=1 AND team_won=1 THEN 1 ELSE 0 END) as hit_and_won
             FROM prop_results
-            WHERE sport = 'wnba' AND hit IS NOT NULL
+            WHERE sport = ? AND hit IS NOT NULL
             AND player_name LIKE ?
             GROUP BY player_name, stat, line
             ORDER BY player_name, stat, total DESC
-        """, (f"%{player_name}%",))
+        """, (sport, f"%{player_name}%",))
     else:
         c.execute("""
             SELECT player_name, stat, line, opponent, home_away,
                    SUM(hit) as hits, COUNT(*) as total,
                    SUM(CASE WHEN hit=1 AND team_won=1 THEN 1 ELSE 0 END) as hit_and_won
             FROM prop_results
-            WHERE sport = 'wnba' AND hit IS NOT NULL
+            WHERE sport = ? AND hit IS NOT NULL
             GROUP BY player_name, stat, line
             ORDER BY player_name, stat, total DESC
-        """)
+        """, (sport,))
 
     rows = c.fetchall()
     conn.close()
@@ -342,6 +405,7 @@ def report_team_record(team_name: str, stat: str, threshold: float):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--score",       metavar="DATE", help="Score props for a date (yesterday or YYYY-MM-DD)")
+    parser.add_argument("--sport",       default="wnba", help="Sport to score/report (default: wnba)")
     parser.add_argument("--report",      nargs="?", const="", metavar="PLAYER", help="Print prop records (optional: player name)")
     parser.add_argument("--team-record", nargs=3,  metavar=("TEAM", "STAT", "THRESHOLD"), help="Team record when player hits stat")
     parser.add_argument("--dry-run",     action="store_true")
@@ -349,10 +413,10 @@ if __name__ == "__main__":
 
     if args.score:
         date = parse_target_date(args.score)
-        score_props(date, dry_run=args.dry_run)
+        score_props(date, sport=args.sport, dry_run=args.dry_run)
 
     elif args.report is not None:
-        report_player(args.report if args.report else None)
+        report_player(args.report if args.report else None, sport=args.sport)
 
     elif args.team_record:
         team, stat, threshold = args.team_record
