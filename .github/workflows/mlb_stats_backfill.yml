@@ -1,0 +1,25 @@
+name: MLB Stats Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'backfill (full season) or update (last 7 days)'
+        required: false
+        default: 'backfill'
+
+jobs:
+  run_backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run MLB stats backfill
+        run: python mlb_player_stats.py ${{ github.event.inputs.mode }}
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
