@@ -1,0 +1,23 @@
+name: Pick of the Day
+
+on:
+  schedule:
+    - cron: '0 16 * * *'   # 11:00 AM CT daily
+  workflow_dispatch:
+
+jobs:
+  send_pick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send Pick of the Day
+        run: python pick_of_the_day.py
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
