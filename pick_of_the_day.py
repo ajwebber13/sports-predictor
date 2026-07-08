@@ -102,7 +102,8 @@ def build_message(date_str: str, game_picks: dict, prop_pick: dict) -> str:
         lines.append(f"\n\U0001f3c6 <b>{sport.upper()} PICK</b>")
         lines.append(f"{pick['game']}")
         lines.append(f"\u2705 {pick['bet']} ({pick['odds']})")
-        lines.append(f"\U0001f4ca {pick['model_prob']:.1f}% confidence \u2014 Edge +{pick['edge']*100:.1f}%")
+        lines.append(f"\U0001f4ca {pick['model_prob']:.1f}% confidence \u2014 Edge +{pick['edge']:.1f}%")
+        
 
     if prop_pick:
         stat_label = STAT_LABELS.get(prop_pick["stat"], prop_pick["stat"].upper())
