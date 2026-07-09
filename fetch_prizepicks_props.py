@@ -300,6 +300,7 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
             print(f"insufficient data ({games}G) ❓")
 
         projection = None
+        player_team = None
         if sport == "wnba":
             from wnba_projections import project_prop, get_player_team
             player_team = get_player_team(player)
@@ -368,7 +369,7 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
             save_prop_with_hit_rates(
                 date        = today,
                 player_name = player,
-                team_name   = prop.get("team", ""),
+                team_name   = player_team or prop.get("team", ""),
                 opponent    = "",
                 home_away   = prop.get("home_away", ""),
                 stat        = stat,
