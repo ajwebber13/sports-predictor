@@ -197,11 +197,12 @@ def build_props_html(rows: list) -> str:
 
     body_rows = []
     for r in rows:
+        team_logo_html = f'<img src="{r["team_logo"]}" style="width:22px;height:22px;object-fit:contain;vertical-align:middle;margin-right:8px;">' if r.get("team_logo") else ""
         opp_logo_html = f'<img src="{r["opp_logo"]}" style="width:18px;height:18px;object-fit:contain;vertical-align:middle;margin-right:4px;">' if r.get("opp_logo") else ""
         result_color = {"HIT": "#3ecf8e", "MISS": "#ff5c5c", "PENDING": "#6b6b6b"}.get(r.get("status"), "#6b6b6b")
         body_rows.append(f"""
 <tr>
-  <td data-val="{esc(r['player'])}"><b style="color:#fff;">{esc(r['player'])}</b><div style="color:#6b6b6b;font-size:11px;">{esc(r['team'])}</div></td>
+  <td data-val="{esc(r['player'])}">{team_logo_html}<b style="color:#fff;">{esc(r['player'])}</b><div style="color:#6b6b6b;font-size:11px;margin-left:{'30px' if team_logo_html else '0'};">{esc(r['team'])}</div></td>
   <td data-val="{esc(r['opponent'])}">{opp_logo_html}{esc(r['opponent'])}</td>
   <td data-val="{esc(r['sport'])}">{esc(r['sport']).upper()}</td>
   <td data-val="{esc(r['stat'])}">{esc(r['stat']).upper()} {r['line']}</td>
@@ -764,6 +765,7 @@ with tab_props:
                 lambda x: f"o{x['over_odds']}/u{x['under_odds']}" if pd.notna(x.get("over_odds")) else "—", axis=1
             )
             display["opp_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["opponent"]), axis=1)
+            display["team_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["team_name"]), axis=1)
 
             display = display.sort_values(
                 "projection_edge_pct", key=lambda s: s.abs(), ascending=False, na_position="last"
@@ -775,7 +777,7 @@ with tab_props:
                 direction = row.get("projection_direction") or "over"
                 spark = sparkline_svg(recent, row["line"], direction=direction)
                 table_rows.append({
-                    "player": row["player_name"], "team": row["team_name"],
+                    "player": row["player_name"], "team": row["team_name"], "team_logo": row["team_logo"],
                     "opponent": row["opponent"], "opp_logo": row["opp_logo"],
                     "sport": row["sport"], "stat": row["stat"], "line": row["line"],
                     "play": row["Play"], "sparkline_svg": spark,
