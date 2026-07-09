@@ -97,23 +97,51 @@ def _tier(edge: float, line: float) -> str:
     return "red"
 
 
-def project_prop(player_name: str, stat: str, line: float, season: str = SEASON_DEFAULT) -> dict:
+def get_player_team(player_name: str, season: str = SEASON_DEFAULT):
+    """Most recent team_name on record for this player. Used to figure
+    out who tonight's opponent actually is from the game's home/away teams."""
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute(f"""
+        SELECT team_name FROM {TABLE}
+        WHERE player_name = ? AND date LIKE ?
+        ORDER BY date DESC LIMIT 1
+    """, (player_name, f"{season}%"))
+    row = c.fetchone()
+    conn.close()
+    return row["team_name"] if row else None
+
+
+def project_prop(player_name: str, stat: str, line: float, opponent_team: str = None, season: str = SEASON_DEFAULT) -> dict:
     """
-    Core function. Returns a dict with projected_minutes, per_min_rate,
-    projected_stat, edge, edge_pct, direction (over/under), confidence_tier.
+    Core function. Returns a dict with projected_minutes, raw/adjusted
+    per_min_rate, defense_factor, projected_stat, edge, edge_pct,
+    direction (over/under), confidence_tier.
     Returns {"error": ...} if there isn't enough recent data to trust a projection.
+
+    opponent_team: tonight's opponent, if known. When given, the raw
+    per-minute rate is scaled by that team's defense factor for this
+    stat before projecting — a weak defense bumps the projection up,
+    a tough one bumps it down. Falls back to no adjustment (factor 1.0)
+    if the opponent isn't known or doesn't have enough games yet.
     """
     proj_min, min_games = project_minutes(player_name, season=season)
-    rate, rate_games = per_minute_rate(player_name, stat, season=season)
+    raw_rate, rate_games = per_minute_rate(player_name, stat, season=season)
 
-    if proj_min is None or rate is None:
+    if proj_min is None or raw_rate is None:
         return {
             "player_name": player_name, "stat": stat, "line": line,
             "error": "insufficient recent data",
             "minutes_sample": min_games, "rate_sample": rate_games,
         }
 
-    projected_stat = round(proj_min * rate, 1)
+    defense_factor = 1.0
+    if opponent_team:
+        from wnba_defense_ratings import get_defense_factor
+        defense_factor = get_defense_factor(opponent_team, stat, season=season)
+
+    adjusted_rate = round(raw_rate * defense_factor, 4)
+    projected_stat = round(proj_min * adjusted_rate, 1)
     edge = round(projected_stat - line, 1)
     edge_pct = round((edge / line) * 100, 1) if line else None
     direction = "over" if edge > 0 else ("under" if edge < 0 else "push")
@@ -121,7 +149,9 @@ def project_prop(player_name: str, stat: str, line: float, season: str = SEASON_
     return {
         "player_name": player_name, "stat": stat, "line": line,
         "projected_minutes": proj_min, "minutes_sample": min_games,
-        "per_min_rate": rate, "rate_sample": rate_games,
+        "raw_per_min_rate": raw_rate, "rate_sample": rate_games,
+        "opponent_team": opponent_team, "defense_factor": defense_factor,
+        "per_min_rate": adjusted_rate,
         "projected_stat": projected_stat,
         "edge": edge, "edge_pct": edge_pct, "direction": direction,
         "confidence_tier": _tier(edge, line),
@@ -134,7 +164,10 @@ def _ensure_projection_columns():
     c = conn.cursor()
     for col_def in (
         "projected_minutes REAL",
+        "raw_per_min_rate REAL",
         "per_min_rate REAL",
+        "opponent_team TEXT",
+        "defense_factor REAL",
         "projected_stat REAL",
         "projection_edge REAL",
         "projection_edge_pct REAL",
@@ -164,15 +197,17 @@ def save_projection(date: str, sport: str, player_name: str, stat: str, projecti
     try:
         c.execute("""
             UPDATE player_props
-            SET projected_minutes = ?, per_min_rate = ?, projected_stat = ?,
-                projection_edge = ?, projection_edge_pct = ?,
+            SET projected_minutes = ?, raw_per_min_rate = ?, per_min_rate = ?,
+                opponent_team = ?, defense_factor = ?,
+                projected_stat = ?, projection_edge = ?, projection_edge_pct = ?,
                 projection_direction = ?, projection_tier = ?
             WHERE date = ? AND sport = ? AND player_name = ? AND stat = ?
         """, (
-            projection.get("projected_minutes"), projection.get("per_min_rate"),
-            projection.get("projected_stat"), projection.get("edge"),
-            projection.get("edge_pct"), projection.get("direction"),
-            projection.get("confidence_tier"),
+            projection.get("projected_minutes"), projection.get("raw_per_min_rate"),
+            projection.get("per_min_rate"), projection.get("opponent_team"),
+            projection.get("defense_factor"), projection.get("projected_stat"),
+            projection.get("edge"), projection.get("edge_pct"),
+            projection.get("direction"), projection.get("confidence_tier"),
             date, sport, player_name, stat,
         ))
         conn.commit()
