@@ -185,19 +185,39 @@ def load_picks():
 def load_props():
     conn = get_connection()
     conn.sync()
-    cols = ["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
-            "over_odds", "under_odds", "hit_rate_overall", "confidence_tier",
-            "projected_stat", "projection_edge", "projection_edge_pct",
-            "projection_direction", "projection_tier", "defense_factor",
-            "actual_value", "hit", "team_won"]
 
-    query_with_results = """
+    # The projection columns (opponent_team, projected_stat, etc.) only get
+    # added to player_props the first time fetch_prizepicks_props.py
+    # actually saves a projection — on a freshly wiped table, or before
+    # that first run, they may not exist yet. Check what's really there
+    # instead of assuming, so this doesn't crash on a fresh deploy.
+    existing_cols = set()
+    try:
+        cur = conn.execute("PRAGMA table_info(player_props)")
+        existing_cols = {row[1] for row in cur.fetchall()}
+    except Exception:
+        pass
+
+    has_opponent_team = "opponent_team" in existing_cols
+    projection_cols = ["projected_stat", "projection_edge", "projection_edge_pct",
+                        "projection_direction", "projection_tier", "defense_factor"]
+    available_proj_cols = [c for c in projection_cols if c in existing_cols]
+
+    opponent_expr = "COALESCE(pp.opponent_team, pp.opponent)" if has_opponent_team else "pp.opponent"
+    proj_select = ", ".join(f"pp.{c}" for c in available_proj_cols)
+    proj_select_bare = ", ".join(available_proj_cols)
+
+    cols = (["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
+             "over_odds", "under_odds", "hit_rate_overall", "confidence_tier"]
+            + available_proj_cols
+            + ["actual_value", "hit", "team_won"])
+
+    query_with_results = f"""
         SELECT pp.date, pp.sport, pp.player_name, pp.team_name,
-               COALESCE(pp.opponent_team, pp.opponent) as opponent,
+               {opponent_expr} as opponent,
                pp.stat, pp.line, pp.over_odds, pp.under_odds,
-               pp.hit_rate_overall, pp.confidence_tier,
-               pp.projected_stat, pp.projection_edge, pp.projection_edge_pct,
-               pp.projection_direction, pp.projection_tier, pp.defense_factor,
+               pp.hit_rate_overall, pp.confidence_tier
+               {"," + proj_select if proj_select else ""},
                pr.actual_value, pr.hit, pr.team_won
         FROM player_props pp
         LEFT JOIN prop_results pr
@@ -206,31 +226,33 @@ def load_props():
     """
     # prop_results only gets created once prop_tracker.py runs for the first
     # time — until then, fall back to player_props alone so props still show
-    # as PENDING instead of crashing the whole dashboard. Same fallback for
-    # the projection_* columns, which only exist on player_props rows saved
-    # after the projection engine shipped — older rows will just show as
-    # None/NaN in those columns rather than breaking the query.
+    # as PENDING instead of crashing the whole dashboard.
     try:
         cur = conn.execute(query_with_results)
         rows = cur.fetchall()
         return pd.DataFrame(rows, columns=cols)
     except Exception:
-        query_no_results = """
+        base_cols = ["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
+                     "over_odds", "under_odds", "hit_rate_overall", "confidence_tier"] + available_proj_cols
+        query_no_results = f"""
             SELECT date, sport, player_name, team_name,
-                   COALESCE(opponent_team, opponent) as opponent,
-                   stat, line, over_odds, under_odds, hit_rate_overall, confidence_tier,
-                   projected_stat, projection_edge, projection_edge_pct,
-                   projection_direction, projection_tier, defense_factor
+                   {opponent_expr.replace("pp.", "")} as opponent,
+                   stat, line, over_odds, under_odds, hit_rate_overall, confidence_tier
+                   {"," + proj_select_bare if proj_select_bare else ""}
             FROM player_props
             ORDER BY date DESC
         """
         cur = conn.execute(query_no_results)
         rows = cur.fetchall()
-        base_cols = cols[:16]
         df = pd.DataFrame(rows, columns=base_cols)
         df["actual_value"] = None
         df["hit"] = None
         df["team_won"] = None
+        # ensure every column the rest of the app expects is present, even
+        # if this deploy's table doesn't have the projection columns yet
+        for c in projection_cols:
+            if c not in df.columns:
+                df[c] = None
         return df
 
 
