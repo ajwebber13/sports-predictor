@@ -186,12 +186,18 @@ def load_props():
     conn = get_connection()
     conn.sync()
     cols = ["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
-            "over_odds", "hit_rate_overall", "confidence_tier",
+            "over_odds", "under_odds", "hit_rate_overall", "confidence_tier",
+            "projected_stat", "projection_edge", "projection_edge_pct",
+            "projection_direction", "projection_tier", "defense_factor",
             "actual_value", "hit", "team_won"]
 
     query_with_results = """
-        SELECT pp.date, pp.sport, pp.player_name, pp.team_name, pp.opponent,
-               pp.stat, pp.line, pp.over_odds, pp.hit_rate_overall, pp.confidence_tier,
+        SELECT pp.date, pp.sport, pp.player_name, pp.team_name,
+               COALESCE(pp.opponent_team, pp.opponent) as opponent,
+               pp.stat, pp.line, pp.over_odds, pp.under_odds,
+               pp.hit_rate_overall, pp.confidence_tier,
+               pp.projected_stat, pp.projection_edge, pp.projection_edge_pct,
+               pp.projection_direction, pp.projection_tier, pp.defense_factor,
                pr.actual_value, pr.hit, pr.team_won
         FROM player_props pp
         LEFT JOIN prop_results pr
@@ -200,21 +206,27 @@ def load_props():
     """
     # prop_results only gets created once prop_tracker.py runs for the first
     # time — until then, fall back to player_props alone so props still show
-    # as PENDING instead of crashing the whole dashboard.
+    # as PENDING instead of crashing the whole dashboard. Same fallback for
+    # the projection_* columns, which only exist on player_props rows saved
+    # after the projection engine shipped — older rows will just show as
+    # None/NaN in those columns rather than breaking the query.
     try:
         cur = conn.execute(query_with_results)
         rows = cur.fetchall()
         return pd.DataFrame(rows, columns=cols)
     except Exception:
         query_no_results = """
-            SELECT date, sport, player_name, team_name, opponent,
-                   stat, line, over_odds, hit_rate_overall, confidence_tier
+            SELECT date, sport, player_name, team_name,
+                   COALESCE(opponent_team, opponent) as opponent,
+                   stat, line, over_odds, under_odds, hit_rate_overall, confidence_tier,
+                   projected_stat, projection_edge, projection_edge_pct,
+                   projection_direction, projection_tier, defense_factor
             FROM player_props
             ORDER BY date DESC
         """
         cur = conn.execute(query_no_results)
         rows = cur.fetchall()
-        base_cols = cols[:10]
+        base_cols = cols[:16]
         df = pd.DataFrame(rows, columns=base_cols)
         df["actual_value"] = None
         df["hit"] = None
@@ -443,20 +455,15 @@ with tab_props:
         props_df["hit"] = pd.to_numeric(props_df["hit"], errors="coerce")
         props_df["actual_value"] = pd.to_numeric(props_df["actual_value"], errors="coerce")
         props_df["hit_rate_overall"] = pd.to_numeric(props_df["hit_rate_overall"], errors="coerce")
+        props_df["projected_stat"] = pd.to_numeric(props_df["projected_stat"], errors="coerce")
+        props_df["projection_edge_pct"] = pd.to_numeric(props_df["projection_edge_pct"], errors="coerce")
+        props_df["defense_factor"] = pd.to_numeric(props_df["defense_factor"], errors="coerce")
 
         def prop_status(row):
             if pd.isna(row["hit"]):
                 return "PENDING"
             return "HIT" if row["hit"] == 1 else "MISS"
         props_df["status"] = props_df.apply(prop_status, axis=1)
-
-        def tier_badge(t):
-            t = (t or "").strip()
-            if "🟢" in t or t.lower() == "green":
-                return '<span class="tier-green">🟢 PLAY</span>'
-            if "🟡" in t or t.lower() == "yellow":
-                return '<span class="tier-yellow">🟡 MONITOR</span>'
-            return t
 
         settled_props = props_df[props_df["status"].isin(["HIT", "MISS"])]
         if not settled_props.empty:
@@ -472,45 +479,87 @@ with tab_props:
             st.info("No settled props yet.")
 
         st.markdown("---")
-        col1, col2, col3 = st.columns(3)
-        with col1:
+
+        # ── filter row ──
+        fc1, fc2, fc3, fc4 = st.columns([1, 1, 1, 1.5])
+        with fc1:
             sport_f = st.multiselect("Sport", options=props_df["sport"].unique(), default=list(props_df["sport"].unique()), key="p_sport")
-        with col2:
+        with fc2:
             status_f = st.multiselect("Result", options=["HIT", "MISS", "PENDING"], default=["HIT", "MISS", "PENDING"], key="p_status")
-        with col3:
-            tiers = props_df["confidence_tier"].dropna().unique()
-            tier_f = st.multiselect("Tier", options=list(tiers), default=list(tiers), key="p_tier")
+        with fc3:
+            min_edge = st.slider("Min Edge %", 0.0, 50.0, 0.0, 1.0, key="p_edge")
+        with fc4:
+            search = st.text_input("Search player", "", key="p_search")
 
         pf = props_df[
             props_df["sport"].isin(sport_f)
             & props_df["status"].isin(status_f)
-            & (props_df["confidence_tier"].isin(tier_f) | props_df["confidence_tier"].isna())
         ].copy()
+        if "projection_edge_pct" in pf.columns:
+            pf = pf[(pf["projection_edge_pct"].abs() >= min_edge) | pf["projection_edge_pct"].isna()]
+        if search:
+            pf = pf[pf["player_name"].str.contains(search, case=False, na=False)]
 
         st.write(f"**{len(pf)} props**")
-        for _, row in pf.sort_values("date", ascending=False).iterrows():
-            result_color = {"HIT": "#3ecf8e", "MISS": "#ff5c5c", "PENDING": "#6b6b6b"}[row["status"]]
-            actual = f"{row['actual_value']:.1f}" if pd.notna(row["actual_value"]) else "—"
 
-            opp_logo = team_logo_url(row["sport"], row["opponent"])
-            logo_html = (
-                f'<img src="{opp_logo}" style="width:22px;height:22px;object-fit:contain;margin-left:6px;vertical-align:middle;">'
-                if opp_logo else ""
+        if pf.empty:
+            st.info("No props match these filters.")
+        else:
+            tier_emoji = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
+
+            def play_label(row):
+                tier = row.get("projection_tier")
+                direction = row.get("projection_direction")
+                tier = tier.lower() if isinstance(tier, str) else ""
+                direction = direction.upper() if isinstance(direction, str) else ""
+                if tier and direction:
+                    return f"{tier_emoji.get(tier, '')} {direction}"
+                # fall back to the old hit-rate-based tier for rows saved
+                # before the projection engine existed
+                old_tier = row.get("confidence_tier")
+                old_tier = old_tier.lower() if isinstance(old_tier, str) else ""
+                if "🟢" in old_tier or old_tier == "green":
+                    return "🟢 —"
+                if "🟡" in old_tier or old_tier == "yellow":
+                    return "🟡 —"
+                return "—"
+
+            display = pf.copy()
+            display["Play"] = display.apply(play_label, axis=1)
+            display["Odds"] = display.apply(
+                lambda x: f"o{x['over_odds']}/u{x['under_odds']}" if pd.notna(x.get("over_odds")) else "—", axis=1
             )
-            avatar = initials_avatar(row["player_name"])
+            display["opp_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["opponent"]), axis=1)
+            display["actual_display"] = display["actual_value"].apply(lambda v: f"{v:.1f}" if pd.notna(v) else "—")
 
-            st.markdown(f"""
-<div class="cp-card" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
-<div style="display:flex;align-items:center;gap:12px;">
-{avatar}
-<div>
-<div style="color:#fff;font-weight:700;font-size:15px;">{row['player_name']} <span style="color:#6b6b6b;font-weight:500;">vs {row['opponent']}</span>{logo_html}</div>
-<div style="color:#6b6b6b;font-size:13px;margin-top:4px;">Over {row['line']} {row['stat'].upper()} · {row['date']}</div>
-</div>
-</div>
-<div style="text-align:right;">
-{tier_badge(row['confidence_tier'])}
-<div style="color:{result_color};font-weight:800;font-size:14px;margin-top:6px;">{row['status']} ({actual})</div>
-</div>
-</div>
-""", unsafe_allow_html=True)
+            display = display.sort_values(
+                "projection_edge_pct", key=lambda s: s.abs(), ascending=False, na_position="last"
+            )
+
+            show_cols = ["player_name", "team_name", "opp_logo", "opponent", "sport", "stat", "line",
+                         "Play", "projected_stat", "projection_edge_pct", "hit_rate_overall",
+                         "defense_factor", "Odds", "status", "actual_display"]
+
+            st.dataframe(
+                display[show_cols],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "player_name":      st.column_config.TextColumn("Player", width="medium"),
+                    "team_name":        st.column_config.TextColumn("Team"),
+                    "opp_logo":         st.column_config.ImageColumn(""),
+                    "opponent":         st.column_config.TextColumn("Opp"),
+                    "sport":            st.column_config.TextColumn("Sport", width="small"),
+                    "stat":             st.column_config.TextColumn("Stat", width="small"),
+                    "line":             st.column_config.NumberColumn("Line", format="%.1f"),
+                    "Play":             st.column_config.TextColumn("Play"),
+                    "projected_stat":   st.column_config.NumberColumn("Projected", format="%.1f"),
+                    "projection_edge_pct": st.column_config.NumberColumn("Edge %", format="%+.1f%%"),
+                    "hit_rate_overall": st.column_config.ProgressColumn("Hit Rate", min_value=0, max_value=100, format="%.0f%%"),
+                    "defense_factor":   st.column_config.NumberColumn("Matchup", format="%.2f", help=">1.0 = weak defense (favorable), <1.0 = tough defense"),
+                    "Odds":             st.column_config.TextColumn("Odds"),
+                    "status":           st.column_config.TextColumn("Result"),
+                    "actual_display":   st.column_config.TextColumn("Actual"),
+                },
+            )
+            st.caption("Matchup: >1.0 means that opponent allows more than league average for this stat · <1.0 means tougher than average")
