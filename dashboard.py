@@ -24,6 +24,7 @@ order of each SELECT clause instead of trusting cur.description.
 
 import os
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import libsql_experimental as libsql
 
@@ -107,6 +108,168 @@ def initials_avatar(name: str) -> str:
         f'font-size:14px;flex-shrink:0;">{initials}</div>'
     )
 
+# ---------- SPARKLINE PROPS TABLE (custom HTML/JS component) ----------
+# Streamlit's native st.dataframe renders to canvas internally, so it can't
+# show an inline recent-form sparkline per row — the thing that makes
+# Outlier/Bobby's Bets props tables actually useful at a glance. This
+# builds a real HTML table instead, with server-rendered SVG sparklines
+# (last 5 games vs the line, colored by hit/miss) and a small vanilla-JS
+# click-to-sort so we don't lose the sortability of the native table.
+
+GAME_LOG_TABLES = {"wnba": "wnba_game_log", "mlb": "mlb_game_log", "nba": "nba_game_log"}
+STAT_COLS = {
+    "wnba": {"pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
+             "pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast"), "ra": ("reb", "ast")},
+    "nba":  {"pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
+             "pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast"), "ra": ("reb", "ast")},
+    "mlb":  {"hits": "hits", "runs": "runs", "rbis": "rbis", "hr": "hrs"},
+}
+
+@st.cache_data(ttl=300)
+def get_recent_values(sport: str, player_name: str, stat: str, n: int = 5) -> list:
+    """Last n games' actual value for this stat, oldest to newest (left to
+    right on the sparkline). Returns [] for sports/stats without a game log
+    yet (e.g. CFB/NFL) instead of crashing — same graceful-degrade pattern
+    used everywhere else in this build."""
+    table = GAME_LOG_TABLES.get(sport)
+    if not table:
+        return []
+    col_def = STAT_COLS.get(sport, {}).get(stat)
+    if col_def is None:
+        return []
+    select_expr = " + ".join(col_def) if isinstance(col_def, tuple) else col_def
+    try:
+        conn = get_connection()
+        cur = conn.execute(
+            f"SELECT {select_expr} as val FROM {table} WHERE player_name = ? ORDER BY date DESC LIMIT ?",
+            (player_name, n),
+        )
+        rows = cur.fetchall()
+    except Exception:
+        return []
+    values = [r[0] for r in rows if r[0] is not None]
+    values.reverse()
+    return values
+
+
+def sparkline_svg(values: list, line_value: float, direction: str = "over", width: int = 90, height: int = 28) -> str:
+    """Tiny inline SVG: recent-game trend line + dashed reference line at
+    the prop's betting line + a dot per game colored green (beat the line
+    in the play's direction) or red (missed)."""
+    if not values or line_value is None:
+        return '<span style="color:#4a4a4a;font-size:11px;">no data</span>'
+
+    vmin = min(values + [line_value])
+    vmax = max(values + [line_value])
+    rng = (vmax - vmin) or 1
+    pad = 3
+    n = len(values)
+    step = (width - 2 * pad) / max(n - 1, 1)
+
+    def y_of(v):
+        return height - pad - ((v - vmin) / rng) * (height - 2 * pad)
+
+    points, dots = [], []
+    for i, v in enumerate(values):
+        x = pad + i * step
+        y = y_of(v)
+        points.append(f"{x:.1f},{y:.1f}")
+        beat = (v > line_value) if direction == "over" else (v < line_value)
+        color = "#3ecf8e" if beat else "#ff5c5c"
+        dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.2" fill="{color}" />')
+
+    line_y = y_of(line_value)
+    polyline = f'<polyline points="{" ".join(points)}" fill="none" stroke="#8a7d55" stroke-width="1.3" />'
+    ref_line = (f'<line x1="{pad}" y1="{line_y:.1f}" x2="{width - pad}" y2="{line_y:.1f}" '
+                f'stroke="#D4AF3766" stroke-width="1" stroke-dasharray="2,2" />')
+    return f'<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}">{ref_line}{polyline}{"".join(dots)}</svg>'
+
+
+def build_props_html(rows: list) -> str:
+    """rows: list of dicts, each with player, team, opponent, opp_logo,
+    sport, stat, line, play, sparkline_svg, projected, edge_pct, hit_rate,
+    matchup, odds, status, actual. Returns a full standalone HTML doc for
+    st.components.v1.html — includes its own styling (matches the app's
+    black/gold theme) and a small click-to-sort script."""
+
+    def esc(v):
+        return "" if v is None else str(v).replace('"', "&quot;")
+
+    body_rows = []
+    for r in rows:
+        opp_logo_html = f'<img src="{r["opp_logo"]}" style="width:18px;height:18px;object-fit:contain;vertical-align:middle;margin-right:4px;">' if r.get("opp_logo") else ""
+        result_color = {"HIT": "#3ecf8e", "MISS": "#ff5c5c", "PENDING": "#6b6b6b"}.get(r.get("status"), "#6b6b6b")
+        body_rows.append(f"""
+<tr>
+  <td data-val="{esc(r['player'])}"><b style="color:#fff;">{esc(r['player'])}</b><div style="color:#6b6b6b;font-size:11px;">{esc(r['team'])}</div></td>
+  <td data-val="{esc(r['opponent'])}">{opp_logo_html}{esc(r['opponent'])}</td>
+  <td data-val="{esc(r['sport'])}">{esc(r['sport']).upper()}</td>
+  <td data-val="{esc(r['stat'])}">{esc(r['stat']).upper()} {r['line']}</td>
+  <td data-val="{esc(r['play'])}">{r['play']}</td>
+  <td data-val="{r.get('edge_pct') or 0}">{r['sparkline_svg']}</td>
+  <td data-val="{r.get('projected') or 0}">{r['projected'] if r.get('projected') is not None else '—'}</td>
+  <td data-val="{r.get('edge_pct') or 0}" style="color:{'#3ecf8e' if (r.get('edge_pct') or 0) >= 0 else '#ff5c5c'};font-weight:700;">{f"{r['edge_pct']:+.1f}%" if r.get('edge_pct') is not None else '—'}</td>
+  <td data-val="{r.get('hit_rate') or 0}">{f"{r['hit_rate']:.0f}%" if r.get('hit_rate') is not None else '—'}</td>
+  <td data-val="{r.get('matchup') or 0}">{f"{r['matchup']:.2f}" if r.get('matchup') is not None else '—'}</td>
+  <td data-val="{esc(r['odds'])}">{esc(r['odds'])}</td>
+  <td data-val="{esc(r['status'])}" style="color:{result_color};font-weight:700;">{esc(r['status'])}</td>
+</tr>""")
+
+    headers = [
+        ("Player", "text", False), ("Opp", "text", False), ("Sport", "text", False),
+        ("Stat / Line", "text", False), ("Play", "text", False), ("Last 5", "num", True),
+        ("Proj", "num", True), ("Edge %", "num", True), ("Hit Rate", "num", True),
+        ("Matchup", "num", True), ("Odds", "text", False), ("Result", "text", False),
+    ]
+    header_html = "".join(
+        f'<th onclick="cpSort({i},\'{t}\')" style="cursor:pointer;user-select:none;">{label} <span style="opacity:0.4;">⇅</span></th>'
+        for i, (label, t, sortable) in enumerate(headers)
+    )
+
+    return f"""
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=DM+Sans:wght@400;500;700&display=swap');
+  body {{ margin:0; background:#0A0A0A; font-family:'DM Sans',sans-serif; }}
+  table {{ width:100%; border-collapse:collapse; font-size:13px; }}
+  thead th {{
+    background:#131209; color:#8a7d55; font-family:'Oswald',sans-serif; font-weight:600;
+    font-size:11px; letter-spacing:1px; text-transform:uppercase; text-align:left;
+    padding:10px 12px; border-bottom:1px solid #2a2416; position:sticky; top:0;
+  }}
+  thead th:hover {{ color:#D4AF37; }}
+  tbody td {{ padding:9px 12px; border-bottom:1px solid #1a1710; color:#c9c2ae; white-space:nowrap; }}
+  tbody tr:hover {{ background:#131209; }}
+</style></head>
+<body>
+<table id="cpPropsTable">
+  <thead><tr>{header_html}</tr></thead>
+  <tbody>{"".join(body_rows)}</tbody>
+</table>
+<script>
+function cpSort(colIndex, type) {{
+  const table = document.getElementById('cpPropsTable');
+  const tbody = table.tBodies[0];
+  const rows = Array.from(tbody.rows);
+  const header = table.tHead.rows[0].cells[colIndex];
+  const asc = header.getAttribute('data-order') !== 'asc';
+  rows.sort((a, b) => {{
+    let av = a.cells[colIndex].getAttribute('data-val');
+    let bv = b.cells[colIndex].getAttribute('data-val');
+    if (type === 'num') {{ av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }}
+    if (av < bv) return asc ? -1 : 1;
+    if (av > bv) return asc ? 1 : -1;
+    return 0;
+  }});
+  rows.forEach(r => tbody.appendChild(r));
+  Array.from(table.tHead.rows[0].cells).forEach(c => c.removeAttribute('data-order'));
+  header.setAttribute('data-order', asc ? 'asc' : 'desc');
+}}
+</script>
+</body></html>
+"""
+
+
 # ---------- STYLE: Culture & Pulse Boardroom/ESPN brand + Outlier-style data density ----------
 # Brand: black #0A0A0A background, gold #D4AF37 primary accent, ticker gold #feb400,
 # Bebas Neue for headlines, Oswald for labels, DM Sans for body — per CP brand identity.
@@ -121,12 +284,14 @@ st.markdown("""
 
 .cp-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 20px 0; margin-bottom: 8px; border-bottom: 1px solid #2a2416; }
 .cp-header .brand { display: flex; align-items: center; gap: 10px; }
-.cp-header .dot { width: 9px; height: 9px; border-radius: 50%; background: #feb400; box-shadow: 0 0 8px #feb400; }
+.cp-header .dot { width: 9px; height: 9px; border-radius: 50%; background: #feb400; box-shadow: 0 0 8px #feb400; animation: cp-pulse 2s ease-in-out infinite; }
+@keyframes cp-pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 8px #feb400; } 50% { opacity: 0.55; box-shadow: 0 0 3px #feb400; } }
 .cp-header h1 { font-family: 'Bebas Neue', sans-serif; font-size: 34px; font-weight: 400; color: #ffffff; margin: 0; letter-spacing: 1px; }
 .cp-header .sub { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; }
 
 .cp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
-.cp-card { background: #131209; border: 1px solid #2a2416; border-radius: 10px; padding: 16px 18px; }
+.cp-card { background: #131209; border: 1px solid #2a2416; border-radius: 10px; padding: 16px 18px; transition: border-color 0.15s ease, transform 0.15s ease; }
+.cp-card:hover { border-color: #D4AF3766; transform: translateY(-1px); }
 .cp-card .sport-name { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
 .cp-card .record { color: #ffffff; font-size: 26px; font-weight: 800; line-height: 1; letter-spacing: -0.5px; }
 .cp-card .pct-row { display: flex; align-items: center; gap: 5px; margin-top: 8px; }
@@ -143,12 +308,34 @@ st.markdown("""
 
 h3 { font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; font-weight: 600 !important; font-size: 14px !important; text-transform: uppercase; letter-spacing: 1.5px; }
 
+/* labels above filter widgets (Sport, Result, Min Edge, Search...) — match the
+   Oswald/gold-muted label style used everywhere else instead of Streamlit default */
+.stMultiSelect label p, .stSlider label p, .stTextInput label p, .stDateInput label p {
+    font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; font-size: 11px !important;
+    font-weight: 600 !important; letter-spacing: 1.5px !important; text-transform: uppercase;
+}
+
 section[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; border: 1px solid #2a2416; }
 .stMultiSelect [data-baseweb="tag"] { background-color: #2a2416 !important; color: #D4AF37 !important; border: 1px solid #D4AF3733 !important; }
-hr { border-color: #2a2416 !important; }
+.stMultiSelect > div > div, .stTextInput > div > div, .stDateInput > div > div {
+    background-color: #131209 !important; border: 1px solid #2a2416 !important; border-radius: 8px !important;
+}
+.stMultiSelect > div > div:focus-within, .stTextInput > div > div:focus-within {
+    border-color: #D4AF3799 !important;
+}
+.stTextInput input { color: #ffffff !important; }
+.stSlider [data-baseweb="slider"] > div > div { background: #D4AF37 !important; }
+.stSlider [role="slider"] { background-color: #D4AF37 !important; border-color: #D4AF37 !important; }
+
+hr { border-color: #2a2416 !important; margin: 20px 0 !important; }
 .stTabs [data-baseweb="tab-list"] { gap: 4px; }
-.stTabs [data-baseweb="tab"] { background-color: #131209; border-radius: 8px 8px 0 0; color: #8a7d55; font-family: 'Oswald', sans-serif; padding: 8px 18px; }
+.stTabs [data-baseweb="tab"] { background-color: #131209; border-radius: 8px 8px 0 0; color: #8a7d55; font-family: 'Oswald', sans-serif; padding: 8px 18px; transition: color 0.15s ease; }
+.stTabs [data-baseweb="tab"]:hover { color: #D4AF37; }
 .stTabs [aria-selected="true"] { color: #D4AF37 !important; border-bottom: 2px solid #D4AF37 !important; }
+
+/* tighten default Streamlit block spacing for a denser, more data-tool feel */
+div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column"] { gap: 0.5rem; }
+.block-container { padding-top: 2rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -399,13 +586,36 @@ with tab_games:
         detail_slot = st.empty()
 
         st.markdown("---")
-        col1, col2 = st.columns(2)
-        with col1:
+        fc1, fc2, fc3, fc4 = st.columns([1, 1, 1, 1.5])
+        with fc1:
             sport_filter = st.multiselect("Sport", options=df["sport"].unique(), default=list(df["sport"].unique()), key="g_sport")
-        with col2:
+        with fc2:
             status_filter = st.multiselect("Result", options=["WIN", "LOSS", "PENDING"], default=["WIN", "LOSS", "PENDING"], key="g_status")
+        with fc3:
+            min_edge_g = st.slider("Min Edge %", 0.0, 50.0, 0.0, 1.0, key="g_edge")
+        with fc4:
+            search_g = st.text_input("Search team/game", "", key="g_search")
 
         filtered = df[df["sport"].isin(sport_filter) & df["status"].isin(status_filter)].copy()
+        filtered["edge"] = pd.to_numeric(filtered["edge"], errors="coerce")
+        filtered = filtered[(filtered["edge"].abs() >= min_edge_g) | filtered["edge"].isna()]
+        if search_g:
+            filtered = filtered[filtered["game"].str.contains(search_g, case=False, na=False)
+                                 | filtered["bet"].str.contains(search_g, case=False, na=False)]
+
+        # Same 15% / 7% edge thresholds used by the projection engine's
+        # confidence tiers elsewhere in the app, applied here to game picks
+        # so both tabs read the same way at a glance.
+        def edge_tier(edge):
+            if pd.isna(edge):
+                return "—"
+            pct = abs(edge)
+            if pct >= 15:
+                return "🟢"
+            if pct >= 7:
+                return "🟡"
+            return "🔴"
+        filtered["Tier"] = filtered["edge"].apply(edge_tier)
 
         # Pull the team name being bet on out of the "bet" field (e.g. "Miami Marlins ML")
         # to look up its logo — matches the sport's team ID map when available.
@@ -415,13 +625,15 @@ with tab_games:
         filtered["pick_logo"] = filtered.apply(pick_logo, axis=1)
 
         sorted_full = filtered.sort_values("date", ascending=False).reset_index(drop=True)
-        display_cols = ["pick_logo", "date", "sport", "game", "bet", "odds", "edge", "final_score", "status"]
+        st.write(f"**{len(sorted_full)} picks**")
+        display_cols = ["pick_logo", "date", "sport", "game", "bet", "Tier", "odds", "edge", "final_score", "status"]
 
         event = st.dataframe(
             sorted_full[display_cols],
             use_container_width=True, hide_index=True,
             column_config={
                 "pick_logo": st.column_config.ImageColumn(""),
+                "Tier": st.column_config.TextColumn("Tier", width="small"),
                 "status": st.column_config.TextColumn("Result"),
                 "final_score": st.column_config.TextColumn("Score"),
                 "edge": st.column_config.NumberColumn("Edge %", format="%.1f"),
@@ -552,36 +764,28 @@ with tab_props:
                 lambda x: f"o{x['over_odds']}/u{x['under_odds']}" if pd.notna(x.get("over_odds")) else "—", axis=1
             )
             display["opp_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["opponent"]), axis=1)
-            display["actual_display"] = display["actual_value"].apply(lambda v: f"{v:.1f}" if pd.notna(v) else "—")
 
             display = display.sort_values(
                 "projection_edge_pct", key=lambda s: s.abs(), ascending=False, na_position="last"
             )
 
-            show_cols = ["player_name", "team_name", "opp_logo", "opponent", "sport", "stat", "line",
-                         "Play", "projected_stat", "projection_edge_pct", "hit_rate_overall",
-                         "defense_factor", "Odds", "status", "actual_display"]
+            table_rows = []
+            for _, row in display.iterrows():
+                recent = get_recent_values(row["sport"], row["player_name"], row["stat"], n=5)
+                direction = row.get("projection_direction") or "over"
+                spark = sparkline_svg(recent, row["line"], direction=direction)
+                table_rows.append({
+                    "player": row["player_name"], "team": row["team_name"],
+                    "opponent": row["opponent"], "opp_logo": row["opp_logo"],
+                    "sport": row["sport"], "stat": row["stat"], "line": row["line"],
+                    "play": row["Play"], "sparkline_svg": spark,
+                    "projected": row["projected_stat"] if pd.notna(row.get("projected_stat")) else None,
+                    "edge_pct": row["projection_edge_pct"] if pd.notna(row.get("projection_edge_pct")) else None,
+                    "hit_rate": row["hit_rate_overall"] if pd.notna(row.get("hit_rate_overall")) else None,
+                    "matchup": row["defense_factor"] if pd.notna(row.get("defense_factor")) else None,
+                    "odds": row["Odds"], "status": row["status"],
+                })
 
-            st.dataframe(
-                display[show_cols],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "player_name":      st.column_config.TextColumn("Player", width="medium"),
-                    "team_name":        st.column_config.TextColumn("Team"),
-                    "opp_logo":         st.column_config.ImageColumn(""),
-                    "opponent":         st.column_config.TextColumn("Opp"),
-                    "sport":            st.column_config.TextColumn("Sport", width="small"),
-                    "stat":             st.column_config.TextColumn("Stat", width="small"),
-                    "line":             st.column_config.NumberColumn("Line", format="%.1f"),
-                    "Play":             st.column_config.TextColumn("Play"),
-                    "projected_stat":   st.column_config.NumberColumn("Projected", format="%.1f"),
-                    "projection_edge_pct": st.column_config.NumberColumn("Edge %", format="%+.1f%%"),
-                    "hit_rate_overall": st.column_config.ProgressColumn("Hit Rate", min_value=0, max_value=100, format="%.0f%%"),
-                    "defense_factor":   st.column_config.NumberColumn("Matchup", format="%.2f", help=">1.0 = weak defense (favorable), <1.0 = tough defense"),
-                    "Odds":             st.column_config.TextColumn("Odds"),
-                    "status":           st.column_config.TextColumn("Result"),
-                    "actual_display":   st.column_config.TextColumn("Actual"),
-                },
-            )
-            st.caption("Matchup: >1.0 means that opponent allows more than league average for this stat · <1.0 means tougher than average")
+            table_height = min(72 + len(table_rows) * 42, 900)
+            components.html(build_props_html(table_rows), height=table_height, scrolling=True)
+            st.caption("Last 5: green dot = beat the line that game, red = missed · dashed line = the prop line · Matchup: >1.0 means that opponent allows more than league average for this stat, <1.0 means tougher than average")
