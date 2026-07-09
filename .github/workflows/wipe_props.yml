@@ -1,0 +1,31 @@
+name: Wipe Player Props
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type WIPE to confirm you want to delete all player_props rows'
+        required: true
+        default: ''
+
+jobs:
+  run_wipe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "WIPE" ]; then
+            echo "Confirmation text did not match 'WIPE' — aborting, nothing deleted."
+            exit 1
+          fi
+      - name: Wipe player_props
+        run: python -u wipe_player_props.py --yes
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
