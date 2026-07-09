@@ -90,6 +90,19 @@ def get_player_team(player_name: str):
 def _tier(edge: float, line: float) -> str:
     if not line:
         return "insufficient"
+    # Percent-of-line breaks down for small counting-stat lines like STL/BLK
+    # at 0.5-1.5 — dividing by a near-zero line inflates trivial differences
+    # into huge percentages (a 0.42-vs-0.5 projection showing "-16% edge, GREEN"
+    # is noise, not a real signal). Below this line value, judge the edge in
+    # raw units instead of percentage.
+    LOW_LINE_THRESHOLD = 3.0
+    if line < LOW_LINE_THRESHOLD:
+        abs_edge = abs(edge)
+        if abs_edge >= 0.5:
+            return "green"
+        if abs_edge >= 0.25:
+            return "yellow"
+        return "red"
     pct = abs(edge) / line * 100
     if pct >= 15:
         return "green"
