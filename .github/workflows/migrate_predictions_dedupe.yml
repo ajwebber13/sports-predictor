@@ -1,0 +1,31 @@
+name: Migrate Predictions Dedupe
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type YES to confirm you want to dedupe and fix the predictions table schema'
+        required: true
+        default: ''
+
+jobs:
+  run_migration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "YES" ]; then
+            echo "Confirmation text did not match 'YES' — aborting, nothing changed."
+            exit 1
+          fi
+      - name: Run migration
+        run: python -u migrate_predictions_dedupe.py --yes
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

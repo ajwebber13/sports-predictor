@@ -225,7 +225,7 @@ def init_db():
             game_type       TEXT DEFAULT 'regular_season',
             predicted_winner TEXT,
             created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(date, sport, game, bet)
+            UNIQUE(date, sport, game)
         )
     """)
 
@@ -919,7 +919,7 @@ def log_prediction(bet: dict, sport: str):
 
     try:
         c.execute("""
-            INSERT OR IGNORE INTO predictions
+            INSERT OR REPLACE INTO predictions
             (date, sport, game, home_team, away_team, bet, odds,
              model_prob, implied_prob, edge, home_record, away_record,
              home_rest, away_rest, home_injuries, away_injuries, predicted_winner)
