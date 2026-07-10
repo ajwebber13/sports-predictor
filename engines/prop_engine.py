@@ -6,6 +6,7 @@ Player Prop Projection Engine
 v2-platform
 
 Uses existing sportsbook model tables:
+
 - player_profiles
 - player_stats_history
 - player_props
@@ -37,7 +38,7 @@ class PropEngine:
 
     def get_player_props(self, player_name):
         """
-        Retrieve current prop projections.
+        Retrieve current player prop projections.
         """
 
         query = """
@@ -55,7 +56,7 @@ class PropEngine:
 
     def get_player_history(self, player_name):
         """
-        Historical player performance.
+        Retrieve historical player performance.
         """
 
         query = """
@@ -73,7 +74,7 @@ class PropEngine:
 
     def calculate_edge(self, projection, line):
         """
-        Model edge over sportsbook line.
+        Calculate model edge over sportsbook line.
         """
 
         return round(
@@ -84,12 +85,11 @@ class PropEngine:
 
     def get_best_prop(self, player_name):
         """
-        Return highest value prop opportunity.
+        Return highest value prop opportunity
+        for a specific player.
         """
 
-        props = self.get_player_props(
-            player_name
-        )
+        props = self.get_player_props(player_name)
 
         if not props:
             return None
@@ -102,6 +102,7 @@ class PropEngine:
             else 0
         )
 
+
         return {
             "player": best["player_name"],
             "stat": best["stat"],
@@ -113,40 +114,109 @@ class PropEngine:
             "tier": best["projection_tier"],
             "confidence": best["confidence_tier"]
         }
-    def get_top_props(self, limit=10):
+
+
+def get_top_props(self, limit=10, sport=None):
+    """
+    Return highest quality prop opportunities.
+
+    Used by:
+    - Streamlit dashboard
+    - API endpoints
+    - betting alerts
+
+    Normalized edge calculation:
+    Prevents low lines (0.5 hits, 0.5 RBIs)
+    from creating unrealistic percentages.
+    """
+
+    query = """
+    SELECT
+        player_name,
+        team_name,
+        sport,
+        stat,
+        line,
+        projected_stat,
+        projection_edge,
+        projection_direction,
+        projection_tier,
+        confidence_tier,
+        games_overall
+    FROM player_props
+    WHERE projected_stat IS NOT NULL
+      AND confidence_tier != 'red'
+      AND games_overall >= 10
+    """
+
+    params = []
+
+    if sport:
+        query += """
+        AND sport = ?
         """
-        Return highest edge props available.
-        Used by dashboard.
-        """
-
-        query = """
-        SELECT *
-        FROM player_props
-        WHERE projection_edge_pct IS NOT NULL
-        ORDER BY projection_edge_pct DESC
-        LIMIT ?
-        """
-
-        rows = self.db.execute(
-            query,
-            (limit,)
-        ).fetchall()
+        params.append(sport)
 
 
-        results = []
+    query += """
+    ORDER BY projection_edge DESC
+    LIMIT ?
+    """
 
-        for row in rows:
-            results.append({
-                "player": row["player_name"],
-                "team": row["team_name"],
-                "stat": row["stat"],
-                "line": row["line"],
-                "projection": row["projected_stat"],
-                "edge": row["projection_edge"],
-                "edge_pct": row["projection_edge_pct"],
-                "direction": row["projection_direction"],
-                "tier": row["projection_tier"],
-                "confidence": row["confidence_tier"]
-            })
+    params.append(limit)
 
-        return results
+
+    rows = self.db.execute(
+        query,
+        tuple(params)
+    ).fetchall()
+
+
+    results = []
+
+
+    for row in rows:
+
+        line = row["line"]
+        projection = row["projected_stat"]
+        edge = row["projection_edge"]
+
+
+        # Normalize edge percentage
+        if line >= 1:
+            edge_pct = round(
+                ((projection - line) / line) * 100,
+                1
+            )
+        else:
+            edge_pct = round(
+                ((projection - line) / 1) * 100,
+                1
+            )
+
+
+        results.append({
+
+            "player": row["player_name"],
+            "team": row["team_name"],
+            "sport": row["sport"],
+            "stat": row["stat"],
+
+            "line": line,
+
+            "projection": projection,
+
+            "edge": edge,
+
+            "edge_pct": edge_pct,
+
+            "direction": row["projection_direction"],
+
+            "tier": row["projection_tier"],
+
+            "confidence": row["confidence_tier"]
+
+        })
+
+
+    return results

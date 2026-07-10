@@ -1,29 +1,119 @@
 """
 load_props.py — Culture & Pulse Analytics
 ==========================================
-MANUAL FALLBACK ONLY as of 2026-07-01. The daily flow is now automated:
-  fetch_prizepicks_props.py (10 AM CT cron) -> wnba_props_alert.py (10:15 AM CT cron)
-Use this script only if PropLine's API is down, rate-limited (1,000 req/day
-free tier), or missing a specific line you need. It has its own simpler
-confidence-tier logic (no off-role downgrade, no PRA/PR/PA/RA support —
-see STAT_KEY_MAP below) and writes to the same player_props row as the
-automated pipeline, so whichever one runs LAST wins for that player/stat.
+Two responsibilities in this file:
 
-Reads props_today.txt, fetches player hit rates from ESPN box score history,
-and loads everything into the player_props table in cp_analytics.db.
+1. load_props() — the READ function dashboard.py imports and calls
+   (Tab 2: Player Props). Queries player_props LEFT JOIN prop_results
+   from Turso via database.get_conn(), same pattern as load_picks() in
+   dashboard.py. Handles schema drift (older rows/deploys missing the
+   projection_* columns) via PRAGMA table_info instead of assuming.
+
+2. Everything below run() — MANUAL FALLBACK ONLY as of 2026-07-01. The
+   daily flow is now automated:
+     fetch_prizepicks_props.py (10 AM CT cron) -> wnba_props_alert.py (10:15 AM CT cron)
+   Use this only if PropLine's API is down, rate-limited (1,000 req/day
+   free tier), or missing a specific line you need. It has its own
+   simpler confidence-tier logic (no off-role downgrade, no PRA/PR/PA/RA
+   support — see STAT_KEY_MAP below) and writes to the same player_props
+   row as the automated pipeline, so whichever one runs LAST wins for
+   that player/stat. This part writes to a local cp_analytics.db
+   (sqlite3), NOT Turso — separate from load_props() above.
 
 Usage:
-    py load_props.py
-
-Manual use only — fill out props_today.txt first, then run this.
+    py load_props.py     # manual fallback only — fill out props_today.txt first
 """
 
 import os
 import sqlite3
 import requests
+import pandas as pd
+from database import get_conn
 from datetime import datetime, timezone, timedelta
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# =============================================================================
+# READ — used by dashboard.py (Turso)
+# =============================================================================
+
+def load_props() -> pd.DataFrame:
+    """Player Props tab data source. Same PRAGMA table_info pattern as
+    load_picks() in dashboard.py: projection columns (projected_stat,
+    projection_edge_pct, etc.) only exist once fetch_prizepicks_props.py
+    has saved at least one projection, so check what's really there
+    instead of assuming — keeps this from crashing on a fresh deploy or
+    an old row."""
+    conn = get_conn()
+
+    existing_cols = set()
+    try:
+        cur = conn.execute("PRAGMA table_info(player_props)")
+        existing_cols = {row[1] for row in cur.fetchall()}
+    except Exception:
+        pass
+
+    has_opponent_team = "opponent_team" in existing_cols
+    projection_cols = ["projected_stat", "projection_edge", "projection_edge_pct",
+                        "projection_direction", "projection_tier", "defense_factor"]
+    available_proj_cols = [c for c in projection_cols if c in existing_cols]
+
+    opponent_expr = "COALESCE(pp.opponent_team, pp.opponent)" if has_opponent_team else "pp.opponent"
+    proj_select = ", ".join(f"pp.{c}" for c in available_proj_cols)
+    proj_select_bare = ", ".join(available_proj_cols)
+
+    cols = (["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
+             "over_odds", "under_odds", "hit_rate_overall", "confidence_tier"]
+            + available_proj_cols
+            + ["actual_value", "hit", "team_won"])
+
+    query_with_results = f"""
+        SELECT pp.date, pp.sport, pp.player_name, pp.team_name,
+               {opponent_expr} as opponent,
+               pp.stat, pp.line, pp.over_odds, pp.under_odds,
+               pp.hit_rate_overall, pp.confidence_tier
+               {"," + proj_select if proj_select else ""},
+               pr.actual_value, pr.hit, pr.team_won
+        FROM player_props pp
+        LEFT JOIN prop_results pr
+          ON pr.date = pp.date AND pr.player_name = pp.player_name AND pr.stat = pp.stat
+        ORDER BY pp.date DESC
+    """
+    # prop_results only gets created once prop_tracker.py runs for the first
+    # time — until then, fall back to player_props alone so props still show
+    # as PENDING instead of crashing the whole dashboard.
+    try:
+        cur = conn.execute(query_with_results)
+        rows = cur.fetchall()
+        return pd.DataFrame(rows, columns=cols)
+    except Exception:
+        base_cols = ["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
+                     "over_odds", "under_odds", "hit_rate_overall", "confidence_tier"] + available_proj_cols
+        query_no_results = f"""
+            SELECT date, sport, player_name, team_name,
+                   {opponent_expr.replace("pp.", "")} as opponent,
+                   stat, line, over_odds, under_odds, hit_rate_overall, confidence_tier
+                   {"," + proj_select_bare if proj_select_bare else ""}
+            FROM player_props
+            ORDER BY date DESC
+        """
+        cur = conn.execute(query_no_results)
+        rows = cur.fetchall()
+        df = pd.DataFrame(rows, columns=base_cols)
+        df["actual_value"] = None
+        df["hit"] = None
+        df["team_won"] = None
+        # ensure every column the rest of the app expects is present, even
+        # if this deploy's table doesn't have the projection columns yet
+        for c in projection_cols:
+            if c not in df.columns:
+                df[c] = None
+        return df
+
+
+# =============================================================================
+# MANUAL FALLBACK ONLY — writes to local cp_analytics.db (sqlite3), separate
+# from load_props() above which reads from Turso. Run directly via CLI only.
+# =============================================================================
+
 DB_PATH         = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
 PROPS_FILE      = os.path.join(os.path.dirname(__file__), "props_today.txt")
 CENTRAL_OFFSET  = -5

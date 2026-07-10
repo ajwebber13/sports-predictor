@@ -20,13 +20,24 @@ Schemas used:
 NOTE: libsql-experimental's cursor.description is NOT reliable for column
 names in joined queries — column names are assigned manually in the exact
 order of each SELECT clause instead of trusting cur.description.
+
+NOTE: player_props loading (with the PRAGMA table_info column-existence
+check) lives in load_props.py, not in this file — Tab 2 calls
+load_props.load_props(). Don't redefine that logic here again; a prior
+version of this file had a second function also named load_picks() that
+did the props query — it silently overwrote the real load_picks() (Game
+Picks) above it in Python, so Tab 1 was loading props data by mistake.
 """
 
 import os
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
+from dotenv import load_dotenv
 from database import get_conn
+import load_props
+
+load_dotenv()
 
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
 
@@ -35,6 +46,7 @@ st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_si
 # sees your model's edge %, picks, and full performance — lock it before
 # sharing this link with anyone outside yourself.
 def check_password():
+
     def password_entered():
         if st.session_state.get("pw_input") == os.environ.get("DASHBOARD_PASSWORD", ""):
             st.session_state["authenticated"] = True
@@ -282,14 +294,6 @@ function cpSort(colIndex, type) {{
 
 
 # ---------- STYLE: Culture & Pulse Boardroom/ESPN brand — glass-card sportsbook aesthetic ----------
-# Brand: near-black #0A0A0A background with a subtle ambient radial glow,
-# gold #D4AF37 primary accent, ticker gold #feb400, Bebas Neue for headlines,
-# Oswald for labels, DM Sans for body. Cards use frosted-glass panels
-# (translucent fill + backdrop blur + soft shadow) instead of flat fills,
-# with a hairline gold-gradient top edge and a smooth hover lift — the
-# "premium terminal" feel from Outlier/Bobby's Bets rather than a flat
-# internal dashboard. Win/loss keeps green/red since that's the clearest
-# convention for that specific signal.
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@500;600;700&family=DM+Sans:wght@400;500;700&display=swap');
@@ -303,7 +307,6 @@ st.markdown("""
 #MainMenu, footer, header { visibility: hidden; }
 * { font-family: 'DM Sans', -apple-system, sans-serif; }
 
-/* ---- header ---- */
 .cp-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 22px 0; margin-bottom: 10px; border-bottom: 1px solid rgba(212,175,55,0.14); position: relative; }
 .cp-header::after { content: ""; position: absolute; bottom: -1px; left: 0; width: 140px; height: 1px; background: linear-gradient(90deg, #D4AF37, transparent); }
 .cp-header .brand { display: flex; align-items: center; gap: 10px; }
@@ -312,7 +315,6 @@ st.markdown("""
 .cp-header h1 { font-family: 'Bebas Neue', sans-serif; font-size: 36px; font-weight: 400; color: #ffffff; margin: 0; letter-spacing: 1.5px; }
 .cp-header .sub { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; }
 
-/* ---- glass card base, reused everywhere ---- */
 .cp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 22px; }
 .cp-card {
     background: linear-gradient(180deg, rgba(24,22,12,0.65), rgba(12,11,6,0.75));
@@ -330,7 +332,6 @@ st.markdown("""
 .cp-card .pct-up { color: #3ecf8e; font-size: 13px; font-weight: 700; }
 .cp-card .pct-down { color: #ff5c5c; font-size: 13px; font-weight: 700; }
 
-/* ---- headline metric banner (glass, gradient edge, gold-glow number) ---- */
 .cp-overall {
     background: linear-gradient(135deg, rgba(26,22,8,0.85), rgba(10,10,10,0.9));
     backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
@@ -347,14 +348,11 @@ st.markdown("""
 
 h3 { font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; font-weight: 600 !important; font-size: 14px !important; text-transform: uppercase; letter-spacing: 1.5px; }
 
-/* labels above filter widgets (Sport, Result, Min Edge, Search...) — match the
-   Oswald/gold-muted label style used everywhere else instead of Streamlit default */
 .stMultiSelect label p, .stSlider label p, .stTextInput label p, .stDateInput label p {
     font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; font-size: 11px !important;
     font-weight: 600 !important; letter-spacing: 1.5px !important; text-transform: uppercase;
 }
 
-/* ---- data table + filter inputs, glass-matched ---- */
 section[data-testid="stDataFrame"] {
     border-radius: 14px; overflow: hidden; border: 1px solid rgba(212,175,55,0.14);
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
@@ -374,7 +372,6 @@ section[data-testid="stDataFrame"] {
 
 hr { border-color: rgba(212,175,55,0.14) !important; margin: 22px 0 !important; }
 
-/* ---- tabs styled as pill-shaped glass toggles ---- */
 .stTabs [data-baseweb="tab-list"] { gap: 6px; }
 .stTabs [data-baseweb="tab"] {
     background-color: rgba(19,18,9,0.55); backdrop-filter: blur(10px);
@@ -385,18 +382,16 @@ hr { border-color: rgba(212,175,55,0.14) !important; margin: 22px 0 !important; 
 .stTabs [data-baseweb="tab"]:hover { color: #D4AF37; background-color: rgba(212,175,55,0.06); }
 .stTabs [aria-selected="true"] { color: #D4AF37 !important; border-bottom: 2px solid #D4AF37 !important; background-color: rgba(212,175,55,0.08) !important; }
 
-/* tighten default Streamlit block spacing for a denser, more data-tool feel */
 div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column"] { gap: 0.5rem; }
 .block-container { padding-top: 2rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
 
-@st.cache_resource
 @st.cache_data(ttl=300)
 def load_picks():
     conn = get_conn()
-    conn.sync()
+
     query = """
         SELECT p.date, p.sport, p.game, p.bet, p.odds, p.edge,
                p.model_prob, p.implied_prob, p.home_record, p.away_record,
@@ -414,88 +409,20 @@ def load_picks():
             "result_home_team", "result_away_team", "home_score", "away_score", "correct"]
     return pd.DataFrame(rows, columns=cols)
 
-@st.cache_data(ttl=300)
-def load_props():
-    conn = get_conn()
-    conn.sync()
-
-    # The projection columns (opponent_team, projected_stat, etc.) only get
-    # added to player_props the first time fetch_prizepicks_props.py
-    # actually saves a projection — on a freshly wiped table, or before
-    # that first run, they may not exist yet. Check what's really there
-    # instead of assuming, so this doesn't crash on a fresh deploy.
-    existing_cols = set()
-    try:
-        cur = conn.execute("PRAGMA table_info(player_props)")
-        existing_cols = {row[1] for row in cur.fetchall()}
-    except Exception:
-        pass
-
-    has_opponent_team = "opponent_team" in existing_cols
-    projection_cols = ["projected_stat", "projection_edge", "projection_edge_pct",
-                        "projection_direction", "projection_tier", "defense_factor"]
-    available_proj_cols = [c for c in projection_cols if c in existing_cols]
-
-    opponent_expr = "COALESCE(pp.opponent_team, pp.opponent)" if has_opponent_team else "pp.opponent"
-    proj_select = ", ".join(f"pp.{c}" for c in available_proj_cols)
-    proj_select_bare = ", ".join(available_proj_cols)
-
-    cols = (["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
-             "over_odds", "under_odds", "hit_rate_overall", "confidence_tier"]
-            + available_proj_cols
-            + ["actual_value", "hit", "team_won"])
-
-    query_with_results = f"""
-        SELECT pp.date, pp.sport, pp.player_name, pp.team_name,
-               {opponent_expr} as opponent,
-               pp.stat, pp.line, pp.over_odds, pp.under_odds,
-               pp.hit_rate_overall, pp.confidence_tier
-               {"," + proj_select if proj_select else ""},
-               pr.actual_value, pr.hit, pr.team_won
-        FROM player_props pp
-        LEFT JOIN prop_results pr
-          ON pr.date = pp.date AND pr.player_name = pp.player_name AND pr.stat = pp.stat
-        ORDER BY pp.date DESC
-    """
-    # prop_results only gets created once prop_tracker.py runs for the first
-    # time — until then, fall back to player_props alone so props still show
-    # as PENDING instead of crashing the whole dashboard.
-    try:
-        cur = conn.execute(query_with_results)
-        rows = cur.fetchall()
-        return pd.DataFrame(rows, columns=cols)
-    except Exception:
-        base_cols = ["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
-                     "over_odds", "under_odds", "hit_rate_overall", "confidence_tier"] + available_proj_cols
-        query_no_results = f"""
-            SELECT date, sport, player_name, team_name,
-                   {opponent_expr.replace("pp.", "")} as opponent,
-                   stat, line, over_odds, under_odds, hit_rate_overall, confidence_tier
-                   {"," + proj_select_bare if proj_select_bare else ""}
-            FROM player_props
-            ORDER BY date DESC
-        """
-        cur = conn.execute(query_no_results)
-        rows = cur.fetchall()
-        df = pd.DataFrame(rows, columns=base_cols)
-        df["actual_value"] = None
-        df["hit"] = None
-        df["team_won"] = None
-        # ensure every column the rest of the app expects is present, even
-        # if this deploy's table doesn't have the projection columns yet
-        for c in projection_cols:
-            if c not in df.columns:
-                df[c] = None
-        return df
-
 
 # ---------- HEADER ----------
-st.markdown(
-    '<div class="cp-header"><div class="brand"><div class="dot"></div>'
-    '<div><h1>Culture & Pulse Picks</h1>'
-    '<div class="sub">Live model performance tracking</div></div></div></div>',
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<div class="cp-header">
+    <div class="brand">
+        <div class="dot"></div>
+        <div>
+            <h1>Culture & Pulse Picks</h1>
+            <div class="sub">Live Model Performance Tracking</div>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 
 tab_games, tab_props = st.tabs(["Game Picks", "Player Props"])
 
@@ -727,112 +654,122 @@ with tab_games:
 # TAB 2: PLAYER PROPS
 # =========================================================
 with tab_props:
-    props_df = load_props()
+    try:
+        props_df = load_props.load_props()
+    except Exception as e:
+        st.error("load_props failed")
+        st.exception(e)
+        st.stop()
 
-    if props_df.empty:
-        st.info("No player props logged yet.")
+    def prop_status(row):
+        if pd.isna(row["hit"]):
+            return "PENDING"
+        return "HIT" if row["hit"] == 1 else "MISS"
+    props_df["status"] = props_df.apply(prop_status, axis=1)
+
+    settled_props = props_df[props_df["status"].isin(["HIT", "MISS"])]
+    if not settled_props.empty:
+        hits = int((settled_props["status"] == "HIT").sum())
+        total = len(settled_props)
+        hit_pct = round(hits / total * 100, 1) if total else 0
+        st.markdown(
+            f'<div class="cp-overall"><div class="label">Props Record</div>'
+            f'<div class="value">{hits}-{total - hits} <span class="pct">· {hit_pct}%</span></div></div>',
+            unsafe_allow_html=True,
+        )
     else:
-        props_df["hit"] = pd.to_numeric(props_df["hit"], errors="coerce")
-        props_df["actual_value"] = pd.to_numeric(props_df["actual_value"], errors="coerce")
-        props_df["hit_rate_overall"] = pd.to_numeric(props_df["hit_rate_overall"], errors="coerce")
-        props_df["projected_stat"] = pd.to_numeric(props_df["projected_stat"], errors="coerce")
-        props_df["projection_edge_pct"] = pd.to_numeric(props_df["projection_edge_pct"], errors="coerce")
-        props_df["defense_factor"] = pd.to_numeric(props_df["defense_factor"], errors="coerce")
+        st.info("No settled props yet.")
 
-        def prop_status(row):
-            if pd.isna(row["hit"]):
-                return "PENDING"
-            return "HIT" if row["hit"] == 1 else "MISS"
-        props_df["status"] = props_df.apply(prop_status, axis=1)
+    st.markdown("---")
 
-        settled_props = props_df[props_df["status"].isin(["HIT", "MISS"])]
-        if not settled_props.empty:
-            hits = int((settled_props["status"] == "HIT").sum())
-            total = len(settled_props)
-            hit_pct = round(hits / total * 100, 1) if total else 0
-            st.markdown(
-                f'<div class="cp-overall"><div class="label">Props Record</div>'
-                f'<div class="value">{hits}-{total - hits} <span class="pct">· {hit_pct}%</span></div></div>',
-                unsafe_allow_html=True,
+    # ── filter row ──
+    fc1, fc2, fc3, fc4 = st.columns([1, 1, 1, 1.5])
+    with fc1:
+        sport_f = st.multiselect("Sport", options=props_df["sport"].unique(), default=list(props_df["sport"].unique()), key="p_sport")
+    with fc2:
+        status_f = st.multiselect("Result", options=["HIT", "MISS", "PENDING"], default=["HIT", "MISS", "PENDING"], key="p_status")
+    with fc3:
+        min_edge = st.slider("Min Edge %", 0.0, 50.0, 0.0, 1.0, key="p_edge")
+    with fc4:
+        search = st.text_input("Search player", "", key="p_search")
+
+    pf = props_df[
+        props_df["sport"].isin(sport_f)
+        & props_df["status"].isin(status_f)
+    ].copy()
+
+    if "projection_edge_pct" in pf.columns:
+        pf = pf[
+            (pf["projection_edge_pct"].abs() >= min_edge)
+            | pf["projection_edge_pct"].isna()
+        ]
+
+    if search:
+        pf = pf[
+            pf["player_name"].str.contains(
+                search,
+                case=False,
+                na=False
             )
-        else:
-            st.info("No settled props yet.")
+        ]
 
-        st.markdown("---")
+    st.write(f"**{len(pf)} props**")
 
-        # ── filter row ──
-        fc1, fc2, fc3, fc4 = st.columns([1, 1, 1, 1.5])
-        with fc1:
-            sport_f = st.multiselect("Sport", options=props_df["sport"].unique(), default=list(props_df["sport"].unique()), key="p_sport")
-        with fc2:
-            status_f = st.multiselect("Result", options=["HIT", "MISS", "PENDING"], default=["HIT", "MISS", "PENDING"], key="p_status")
-        with fc3:
-            min_edge = st.slider("Min Edge %", 0.0, 50.0, 0.0, 1.0, key="p_edge")
-        with fc4:
-            search = st.text_input("Search player", "", key="p_search")
+    if pf.empty:
+        st.info("No props match these filters.")
+    else:
+        tier_emoji = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
 
-        pf = props_df[
-            props_df["sport"].isin(sport_f)
-            & props_df["status"].isin(status_f)
-        ].copy()
-        if "projection_edge_pct" in pf.columns:
-            pf = pf[(pf["projection_edge_pct"].abs() >= min_edge) | pf["projection_edge_pct"].isna()]
-        if search:
-            pf = pf[pf["player_name"].str.contains(search, case=False, na=False)]
+        def play_label(row):
+            tier = row.get("projection_tier")
+            direction = row.get("projection_direction")
+            tier = tier.lower() if isinstance(tier, str) else ""
+            direction = direction.upper() if isinstance(direction, str) else ""
+            if tier and direction:
+                return f"{tier_emoji.get(tier, '')} {direction}"
+            # fall back to the old hit-rate-based tier for rows saved
+            # before the projection engine existed
+            old_tier = row.get("confidence_tier")
+            old_tier = old_tier.lower() if isinstance(old_tier, str) else ""
+            if "🟢" in old_tier or old_tier == "green":
+                return "🟢 —"
+            if "🟡" in old_tier or old_tier == "yellow":
+                return "🟡 —"
+            return "—"
 
-        st.write(f"**{len(pf)} props**")
-
-        if pf.empty:
-            st.info("No props match these filters.")
-        else:
-            tier_emoji = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
-
-            def play_label(row):
-                tier = row.get("projection_tier")
-                direction = row.get("projection_direction")
-                tier = tier.lower() if isinstance(tier, str) else ""
-                direction = direction.upper() if isinstance(direction, str) else ""
-                if tier and direction:
-                    return f"{tier_emoji.get(tier, '')} {direction}"
-                # fall back to the old hit-rate-based tier for rows saved
-                # before the projection engine existed
-                old_tier = row.get("confidence_tier")
-                old_tier = old_tier.lower() if isinstance(old_tier, str) else ""
-                if "🟢" in old_tier or old_tier == "green":
-                    return "🟢 —"
-                if "🟡" in old_tier or old_tier == "yellow":
-                    return "🟡 —"
-                return "—"
-
-            display = pf.copy()
-            display["Play"] = display.apply(play_label, axis=1)
-            display["Odds"] = display.apply(
-                lambda x: f"o{x['over_odds']}/u{x['under_odds']}" if pd.notna(x.get("over_odds")) else "—", axis=1
-            )
-            display["opp_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["opponent"]), axis=1)
-            display["team_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["team_name"]), axis=1)
-
+        display = pf.copy()
+        display["Play"] = display.apply(play_label, axis=1)
+        display["Odds"] = display.apply(
+            lambda x: f"o{x['over_odds']}/u{x['under_odds']}" if pd.notna(x.get("over_odds")) else "—", axis=1
+        )
+        display["opp_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["opponent"]), axis=1)
+        display["team_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["team_name"]), axis=1)
+        if "projection_edge_pct" in display.columns:
             display = display.sort_values(
                 "projection_edge_pct", key=lambda s: s.abs(), ascending=False, na_position="last"
             )
 
-            table_rows = []
-            for _, row in display.iterrows():
-                recent = get_recent_values(row["sport"], row["player_name"], row["stat"], n=5)
-                direction = row.get("projection_direction") or "over"
-                spark = sparkline_svg(recent, row["line"], direction=direction)
-                table_rows.append({
-                    "player": row["player_name"], "team": row["team_name"], "team_logo": row["team_logo"],
-                    "opponent": row["opponent"], "opp_logo": row["opp_logo"],
-                    "sport": row["sport"], "stat": row["stat"], "line": row["line"],
-                    "play": row["Play"], "sparkline_svg": spark,
-                    "projected": row["projected_stat"] if pd.notna(row.get("projected_stat")) else None,
-                    "edge_pct": row["projection_edge_pct"] if pd.notna(row.get("projection_edge_pct")) else None,
-                    "hit_rate": row["hit_rate_overall"] if pd.notna(row.get("hit_rate_overall")) else None,
-                    "matchup": row["defense_factor"] if pd.notna(row.get("defense_factor")) else None,
-                    "odds": row["Odds"], "status": row["status"],
-                })
+        table_rows = []
+        for _, row in display.iterrows():
+            recent = get_recent_values(row["sport"], row["player_name"], row["stat"], n=5)
+            direction = row.get("projection_direction") or "over"
+            spark = sparkline_svg(recent, row["line"], direction=direction)
+            table_rows.append({
+                "player": row["player_name"], "team": row["team_name"], "team_logo": row["team_logo"],
+                "opponent": row["opponent"], "opp_logo": row["opp_logo"],
+                "sport": row["sport"], "stat": row["stat"], "line": row["line"],
+                "play": row["Play"], "sparkline_svg": spark,
+                "projected": row.get("projected_stat") if pd.notna(row.get("projected_stat")) else None,
+                "edge_pct": row.get("projection_edge_pct") if pd.notna(row.get("projection_edge_pct")) else None,
+                "hit_rate": row.get("hit_rate_overall") if pd.notna(row.get("hit_rate_overall")) else None,
+                "matchup": row.get("defense_factor") if pd.notna(row.get("defense_factor")) else None,
+                "odds": row["Odds"], "status": row["status"],
+            })
 
-            table_height = min(72 + len(table_rows) * 42, 900)
-            st.iframe(build_props_html(table_rows), height=table_height, scrolling=True)
-            st.caption("Last 5: green dot = beat the line that game, red = missed · dashed line = the prop line · Matchup: >1.0 means that opponent allows more than league average for this stat, <1.0 means tougher than average")
+        table_height = min(72 + len(table_rows) * 42, 900)
+        components.html(
+            build_props_html(table_rows),
+            height=table_height,
+            scrolling=True
+        )
+        st.caption("Last 5: green dot = beat the line that game, red = missed · dashed line = the prop line · Matchup: >1.0 means that opponent allows more than league average for this stat, <1.0 means tougher than average")
