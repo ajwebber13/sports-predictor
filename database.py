@@ -21,8 +21,40 @@ DB_PATH = os.path.join(
 )
 
 
-TURSO_URL = os.environ.get("TURSO_DATABASE_URL")
-TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+# .strip() guards against invisible characters (stray \r, \n, trailing
+# space) riding along in the env var value from however it was
+# originally set — GUI paste, a .env file with CRLF line endings, etc.
+# A control character in an HTTP header value throws exactly the kind
+# of "invalid auth header: failed to parse header value" error this
+# was added to fix; same category of bug as the whitespace issue
+# already fixed in nfl_player_game_logs.py's date arguments.
+TURSO_URL = (os.environ.get("TURSO_DATABASE_URL") or "").strip()
+TURSO_TOKEN = (os.environ.get("TURSO_AUTH_TOKEN") or "").strip()
+
+
+def rows_to_dicts(cursor, rows):
+    """Converts cursor.fetchall()/fetchone() rows into plain dicts using
+    cursor.description column names, instead of calling dict(row) on the
+    row objects directly.
+
+    Why this exists: dict(row) only works when row has a .keys() method
+    (sqlite3.Row supports this when conn.row_factory = sqlite3.Row is
+    set, which the local-SQLite branch of get_conn() below does). The
+    Turso/libsql branch never set an equivalent row factory, and the
+    libsql package apparently returns plain tuples — dict(tuple) then
+    fails with "dictionary update sequence element #0 has length N" the
+    moment it tries to treat the first column's value as a (key, value)
+    pair. This bit nfl_projections.py first, but the identical dict(r)
+    pattern also exists in star_players.py, wnba/mlb/nba_projections.py,
+    and wnba/mlb/nba_defense_ratings.py — those may be silently broken
+    against production Turso too since the libsql-experimental -> libsql
+    package swap. Building the dict from cursor.description explicitly
+    works the same way regardless of what row type either package
+    returns, so it's not vulnerable to this class of bug going forward."""
+    if rows is None:
+        return []
+    columns = [d[0] for d in cursor.description]
+    return [dict(zip(columns, row)) for row in rows]
 
 
 # --------------------------------------------------

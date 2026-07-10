@@ -34,7 +34,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import get_conn as _get_conn
+from database import get_conn as _get_conn, rows_to_dicts as _rows_to_dicts
 
 TABLE = "nfl_game_log"
 MIN_GAMES_FOR_DEFENSE = 3  # games faced (as the opponent) before trusting a read — lower than WNBA's 5 since NFL is a 17-game season
@@ -74,7 +74,7 @@ def get_defense_factors(stat: str, use_cache: bool = True) -> dict:
             WHERE opponent IS NOT NULL AND opponent != ''
             GROUP BY opponent
         """)
-        rows = [dict(r) for r in c.fetchall()]
+        rows = _rows_to_dicts(c, c.fetchall())
     except Exception as e:
         print(f"  ⚠️  defense_ratings: couldn't compute for '{stat}' ({e})")
         conn.close()

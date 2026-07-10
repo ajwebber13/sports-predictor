@@ -28,7 +28,7 @@ import sys
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import get_conn as _get_conn
+from database import get_conn as _get_conn, rows_to_dicts as _rows_to_dicts
 
 STAR_CONFIG = {
     "wnba": {"table": "wnba_game_log", "volume_col": "minutes", "min_games": 5, "spans_calendar_years": False},
@@ -94,7 +94,7 @@ def get_star_players(sport: str, top_n: int = 3, season: str = "2026", use_cache
             HAVING games >= ?
             ORDER BY team_name, avg_volume DESC
         """, (*params, min_games))
-        rows = [dict(r) for r in c.fetchall()]
+        rows = _rows_to_dicts(c, c.fetchall())
     except Exception as e:
         print(f"  ⚠️  star_players: couldn't read {table} for '{sport}' ({e}) — treating as unconfigured")
         conn.close()

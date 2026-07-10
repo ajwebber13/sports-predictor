@@ -19,7 +19,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import get_conn as _get_conn
+from database import get_conn as _get_conn, rows_to_dicts as _rows_to_dicts
 
 TABLE = "mlb_game_log"
 SEASON_DEFAULT = "2026"
@@ -53,14 +53,16 @@ def get_defense_factors(stat: str, season: str = SEASON_DEFAULT, use_cache: bool
             WHERE date LIKE ? AND opponent IS NOT NULL AND opponent != ''
             GROUP BY opponent
         """, (f"{season}%",))
-        rows = [dict(r) for r in c.fetchall()]
+        rows = _rows_to_dicts(c, c.fetchall())
 
         c.execute(f"""
             SELECT SUM({stat_col}) as stat_total, SUM(at_bats) as ab_total
             FROM {TABLE}
             WHERE date LIKE ?
         """, (f"{season}%",))
-        league = dict(c.fetchone())
+        league_row = c.fetchone()
+        league_rows = _rows_to_dicts(c, [league_row]) if league_row else []
+        league = league_rows[0] if league_rows else {}
     except Exception as e:
         print(f"  ⚠️  mlb_defense_ratings: couldn't compute for '{stat}' ({e})")
         conn.close()

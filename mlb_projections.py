@@ -18,7 +18,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import get_conn as _get_conn
+from database import get_conn as _get_conn, rows_to_dicts as _rows_to_dicts
 
 TABLE = "mlb_game_log"
 SEASON_DEFAULT = "2026"
@@ -42,7 +42,7 @@ def _recent_rows(player_name: str, lookback: int, season: str = SEASON_DEFAULT) 
         ORDER BY date DESC
         LIMIT ?
     """, (player_name, f"{season}%", lookback))
-    rows = [dict(r) for r in c.fetchall()]
+    rows = _rows_to_dicts(c, c.fetchall())
     conn.close()
     return rows
 
@@ -87,7 +87,7 @@ def get_player_team(player_name: str, season: str = SEASON_DEFAULT):
     """, (player_name, f"{season}%"))
     row = c.fetchone()
     conn.close()
-    return row["team_name"] if row else None
+    return row[0] if row else None
 
 
 def _tier(edge: float, line: float) -> str:
