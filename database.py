@@ -132,7 +132,7 @@ class _ConnWrapper:
 
 def get_conn():
     if TURSO_URL and TURSO_TOKEN:
-        import libsql_experimental as libsql
+        import libsql
         local_replica = os.path.join(tempfile.gettempdir(), "cp_analytics_replica.db")
         conn = libsql.connect(
             local_replica,
