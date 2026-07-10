@@ -286,6 +286,9 @@ def backfill_season(start_date: str = NFL_SEASON_START, end_date: str = None):
     """Pull all completed NFL games from start_date to end_date (defaults
     to today). Pass end_date for a limited test range before running the
     full season — e.g. two weeks to spot-check before trusting the rest."""
+    start_date = (start_date or NFL_SEASON_START).strip()
+    end_date   = end_date.strip() if end_date else None
+
     start = datetime.strptime(start_date, "%Y%m%d")
     end   = datetime.strptime(end_date, "%Y%m%d") if end_date else datetime.now()
     total_games   = 0
