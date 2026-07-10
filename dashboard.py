@@ -47,8 +47,8 @@ def check_password():
 
     st.markdown(
         '<div style="text-align:center;margin-top:80px;">'
-        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;color:#fff;">Culture & Pulse Picks</div>'
-        '<div style="color:#8a7d55;font-size:12px;margin-bottom:20px;">Enter password to continue</div>'
+        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;color:#fff;letter-spacing:1px;">Culture & Pulse Picks</div>'
+        '<div style="color:#8a7d55;font-size:12px;margin-bottom:20px;font-family:\'Oswald\',sans-serif;letter-spacing:1.5px;text-transform:uppercase;">Enter password to continue</div>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -190,7 +190,7 @@ def build_props_html(rows: list) -> str:
     sport, stat, line, play, sparkline_svg, projected, edge_pct, hit_rate,
     matchup, odds, status, actual. Returns a full standalone HTML doc for
     st.components.v1.html — includes its own styling (matches the app's
-    black/gold theme) and a small click-to-sort script."""
+    black/gold glass theme) and a small click-to-sort script."""
 
     def esc(v):
         return "" if v is None else str(v).replace('"', "&quot;")
@@ -231,22 +231,32 @@ def build_props_html(rows: list) -> str:
 <!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=DM+Sans:wght@400;500;700&display=swap');
-  body {{ margin:0; background:#0A0A0A; font-family:'DM Sans',sans-serif; }}
+  body {{ margin:0; background:transparent; font-family:'DM Sans',sans-serif; }}
+  .cp-glass-wrap {{
+    background: linear-gradient(180deg, rgba(19,18,9,0.75), rgba(10,10,10,0.9));
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(212,175,55,0.14); border-radius: 16px; overflow: hidden;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+  }}
   table {{ width:100%; border-collapse:collapse; font-size:13px; }}
   thead th {{
-    background:#131209; color:#8a7d55; font-family:'Oswald',sans-serif; font-weight:600;
+    background: rgba(19,18,9,0.9); color:#a8905c; font-family:'Oswald',sans-serif; font-weight:600;
     font-size:11px; letter-spacing:1px; text-transform:uppercase; text-align:left;
-    padding:10px 12px; border-bottom:1px solid #2a2416; position:sticky; top:0;
+    padding:12px 14px; border-bottom:1px solid rgba(212,175,55,0.14); position:sticky; top:0;
+    transition: color 0.15s ease;
   }}
   thead th:hover {{ color:#D4AF37; }}
-  tbody td {{ padding:9px 12px; border-bottom:1px solid #1a1710; color:#c9c2ae; white-space:nowrap; }}
-  tbody tr:hover {{ background:#131209; }}
+  tbody td {{ padding:10px 14px; border-bottom:1px solid rgba(212,175,55,0.06); color:#c9c2ae; white-space:nowrap; }}
+  tbody tr {{ transition: background 0.15s ease; }}
+  tbody tr:hover {{ background: rgba(212,175,55,0.05); }}
 </style></head>
 <body>
+<div class="cp-glass-wrap">
 <table id="cpPropsTable">
   <thead><tr>{header_html}</tr></thead>
   <tbody>{"".join(body_rows)}</tbody>
 </table>
+</div>
 <script>
 function cpSort(colIndex, type) {{
   const table = document.getElementById('cpPropsTable');
@@ -271,41 +281,69 @@ function cpSort(colIndex, type) {{
 """
 
 
-# ---------- STYLE: Culture & Pulse Boardroom/ESPN brand + Outlier-style data density ----------
-# Brand: black #0A0A0A background, gold #D4AF37 primary accent, ticker gold #feb400,
-# Bebas Neue for headlines, Oswald for labels, DM Sans for body — per CP brand identity.
-# Win/loss still uses green/red since that's the clearest convention for that specific signal.
+# ---------- STYLE: Culture & Pulse Boardroom/ESPN brand — glass-card sportsbook aesthetic ----------
+# Brand: near-black #0A0A0A background with a subtle ambient radial glow,
+# gold #D4AF37 primary accent, ticker gold #feb400, Bebas Neue for headlines,
+# Oswald for labels, DM Sans for body. Cards use frosted-glass panels
+# (translucent fill + backdrop blur + soft shadow) instead of flat fills,
+# with a hairline gold-gradient top edge and a smooth hover lift — the
+# "premium terminal" feel from Outlier/Bobby's Bets rather than a flat
+# internal dashboard. Win/loss keeps green/red since that's the clearest
+# convention for that specific signal.
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@500;600;700&family=DM+Sans:wght@400;500;700&display=swap');
 
-.stApp { background-color: #0A0A0A; }
+.stApp {
+    background:
+        radial-gradient(ellipse 900px 500px at 15% -10%, rgba(212,175,55,0.055), transparent 60%),
+        radial-gradient(ellipse 700px 500px at 100% 0%, rgba(212,175,55,0.03), transparent 55%),
+        #0A0A0A;
+}
 #MainMenu, footer, header { visibility: hidden; }
 * { font-family: 'DM Sans', -apple-system, sans-serif; }
 
-.cp-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 20px 0; margin-bottom: 8px; border-bottom: 1px solid #2a2416; }
+/* ---- header ---- */
+.cp-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 22px 0; margin-bottom: 10px; border-bottom: 1px solid rgba(212,175,55,0.14); position: relative; }
+.cp-header::after { content: ""; position: absolute; bottom: -1px; left: 0; width: 140px; height: 1px; background: linear-gradient(90deg, #D4AF37, transparent); }
 .cp-header .brand { display: flex; align-items: center; gap: 10px; }
-.cp-header .dot { width: 9px; height: 9px; border-radius: 50%; background: #feb400; box-shadow: 0 0 8px #feb400; animation: cp-pulse 2s ease-in-out infinite; }
-@keyframes cp-pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 8px #feb400; } 50% { opacity: 0.55; box-shadow: 0 0 3px #feb400; } }
-.cp-header h1 { font-family: 'Bebas Neue', sans-serif; font-size: 34px; font-weight: 400; color: #ffffff; margin: 0; letter-spacing: 1px; }
+.cp-header .dot { width: 9px; height: 9px; border-radius: 50%; background: #feb400; box-shadow: 0 0 10px #feb400, 0 0 20px rgba(254,180,0,0.4); animation: cp-pulse 2s ease-in-out infinite; }
+@keyframes cp-pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 10px #feb400, 0 0 20px rgba(254,180,0,0.4); } 50% { opacity: 0.55; box-shadow: 0 0 4px #feb400; } }
+.cp-header h1 { font-family: 'Bebas Neue', sans-serif; font-size: 36px; font-weight: 400; color: #ffffff; margin: 0; letter-spacing: 1.5px; }
 .cp-header .sub { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; }
 
-.cp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
-.cp-card { background: #131209; border: 1px solid #2a2416; border-radius: 10px; padding: 16px 18px; transition: border-color 0.15s ease, transform 0.15s ease; }
-.cp-card:hover { border-color: #D4AF3766; transform: translateY(-1px); }
+/* ---- glass card base, reused everywhere ---- */
+.cp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 22px; }
+.cp-card {
+    background: linear-gradient(180deg, rgba(24,22,12,0.65), rgba(12,11,6,0.75));
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(212,175,55,0.14);
+    border-radius: 14px; padding: 17px 19px; position: relative; overflow: hidden;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    transition: border-color 0.22s cubic-bezier(.2,.8,.2,1), transform 0.22s cubic-bezier(.2,.8,.2,1), box-shadow 0.22s cubic-bezier(.2,.8,.2,1);
+}
+.cp-card::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(212,175,55,0.55), transparent); }
+.cp-card:hover { border-color: rgba(212,175,55,0.4); transform: translateY(-2px); box-shadow: 0 10px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(212,175,55,0.08); }
 .cp-card .sport-name { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
-.cp-card .record { color: #ffffff; font-size: 26px; font-weight: 800; line-height: 1; letter-spacing: -0.5px; }
-.cp-card .pct-row { display: flex; align-items: center; gap: 5px; margin-top: 8px; }
+.cp-card .record { color: #ffffff; font-size: 27px; font-weight: 800; line-height: 1; letter-spacing: -0.5px; }
+.cp-card .pct-row { display: flex; align-items: center; gap: 5px; margin-top: 9px; }
 .cp-card .pct-up { color: #3ecf8e; font-size: 13px; font-weight: 700; }
 .cp-card .pct-down { color: #ff5c5c; font-size: 13px; font-weight: 700; }
 
-.cp-overall { background: linear-gradient(135deg, #1a1608, #0A0A0A); border: 1px solid #3a2f14; border-left: 3px solid #D4AF37; border-radius: 10px; padding: 18px 22px; margin-bottom: 20px; }
-.cp-overall .label { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px; font-weight: 600; }
-.cp-overall .value { color: #ffffff; font-size: 30px; font-weight: 800; letter-spacing: -0.5px; }
-.cp-overall .value .pct { color: #D4AF37; }
+/* ---- headline metric banner (glass, gradient edge, gold-glow number) ---- */
+.cp-overall {
+    background: linear-gradient(135deg, rgba(26,22,8,0.85), rgba(10,10,10,0.9));
+    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(212,175,55,0.22); border-left: 3px solid #D4AF37;
+    border-radius: 14px; padding: 20px 24px; margin-bottom: 22px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+.cp-overall .label { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 5px; font-weight: 600; }
+.cp-overall .value { color: #ffffff; font-size: 31px; font-weight: 800; letter-spacing: -0.5px; }
+.cp-overall .value .pct { color: #D4AF37; text-shadow: 0 0 18px rgba(212,175,55,0.35); }
 
-.tier-green { background: #16311f; color: #3ecf8e; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-.tier-yellow { background: #332c11; color: #e8c547; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+.tier-green { background: rgba(62,207,142,0.14); color: #3ecf8e; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; border: 1px solid rgba(62,207,142,0.25); }
+.tier-yellow { background: rgba(232,197,71,0.14); color: #e8c547; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; border: 1px solid rgba(232,197,71,0.25); }
 
 h3 { font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; font-weight: 600 !important; font-size: 14px !important; text-transform: uppercase; letter-spacing: 1.5px; }
 
@@ -316,23 +354,36 @@ h3 { font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; fo
     font-weight: 600 !important; letter-spacing: 1.5px !important; text-transform: uppercase;
 }
 
-section[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; border: 1px solid #2a2416; }
-.stMultiSelect [data-baseweb="tag"] { background-color: #2a2416 !important; color: #D4AF37 !important; border: 1px solid #D4AF3733 !important; }
+/* ---- data table + filter inputs, glass-matched ---- */
+section[data-testid="stDataFrame"] {
+    border-radius: 14px; overflow: hidden; border: 1px solid rgba(212,175,55,0.14);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+.stMultiSelect [data-baseweb="tag"] { background-color: rgba(212,175,55,0.14) !important; color: #D4AF37 !important; border: 1px solid rgba(212,175,55,0.25) !important; }
 .stMultiSelect > div > div, .stTextInput > div > div, .stDateInput > div > div {
-    background-color: #131209 !important; border: 1px solid #2a2416 !important; border-radius: 8px !important;
+    background-color: rgba(19,18,9,0.6) !important; backdrop-filter: blur(10px);
+    border: 1px solid rgba(212,175,55,0.14) !important; border-radius: 10px !important;
+    transition: border-color 0.18s ease;
 }
 .stMultiSelect > div > div:focus-within, .stTextInput > div > div:focus-within {
-    border-color: #D4AF3799 !important;
+    border-color: rgba(212,175,55,0.6) !important;
 }
 .stTextInput input { color: #ffffff !important; }
 .stSlider [data-baseweb="slider"] > div > div { background: #D4AF37 !important; }
-.stSlider [role="slider"] { background-color: #D4AF37 !important; border-color: #D4AF37 !important; }
+.stSlider [role="slider"] { background-color: #D4AF37 !important; border-color: #D4AF37 !important; box-shadow: 0 0 10px rgba(212,175,55,0.5) !important; }
 
-hr { border-color: #2a2416 !important; margin: 20px 0 !important; }
-.stTabs [data-baseweb="tab-list"] { gap: 4px; }
-.stTabs [data-baseweb="tab"] { background-color: #131209; border-radius: 8px 8px 0 0; color: #8a7d55; font-family: 'Oswald', sans-serif; padding: 8px 18px; transition: color 0.15s ease; }
-.stTabs [data-baseweb="tab"]:hover { color: #D4AF37; }
-.stTabs [aria-selected="true"] { color: #D4AF37 !important; border-bottom: 2px solid #D4AF37 !important; }
+hr { border-color: rgba(212,175,55,0.14) !important; margin: 22px 0 !important; }
+
+/* ---- tabs styled as pill-shaped glass toggles ---- */
+.stTabs [data-baseweb="tab-list"] { gap: 6px; }
+.stTabs [data-baseweb="tab"] {
+    background-color: rgba(19,18,9,0.55); backdrop-filter: blur(10px);
+    border: 1px solid rgba(212,175,55,0.12); border-radius: 10px 10px 0 0;
+    color: #8a7d55; font-family: 'Oswald', sans-serif; padding: 9px 20px;
+    transition: color 0.18s ease, background 0.18s ease;
+}
+.stTabs [data-baseweb="tab"]:hover { color: #D4AF37; background-color: rgba(212,175,55,0.06); }
+.stTabs [aria-selected="true"] { color: #D4AF37 !important; border-bottom: 2px solid #D4AF37 !important; background-color: rgba(212,175,55,0.08) !important; }
 
 /* tighten default Streamlit block spacing for a denser, more data-tool feel */
 div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column"] { gap: 0.5rem; }
@@ -665,7 +716,7 @@ with tab_games:
 <div style="color:#8a7d55;font-size:12px;margin-top:4px;">{score_line}</div>
 </div>
 </div>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid #2a2416;">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(212,175,55,0.14);">
 <div><div class="label">Model prob</div><div style="color:#D4AF37;font-weight:700;">{model_prob}</div></div>
 <div><div class="label">Market implied</div><div style="color:#fff;font-weight:700;">{implied_prob}</div></div>
 <div><div class="label">Edge</div><div style="color:#fff;font-weight:700;">{g['edge']}%</div></div>
