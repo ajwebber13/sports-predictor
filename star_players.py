@@ -14,6 +14,13 @@ min_games = games needed before a player counts (avoids one-game flukes).
 Add a new sport by adding one line to STAR_CONFIG below, once that
 sport has a game log table with a player_name/team_name/date + a
 volume column.
+
+NOTE on volume_col: this string is interpolated directly into
+AVG({volume_col}) in the query below — it's not limited to a bare
+column name. NFL/CFB use this to pass a full SQL expression (a
+touches proxy combining several columns) since football has no
+single cross-position volume stat the way minutes/at_bats works
+for basketball/baseball.
 """
 
 import os
@@ -27,8 +34,17 @@ STAR_CONFIG = {
     "wnba": {"table": "wnba_game_log", "volume_col": "minutes", "min_games": 5, "spans_calendar_years": False},
     "mlb":  {"table": "mlb_game_log",  "volume_col": "at_bats", "min_games": 5, "spans_calendar_years": False},
     "nba":  {"table": "nba_game_log",  "volume_col": "minutes", "min_games": 5, "spans_calendar_years": True},
-    # cfb, nfl: not wired yet — no game log table exists for these sports.
-    # Add a row here once <sport>_game_log exists with player_name/team_name/date.
+    # NFL/CFB: no single cross-position volume stat like minutes/at_bats —
+    # a QB's attempts and a WR's receptions aren't the same unit. Use a
+    # combined "touches" proxy instead: passing attempts + rush attempts +
+    # receptions. Deliberately excludes targets — ESPN box score reliability
+    # for targets wasn't confirmed as of this build; receptions is the stat
+    # we're sure is there. volume_col here is a raw SQL expression, not just
+    # a column name (see module docstring above).
+    # min_games is lower than WNBA/MLB (5) because NFL is a 17-game season
+    # and CFB ~12-13 — waiting for 5 games burns a quarter of the schedule.
+    "nfl":  {"table": "nfl_game_log", "volume_col": "(COALESCE(passing_attempts,0) + COALESCE(rushing_attempts,0) + COALESCE(receptions,0))", "min_games": 3, "spans_calendar_years": False},
+    "cfb":  {"table": "cfb_game_log", "volume_col": "(COALESCE(passing_attempts,0) + COALESCE(rushing_attempts,0) + COALESCE(receptions,0))", "min_games": 3, "spans_calendar_years": False},
 }
 
 _cache = {}  # {(sport, top_n, season): {team_name: [player_name, ...]}}
