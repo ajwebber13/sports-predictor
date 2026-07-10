@@ -73,7 +73,19 @@ def load_props() -> pd.DataFrame:
                {"," + proj_select if proj_select else ""},
                pr.actual_value, pr.hit, pr.team_won
         FROM player_props pp
-        LEFT JOIN prop_results pr
+        LEFT JOIN (
+            SELECT pr1.*
+            FROM prop_results pr1
+            WHERE pr1.rowid = (
+                SELECT pr2.rowid
+                FROM prop_results pr2
+                WHERE pr2.date = pr1.date
+                  AND pr2.player_name = pr1.player_name
+                  AND pr2.stat = pr1.stat
+                ORDER BY pr2.scored_at DESC, pr2.rowid DESC
+                LIMIT 1
+            )
+        ) pr
           ON pr.date = pp.date AND pr.player_name = pp.player_name AND pr.stat = pp.stat
         ORDER BY pp.date DESC
     """
@@ -358,6 +370,9 @@ def insert_prop(conn, prop_data: dict):
             :confidence_tier, :source, :captured_at
         )
         ON CONFLICT(date, player_name, stat) DO UPDATE SET
+            team_name         = excluded.team_name,
+            opponent          = excluded.opponent,
+            home_away         = excluded.home_away,
             line              = excluded.line,
             over_odds         = excluded.over_odds,
             under_odds        = excluded.under_odds,
@@ -367,6 +382,7 @@ def insert_prop(conn, prop_data: dict):
             hit_rate_b2b      = excluded.hit_rate_b2b,
             games_overall     = excluded.games_overall,
             confidence_tier   = excluded.confidence_tier,
+            source            = excluded.source,
             captured_at       = excluded.captured_at
     """
     conn.execute(sql, prop_data)
