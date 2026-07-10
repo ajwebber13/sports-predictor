@@ -26,7 +26,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
-import libsql_experimental as libsql
+from database import get_conn
 
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
 
@@ -139,7 +139,7 @@ def get_recent_values(sport: str, player_name: str, stat: str, n: int = 5) -> li
         return []
     select_expr = " + ".join(col_def) if isinstance(col_def, tuple) else col_def
     try:
-        conn = get_connection()
+        conn = get_conn()
         cur = conn.execute(
             f"SELECT {select_expr} as val FROM {table} WHERE player_name = ? ORDER BY date DESC LIMIT ?",
             (player_name, n),
@@ -392,16 +392,10 @@ div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column"] { gap:
 """, unsafe_allow_html=True)
 
 
-# ---------- CONNECT TO TURSO ----------
 @st.cache_resource
-def get_connection():
-    url = os.environ["TURSO_DATABASE_URL"]
-    token = os.environ["TURSO_AUTH_TOKEN"]
-    return libsql.connect("local.db", sync_url=url, auth_token=token)
-
 @st.cache_data(ttl=300)
 def load_picks():
-    conn = get_connection()
+    conn = get_conn()
     conn.sync()
     query = """
         SELECT p.date, p.sport, p.game, p.bet, p.odds, p.edge,
@@ -422,7 +416,7 @@ def load_picks():
 
 @st.cache_data(ttl=300)
 def load_props():
-    conn = get_connection()
+    conn = get_conn()
     conn.sync()
 
     # The projection columns (opponent_team, projected_stat, etc.) only get
@@ -682,7 +676,7 @@ with tab_games:
 
         event = st.dataframe(
             sorted_full[display_cols],
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
             column_config={
                 "pick_logo": st.column_config.ImageColumn(""),
                 "Tier": st.column_config.TextColumn("Tier", width="small"),
@@ -840,5 +834,5 @@ with tab_props:
                 })
 
             table_height = min(72 + len(table_rows) * 42, 900)
-            components.html(build_props_html(table_rows), height=table_height, scrolling=True)
+            st.iframe(build_props_html(table_rows), height=table_height, scrolling=True)
             st.caption("Last 5: green dot = beat the line that game, red = missed · dashed line = the prop line · Matchup: >1.0 means that opponent allows more than league average for this stat, <1.0 means tougher than average")
