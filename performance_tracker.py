@@ -60,7 +60,8 @@ def _date_filter_sql(date: str = None, date_range: tuple = None):
 
 def calculate_record(date: str = None, date_range: tuple = None, sport: str = None) -> dict:
     """Wins/losses/win_rate. Excludes rows where correct IS NULL (no
-    result yet, or no ESPN match found by auto_results.py)."""
+    result yet, or no ESPN match found by auto_results.py). Pass
+    neither date nor date_range for an all-time (season) total."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
@@ -86,10 +87,14 @@ def calculate_record(date: str = None, date_range: tuple = None, sport: str = No
 
 def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None) -> dict:
     """Real ROI computed from actual odds_at_pick per graded result,
-    1 flat unit per pick (see module docstring — real unit-sizing is
-    a v2 schema addition, not guessed here). Picks with no odds_at_pick
+    1 flat unit risked per pick (see module docstring — real unit-sizing
+    is a v2 schema addition, not guessed here). Picks with no odds_at_pick
     on record are excluded from the ROI count entirely rather than
-    assumed at -110, since that would silently misstate the number."""
+    assumed at -110, since that would silently misstate the number.
+
+    Returns "profit_units" (not "units") deliberately — once unit_size/
+    stake_amount/bankroll exist, "units" alone would be ambiguous
+    between "units risked" and "units profited"."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
@@ -108,7 +113,8 @@ def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None)
     skipped_no_odds = len(rows) - len(graded_with_odds)
 
     if not graded_with_odds:
-        return {"units_risked": 0, "profit": 0.0, "roi_pct": None, "picks_used": 0, "picks_skipped_no_odds": skipped_no_odds}
+        return {"units_risked": 0, "profit_units": 0.0, "roi_pct": None, "picks_used": 0,
+                "picks_skipped_no_odds": skipped_no_odds, "clv": None}
 
     total_profit = 0.0
     for r in graded_with_odds:
@@ -119,10 +125,11 @@ def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None)
 
     return {
         "units_risked": units_risked,
-        "profit": round(total_profit, 2),
+        "profit_units": round(total_profit, 2),
         "roi_pct": roi_pct,
         "picks_used": len(graded_with_odds),
         "picks_skipped_no_odds": skipped_no_odds,
+        "clv": None,  # reserved — closing_odds lives in odds_history, not results yet; wire in once that join is verified
     }
 
 
@@ -158,10 +165,58 @@ def calculate_record_by_sport(date: str = None, date_range: tuple = None) -> lis
     return out
 
 
+def calculate_confidence_buckets(date: str = None, date_range: tuple = None) -> list:
+    """Model calibration check: does 90%+ confidence actually win ~90%
+    of the time? Joins results to predictions via the existing
+    prediction_id FK (already on the results table from the pre-
+    regression schema — no new columns needed) to pull model_prob per
+    graded pick, then buckets. A model claiming 90% and landing at 65%
+    is broken — this is how you'd catch that."""
+    conn = get_conn()
+    c = conn.cursor()
+    where, params = _date_filter_sql(date, date_range)
+    c.execute(f"""
+        SELECT r.correct, p.model_prob
+        FROM results r
+        JOIN predictions p ON r.prediction_id = p.id
+        WHERE {where.replace('date', 'r.date')} AND r.correct IS NOT NULL AND p.model_prob IS NOT NULL
+    """, params)
+    rows = c.fetchall()
+    conn.close()
+
+    buckets = [
+        ("90%+", 90, 100.01),
+        ("85-89%", 85, 90),
+        ("80-84%", 80, 85),
+        ("75-79%", 75, 80),
+        ("<75%", 0, 75),
+    ]
+    out = []
+    for label, lo, hi in buckets:
+        in_bucket = [r for r in rows if lo <= r["model_prob"] < hi]
+        if not in_bucket:
+            continue
+        wins = sum(1 for r in in_bucket if r["correct"] == 1)
+        total = len(in_bucket)
+        out.append({
+            "bucket": label, "total": total, "wins": wins, "losses": total - wins,
+            "actual_win_rate": round(wins / total * 100, 1),
+        })
+    return out
+
+
 def get_best_worst_pick(date: str = None, date_range: tuple = None) -> dict:
-    """Best = highest edge_at_pick among wins. Worst = highest
-    edge_at_pick among losses (the pick the model was most confident
-    about, that still lost — the "worst beat" from the spec)."""
+    """
+    best/worst = highest edge_at_pick among wins/losses respectively
+    (the "worst beat" — a strong pick that still lost).
+
+    highest_confidence_pick = highest edge REGARDLESS of result — a
+    separate question from best/worst: "what did the model feel
+    strongest about, and was that actually right?" A big-edge pick
+    that lost tells you something different than a big-edge pick that
+    won; best/worst alone can't distinguish "bad result" from "bad
+    prediction" the way this can.
+    """
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
@@ -182,10 +237,19 @@ def get_best_worst_pick(date: str = None, date_range: tuple = None) -> dict:
     """, params)
     worst = c.fetchone()
 
+    c.execute(f"""
+        SELECT game, sport, edge_at_pick, odds_at_pick, correct
+        FROM results
+        WHERE {where} AND edge_at_pick IS NOT NULL
+        ORDER BY edge_at_pick DESC LIMIT 1
+    """, params)
+    highest_confidence = c.fetchone()
+
     conn.close()
     return {
         "best": dict(best) if best else None,
         "worst": dict(worst) if worst else None,
+        "highest_confidence_pick": dict(highest_confidence) if highest_confidence else None,
     }
 
 
@@ -194,6 +258,7 @@ def generate_daily_summary(date: str) -> dict:
     roi = calculate_roi(date=date)
     by_sport = calculate_record_by_sport(date=date)
     best_worst = get_best_worst_pick(date=date)
+    confidence_buckets = calculate_confidence_buckets(date=date)
 
     return {
         "date": date,
@@ -202,6 +267,8 @@ def generate_daily_summary(date: str) -> dict:
         "by_sport": by_sport,
         "best_pick": best_worst["best"],
         "worst_pick": best_worst["worst"],
+        "highest_confidence_pick": best_worst["highest_confidence_pick"],
+        "confidence_buckets": confidence_buckets,
     }
 
 
@@ -214,6 +281,7 @@ def generate_weekly_summary(end_date: str) -> dict:
     roi = calculate_roi(date_range=date_range)
     by_sport = calculate_record_by_sport(date_range=date_range)
     best_worst = get_best_worst_pick(date_range=date_range)
+    confidence_buckets = calculate_confidence_buckets(date_range=date_range)
 
     return {
         "range": date_range,
@@ -222,6 +290,8 @@ def generate_weekly_summary(end_date: str) -> dict:
         "by_sport": by_sport,
         "best_pick": best_worst["best"],
         "worst_pick": best_worst["worst"],
+        "highest_confidence_pick": best_worst["highest_confidence_pick"],
+        "confidence_buckets": confidence_buckets,
     }
 
 
@@ -240,13 +310,18 @@ def _print_summary(summary: dict, title: str):
 
     print(f"  Record:    {r['wins']}-{r['losses']} ({r['win_rate']}% win rate)")
     if roi["roi_pct"] is not None:
-        sign = "+" if roi["profit"] >= 0 else ""
-        print(f"  Units:     {sign}{roi['profit']} ({roi['picks_used']} picks with real odds)")
+        sign = "+" if roi["profit_units"] >= 0 else ""
+        print(f"  Units:     {sign}{roi['profit_units']} profit_units ({roi['picks_used']} picks with real odds)")
         print(f"  ROI:       {sign}{roi['roi_pct']}%")
         if roi["picks_skipped_no_odds"]:
             print(f"  (skipped {roi['picks_skipped_no_odds']} graded pick(s) with no odds_at_pick on record)")
     else:
         print("  Units/ROI: no picks with recorded odds this period")
+
+    if summary.get("confidence_buckets"):
+        print(f"\n  MODEL CALIBRATION")
+        for b in summary["confidence_buckets"]:
+            print(f"  {b['bucket']:<8} {b['wins']}-{b['losses']} ({b['actual_win_rate']}% actual)")
 
     if summary["by_sport"]:
         print(f"\n  BY SPORT")
@@ -259,6 +334,10 @@ def _print_summary(summary: dict, title: str):
     if summary["worst_pick"]:
         w = summary["worst_pick"]
         print(f"  Worst beat: {w['game']} ({w['sport'].upper()}) — +{w['edge_at_pick']}% edge, LOSS")
+    if summary.get("highest_confidence_pick"):
+        h = summary["highest_confidence_pick"]
+        result_str = "WIN" if h["correct"] == 1 else "LOSS" if h["correct"] == 0 else "PENDING"
+        print(f"  Highest conf: {h['game']} ({h['sport'].upper()}) — +{h['edge_at_pick']}% edge, {result_str}")
 
     print(f"{'='*45}\n")
 
@@ -268,10 +347,22 @@ if __name__ == "__main__":
     parser.add_argument("--date", help="Single date YYYY-MM-DD")
     parser.add_argument("--range", nargs=2, metavar=("START", "END"), help="Date range YYYY-MM-DD YYYY-MM-DD")
     parser.add_argument("--weekly", metavar="END_DATE", help="7-day summary ending on this date")
+    parser.add_argument("--season", action="store_true", help="All-time totals, no date filter")
     parser.add_argument("--sport", default=None, help="Filter to one sport")
     args = parser.parse_args()
 
-    if args.weekly:
+    if args.season:
+        record = calculate_record(sport=args.sport)
+        roi = calculate_roi(sport=args.sport)
+        by_sport = calculate_record_by_sport()
+        best_worst = get_best_worst_pick()
+        confidence_buckets = calculate_confidence_buckets()
+        summary = {"record": record, "roi": roi, "by_sport": by_sport,
+                   "best_pick": best_worst["best"], "worst_pick": best_worst["worst"],
+                   "highest_confidence_pick": best_worst["highest_confidence_pick"],
+                   "confidence_buckets": confidence_buckets}
+        _print_summary(summary, "C&P ALL-TIME PERFORMANCE")
+    elif args.weekly:
         summary = generate_weekly_summary(args.weekly)
         _print_summary(summary, f"C&P WEEKLY PERFORMANCE — {summary['range'][0]} to {summary['range'][1]}")
     elif args.range:
@@ -279,8 +370,11 @@ if __name__ == "__main__":
         roi = calculate_roi(date_range=tuple(args.range), sport=args.sport)
         by_sport = calculate_record_by_sport(date_range=tuple(args.range))
         best_worst = get_best_worst_pick(date_range=tuple(args.range))
+        confidence_buckets = calculate_confidence_buckets(date_range=tuple(args.range))
         summary = {"record": record, "roi": roi, "by_sport": by_sport,
-                   "best_pick": best_worst["best"], "worst_pick": best_worst["worst"]}
+                   "best_pick": best_worst["best"], "worst_pick": best_worst["worst"],
+                   "highest_confidence_pick": best_worst["highest_confidence_pick"],
+                   "confidence_buckets": confidence_buckets}
         _print_summary(summary, f"C&P PERFORMANCE — {args.range[0]} to {args.range[1]}")
     elif args.date:
         summary = generate_daily_summary(args.date)
