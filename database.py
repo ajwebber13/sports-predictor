@@ -32,6 +32,103 @@ TURSO_URL = (os.environ.get("TURSO_DATABASE_URL") or "").strip()
 TURSO_TOKEN = (os.environ.get("TURSO_AUTH_TOKEN") or "").strip()
 
 
+class _Row:
+    """Mimics sqlite3.Row: supports BOTH row["col"] and row[0] access,
+    plus .keys() so dict(row) works, plus iteration so rows_to_dicts()
+    below still works unchanged on these too.
+
+    Why this exists: the local-SQLite fallback branch below already
+    gets this behavior via conn.row_factory = sqlite3.Row. The Turso/
+    libsql branch never had an equivalent, so libsql's plain-tuple rows
+    silently broke every dict(row) / row["col"] call site in the
+    codebase the moment a query actually ran against Turso instead of
+    local SQLite — dozens of files (elo_ratings.py, ensemble_model.py,
+    every sport's predictor, render_job.py, recap_engine.py,
+    prop_tracker.py, auto_results.py, and more) all assume this access
+    pattern. Wrapping the connection here fixes all of them at the
+    source instead of patching each file individually."""
+    __slots__ = ("_columns", "_values")
+
+    def __init__(self, columns, values):
+        self._columns = columns
+        self._values = values
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            try:
+                idx = self._columns.index(key)
+            except ValueError:
+                raise KeyError(key)
+            return self._values[idx]
+        return self._values[key]
+
+    def keys(self):
+        return list(self._columns)
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+    def __repr__(self):
+        return f"Row({dict(zip(self._columns, self._values))})"
+
+
+class _DictCursorWrapper:
+    """Wraps a libsql cursor so fetchone()/fetchall() return _Row
+    objects instead of plain tuples. Everything else (execute,
+    rowcount, lastrowid, description, close, ...) passes straight
+    through to the real cursor via __getattr__."""
+
+    def __init__(self, real_cursor):
+        self._cursor = real_cursor
+
+    def execute(self, *args, **kwargs):
+        self._cursor.execute(*args, **kwargs)
+        return self
+
+    def executemany(self, *args, **kwargs):
+        self._cursor.executemany(*args, **kwargs)
+        return self
+
+    def _columns(self):
+        return [d[0] for d in self._cursor.description] if self._cursor.description else []
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        return _Row(self._columns(), row)
+
+    def fetchall(self):
+        cols = self._columns()
+        return [_Row(cols, r) for r in self._cursor.fetchall()]
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _DictConnWrapper:
+    """Wraps a libsql connection so both conn.cursor() and the direct
+    conn.execute() shortcut (used in Turso's own docs) return
+    dict-row-capable cursors. commit/close/sync/rollback/etc. pass
+    straight through to the real connection via __getattr__."""
+
+    def __init__(self, real_conn):
+        self._conn = real_conn
+
+    def cursor(self):
+        return _DictCursorWrapper(self._conn.cursor())
+
+    def execute(self, *args, **kwargs):
+        real_cursor = self._conn.execute(*args, **kwargs)
+        return _DictCursorWrapper(real_cursor)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 def rows_to_dicts(cursor, rows):
     """Converts cursor.fetchall()/fetchone() rows into plain dicts using
     cursor.description column names, instead of calling dict(row) on the
@@ -85,7 +182,7 @@ def get_conn():
                 f"Turso sync warning: {e}"
             )
 
-        return conn
+        return _DictConnWrapper(conn)
 
 
     conn = sqlite3.connect(

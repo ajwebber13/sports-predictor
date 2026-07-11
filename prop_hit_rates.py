@@ -11,7 +11,7 @@ from wnba_player_categories import is_off_role
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import get_conn as _get_conn
+from database import get_conn as _get_conn, rows_to_dicts as _rows_to_dicts
 
 MIN_GAMES_OVERALL    = 5
 MIN_GAMES_SITUATIONAL = 3
@@ -47,6 +47,22 @@ MIN_GAMES_FILTER = {
     "nba":  "minutes > 0",
     "mlb":  "at_bats > 0",
 }
+
+
+def _fetchone_dict(c) -> dict:
+    """fetchone() equivalent of rows_to_dicts — same reason it exists:
+    dict(row) / row["col"] only works when the connection's cursor
+    returns dict-like row objects (true for the local SQLite fallback,
+    NOT true for the Turso/libsql branch, which returns plain tuples).
+    Returns {} if there's no row, so callers can safely use .get()."""
+    row = c.fetchone()
+    if row is None:
+        return {}
+    return _rows_to_dicts(c, [row])[0]
+
+
+def _fetchall_dicts(c) -> list:
+    return _rows_to_dicts(c, c.fetchall())
 
 
 def setup_props_table():
@@ -123,9 +139,9 @@ def get_hit_rate(
           AND date LIKE ?
           AND {row_filter}
     """, (line, player_name, season_prefix))
-    row = c.fetchone()
-    overall_games = row["games"] or 0
-    overall_hits  = row["hits"]  or 0
+    row = _fetchone_dict(c)
+    overall_games = row.get("games") or 0
+    overall_hits  = row.get("hits")  or 0
     overall_rate  = round(overall_hits / overall_games * 100, 1) if overall_games >= 1 else None
 
     result = {
@@ -148,9 +164,9 @@ def get_hit_rate(
                 FROM {table}
                 WHERE player_name = ? AND opponent = ? AND date LIKE ? AND {row_filter}
             """, (line, player_name, opponent, season_prefix))
-            row = c.fetchone()
-            opp_games = row["games"] or 0
-            opp_hits  = row["hits"]  or 0
+            row = _fetchone_dict(c)
+            opp_games = row.get("games") or 0
+            opp_hits  = row.get("hits")  or 0
             opp_rate  = round(opp_hits / opp_games * 100, 1) if opp_games >= MIN_GAMES_SITUATIONAL else None
             result["vs_opponent"] = {"hit_rate": opp_rate, "games": opp_games, "hits": opp_hits}
 
@@ -161,9 +177,9 @@ def get_hit_rate(
                 FROM {table}
                 WHERE player_name = ? AND home_away = ? AND date LIKE ? AND {row_filter}
             """, (line, player_name, home_away, season_prefix))
-            row = c.fetchone()
-            ha_games = row["games"] or 0
-            ha_hits  = row["hits"]  or 0
+            row = _fetchone_dict(c)
+            ha_games = row.get("games") or 0
+            ha_hits  = row.get("hits")  or 0
             ha_rate  = round(ha_hits / ha_games * 100, 1) if ha_games >= MIN_GAMES_SITUATIONAL else None
             result["home_away"] = {"hit_rate": ha_rate, "games": ha_games, "hits": ha_hits}
 
@@ -174,7 +190,7 @@ def get_hit_rate(
                 WHERE player_name = ? AND date LIKE ? AND {row_filter}
                 ORDER BY date DESC LIMIT 20
             """, (player_name, season_prefix))
-            rows = c.fetchall()
+            rows = _fetchall_dicts(c)
             b2b_games = [(r["date"], r["stat_value"]) for r in rows if _is_b2b(r["date"], rows)]
             b2b_hits  = sum(1 for _, v in b2b_games if v > line)
             b2b_count = len(b2b_games)
@@ -322,7 +338,7 @@ def get_strong_props(date: str = None, min_hit_rate: float = 65.0, sport: str = 
         WHERE date = ? AND sport = ? AND hit_rate_overall >= ?
         ORDER BY hit_rate_overall DESC
     """, (date, sport, min_hit_rate))
-    rows = [dict(r) for r in c.fetchall()]
+    rows = _fetchall_dicts(c)
     conn.close()
     return rows
 
