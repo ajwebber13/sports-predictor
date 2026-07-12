@@ -29,9 +29,9 @@ raw number (that would compress everyone's spread unevenly):
     adjusted_elo  = 1500 + (raw_elo - 1500) * reliability
 
 SOS is folded into Team Quality directly in Elo-point units
-(schedule_difficulty is already an Elo-point differential from 1500,
-so it's added straight onto adjusted_elo — no separate scaling
-constant invented here).
+(schedule_difficulty is already an Elo-point differential from 1500),
+capped at +/-SOS_ADJUSTMENT_CAP so a hard schedule can nudge the
+ranking without letting it outweigh actual proven Elo strength.
 
 Model Confidence reuses team_form_engine.py's avg_model_probability
 rather than building new per-team functions in performance_tracker.py
@@ -76,6 +76,8 @@ EFFICIENCY_STAT_MAP = {
 }
 
 RELIABILITY_GAMES_THRESHOLD = 15  # matches elo_ratings.py's own early-season K-factor cutoff
+SOS_ADJUSTMENT_CAP = 50  # caps schedule_difficulty's swing on Team Quality — SOS should nudge
+                          # the ranking, not let a hard schedule outweigh actual proven Elo strength
 
 
 def _norm_sport(sport):
@@ -161,8 +163,9 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
 
         sos = get_strength_of_schedule(team, sport=sport, min_games=1)
         schedule_difficulty = sos["schedule_difficulty"] if not sos.get("insufficient_sample") else 0.0
+        sos_adjustment = max(min(schedule_difficulty, SOS_ADJUSTMENT_CAP), -SOS_ADJUSTMENT_CAP)
 
-        team_quality_raw = elo_info["adjusted_elo"] + schedule_difficulty
+        team_quality_raw = elo_info["adjusted_elo"] + sos_adjustment
         raw_quality[team] = team_quality_raw
         raw_form[team] = form["win_percentage"]
 
@@ -176,6 +179,7 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
         detail[team] = {
             "elo": elo_info,
             "sos": sos,
+            "sos_adjustment": sos_adjustment,
             "form": form,
         }
 
@@ -201,6 +205,12 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
             "team": team,
             "sport": sport,
             "power_score": power_score,
+            "weighted_components": {
+                "team_quality": round(quality_n[team] * 0.40, 1),
+                "recent_form": round(form_n[team] * 0.25, 1),
+                "efficiency": round(eff_score * 0.20, 1),
+                "model_confidence": round(conf_score * 0.15, 1),
+            },
             "components": {
                 "team_quality": quality_n[team],
                 "form": form_n[team],
@@ -215,6 +225,7 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
                 "elo_reliability": detail[team]["elo"]["reliability"],
                 "adjusted_elo": detail[team]["elo"]["adjusted_elo"],
                 "schedule_difficulty": detail[team]["sos"].get("schedule_difficulty"),
+                "sos_adjustment_applied": detail[team]["sos_adjustment"],
                 "avg_opponent_elo": detail[team]["sos"].get("avg_opponent_elo"),
                 "win_percentage": detail[team]["form"]["win_percentage"],
                 "current_streak": detail[team]["form"]["current_streak"],
@@ -229,18 +240,38 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
 
 
 if __name__ == "__main__":
-    rankings = get_rankings("wnba")
-    print(f"\n{'='*70}")
-    print("  WNBA POWER RANKINGS (v1)")
-    print(f"{'='*70}")
+    sport_arg = sys.argv[1] if len(sys.argv) > 1 else "wnba"
+    rankings = get_rankings(sport_arg)
+
+    print(f"\n{'='*100}")
+    print(f"  {sport_arg.upper()} POWER RANKINGS (v1)")
+    print(f"{'='*100}")
+    print(f"  {'Rank':>4}  {'Team':<24} {'Power':>7} {'Elo':>6} {'Form':>6} {'SOS':>6} {'Effic.':>7} {'Conf.':>6}")
+    print(f"  {'-'*4}  {'-'*24} {'-'*7} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*6}")
     for r in rankings:
         c = r["components"]
-        eff_flag = "" if c["efficiency_is_real_data"] else " (neutral — no defense data yet)"
-        conf_flag = "" if c["model_confidence_is_real_data"] else " (neutral — model hasn't picked this team)"
-        print(f"\n  {r['rank']}. {r['team']}  —  {r['power_score']}")
-        print(f"     Quality {c['team_quality']}  Form {c['form']}  "
-              f"Efficiency {c['efficiency']}{eff_flag}  Confidence {c['model_confidence']}{conf_flag}")
-        print(f"     Elo {r['raw']['elo']} ({r['raw']['elo_games_played']} games, "
-              f"reliability {r['raw']['elo_reliability']}) -> adjusted {r['raw']['adjusted_elo']}, "
-              f"SOS {r['raw']['schedule_difficulty']:+}")
-    print(f"\n{'='*70}\n")
+        raw = r["raw"]
+        print(f"  {r['rank']:>4}  {r['team']:<24} {r['power_score']:>7} "
+              f"{c['team_quality']:>6} {c['form']:>6} {raw['sos_adjustment_applied']:>+6} "
+              f"{c['efficiency']:>7} {c['model_confidence']:>6}")
+
+    print(f"\n{'='*100}")
+    print("  FLAGS")
+    print(f"{'='*100}")
+    for r in rankings:
+        c = r["components"]
+        raw = r["raw"]
+        small_sample = raw["elo_games_played"] < RELIABILITY_GAMES_THRESHOLD
+        sos_word = ("easier than average" if raw["schedule_difficulty"] < -5
+                    else "harder than average" if raw["schedule_difficulty"] > 5
+                    else "about average")
+        print(f"\n  {r['team']}")
+        print(f"    Small Sample:      {'Yes (' + str(raw['elo_games_played']) + ' games)' if small_sample else 'No'}")
+        print(f"    SOS:               {sos_word} ({raw['schedule_difficulty']:+})")
+        print(f"    Efficiency Data:   {'Real' if c['efficiency_is_real_data'] else 'Neutral placeholder (no data yet)'}")
+        print(f"    Confidence Data:   {'Real' if c['model_confidence_is_real_data'] else 'Neutral placeholder (model never picked this team)'}")
+        print(f"    Weighted:          quality={r['weighted_components']['team_quality']} "
+              f"form={r['weighted_components']['recent_form']} "
+              f"efficiency={r['weighted_components']['efficiency']} "
+              f"confidence={r['weighted_components']['model_confidence']}")
+    print(f"\n{'='*100}\n")
