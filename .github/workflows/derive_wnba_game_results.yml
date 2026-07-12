@@ -1,0 +1,33 @@
+name: Derive WNBA Team Game Results
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season prefix filter (e.g. 2026), leave blank for all"
+        required: false
+        default: ""
+
+jobs:
+  derive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Derive team game results
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          if [ -z "${{ github.event.inputs.season }}" ]; then
+            python wnba_game_results.py derive
+          else
+            python wnba_game_results.py derive --season "${{ github.event.inputs.season }}"
+          fi
