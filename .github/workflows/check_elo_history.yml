@@ -1,0 +1,32 @@
+name: Check Elo History
+
+on:
+  workflow_dispatch:
+    inputs:
+      team:
+        description: "Team name (exact match)"
+        required: true
+        default: "Golden State Valkyries"
+      sport:
+        description: "Sport"
+        required: true
+        default: "wnba"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check Elo history
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python check_elo_history.py "${{ github.event.inputs.team }}" "${{ github.event.inputs.sport }}"
