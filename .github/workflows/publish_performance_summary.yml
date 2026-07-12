@@ -1,5 +1,4 @@
 name: Publish Performance Summary
-
 on:
   workflow_dispatch:
     inputs:
@@ -7,20 +6,18 @@ on:
         description: "Season/year filter (e.g. 2026), leave blank for all-time"
         required: false
         default: ""
-
+  schedule:
+    - cron: "45 11 * * *"
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: pip install -r requirements.txt
-
       - name: Generate performance summary
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -31,9 +28,29 @@ jobs:
           else
             python publish_performance_summary.py --season "${{ github.event.inputs.season }}"
           fi
-
       - name: Upload as artifact
         uses: actions/upload-artifact@v4
         with:
           name: performance-summary
           path: performance-summary.json
+      - name: Push to cp-sports-site
+        env:
+          CP_SITE_PAT: ${{ secrets.CP_SITE_PAT }}
+        run: |
+          if [ -z "$CP_SITE_PAT" ]; then
+            echo "CP_SITE_PAT secret not set — skipping auto-push to cp-sports-site."
+            exit 0
+          fi
+          git clone "https://x-access-token:${CP_SITE_PAT}@github.com/ajwebber13/cp-sports-site.git" site-repo
+          cp performance-summary.json site-repo/data/performance-summary.json
+          cd site-repo
+          git config user.name "C&P Analytics Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/performance-summary.json
+          if git diff --staged --quiet; then
+            echo "No change in performance numbers since last run — nothing to push."
+          else
+            git commit -m "Auto-update performance summary $(date -u +%Y-%m-%d)"
+            git push origin main
+            echo "Pushed updated performance-summary.json to cp-sports-site"
+          fi
