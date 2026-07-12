@@ -75,6 +75,30 @@ def get_confidence_tier(model_prob: float) -> str:
         return "Medium"
     return "Low"
 
+
+def get_confidence_grade(model_prob: float) -> str:
+    """Letter-grade version of get_confidence_tier(), for Telegram/
+    display text only — deliberately kept SEPARATE from
+    get_confidence_tier(), whose High/Medium/Low output is already
+    wired into daily-intelligence.json's confidence_tier field, which
+    the website's CSS (.intel-tier.high/.medium/.low) matches against.
+    Changing that field's values would silently break the site's
+    styling. This function exists purely so the Telegram card can read
+    "A+"/"B" instead, without touching that contract.
+
+    Same underlying meaning and same caution as get_confidence_tier():
+    this is "how strongly does the model favor this outcome," not a
+    profitability claim — confidence calibration is still unresolved
+    (see get_confidence_tier()'s docstring)."""
+    if model_prob >= 90:
+        return "A+"
+    elif model_prob >= 80:
+        return "A"
+    elif model_prob >= 70:
+        return "B"
+    return "C"
+
+
 STAT_LABELS = {
     "pts": "PTS", "reb": "REB", "ast": "AST", "stl": "STL", "blk": "BLK",
     "pr": "PR", "pa": "PA", "ra": "RA", "pra": "PRA",
@@ -236,6 +260,7 @@ def export_daily_intelligence(date_str: str, game_picks: dict, model_projections
             "odds": pick["odds"],
             "confidence": round(pick["model_prob"], 1),
             "confidence_tier": get_confidence_tier(pick["model_prob"]),
+            "confidence_grade": get_confidence_grade(pick["model_prob"]),
             "edge_pct": round(pick["edge"], 1),
         }
         for sport, pick in game_picks.items()
@@ -248,6 +273,7 @@ def export_daily_intelligence(date_str: str, game_picks: dict, model_projections
             "favorite": proj["bet"],
             "win_probability": round(proj["model_prob"], 1),
             "confidence_tier": get_confidence_tier(proj["model_prob"]),
+            "confidence_grade": get_confidence_grade(proj["model_prob"]),
         }
         for sport, proj in model_projections.items()
     ]
@@ -263,6 +289,7 @@ def export_daily_intelligence(date_str: str, game_picks: dict, model_projections
             "historical_hit_rate_pct": prop_pick["display_pct"],
             "games_sampled": prop_pick["games_overall"],
             "confidence_tier": get_confidence_tier(prop_pick["display_pct"]),
+            "confidence_grade": get_confidence_grade(prop_pick["display_pct"]),
         })
 
     return {
@@ -292,7 +319,7 @@ def build_message(date_str: str, game_picks: dict, prop_pick: dict, model_projec
         lines.append(f"{pick['game']}")
         lines.append(f"\u2705 {pick['bet']} ({pick['odds']})")
         lines.append(f"\U0001f4ca {pick['model_prob']:.1f}% confidence")
-        lines.append(f"\U0001f525 Confidence Tier: {get_confidence_tier(pick['model_prob'])}")
+        lines.append(f"\U0001f525 Confidence: {get_confidence_grade(pick['model_prob'])}")
         lines.append(f"\U0001f4c8 Edge: +{pick['edge']:.1f}%")
 
     for sport, proj in model_projections.items():
@@ -303,7 +330,7 @@ def build_message(date_str: str, game_picks: dict, prop_pick: dict, model_projec
         lines.append(f"{proj['game']}")
         lines.append(f"Model favors: {proj['bet']}")
         lines.append(f"\U0001f4ca Win Probability: {proj['model_prob']:.1f}%")
-        lines.append(f"\u2696\ufe0f Confidence Tier: {get_confidence_tier(proj['model_prob'])}")
+        lines.append(f"\u2696\ufe0f Confidence: {get_confidence_grade(proj['model_prob'])}")
         lines.append(f"<i>No qualifying betting edge today \u2014 projection only, not a Lock.</i>")
 
     if prop_pick:
@@ -311,6 +338,7 @@ def build_message(date_str: str, game_picks: dict, prop_pick: dict, model_projec
         lines.append(f"\n\U0001f3af <b>PROP OF THE DAY</b>")
         lines.append(f"{prop_pick['player_name']} \u2014 {prop_pick['side']} {stat_label} {prop_pick['line']:g}")
         lines.append(f"\U0001f4ca {prop_pick['display_pct']}% historical rate ({prop_pick['games_overall']} games)")
+        lines.append(f"\U0001f525 Confidence: {get_confidence_grade(prop_pick['display_pct'])}")
 
     lines.extend(build_parlay_section(game_picks, prop_pick))
 
