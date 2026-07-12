@@ -194,7 +194,16 @@ def update_elo(sport: str, home_team: str, away_team: str,
     Updates Elo ratings for both teams after a game result.
     Uses dynamic K-factor based on games played.
     Returns (new_home_elo, new_away_elo).
+
+    Calls init_elo_tables() defensively — this now runs from
+    auto_results.py's live pipeline after every result, and that
+    pipeline shouldn't depend on someone having manually run a backfill
+    (which is the only other thing that used to guarantee the tables
+    existed) first. CREATE TABLE IF NOT EXISTS is a no-op after the
+    first call, so this costs nothing once tables exist.
     """
+    init_elo_tables()
+
     home_adv = HOME_ADV_ELO.get(sport, 60)
     use_mov  = MOV_DAMPENING.get(sport, True)
 
@@ -346,8 +355,19 @@ def recalibrate_season(sport: str, dry_run: bool = False):
 
 def backfill_elo(sport: str):
     """
-    Rebuilds Elo ratings from scratch using full head_to_head history,
+    Rebuilds Elo ratings from scratch using full RESULTS history,
     processed in chronological order.
+
+    CHANGED 2026-07-11: originally read from head_to_head, which was
+    confirmed to not exist in production at all (check_head_to_head_freshness.py
+    run failed with "no such table: head_to_head" — the manual backfill
+    scripts that were supposed to populate it were never run against
+    Turso). `results` is the live pipeline's own graded-game table —
+    complete, comprehensive, no 1st/15th-of-month sampling gap like
+    head_to_head's original ingestion method had. Same data-quality
+    guard as team_form_engine.py: skip a row if actual_winner doesn't
+    exactly match home_team or away_team, rather than silently
+    misclassifying it.
     """
     init_elo_tables()
 
@@ -359,23 +379,27 @@ def backfill_elo(sport: str):
     conn.commit()
 
     c.execute("""
-        SELECT home_team, away_team, home_score, away_score, date, winner
-        FROM head_to_head
+        SELECT home_team, away_team, home_score, away_score, date, actual_winner
+        FROM results
         WHERE sport = ?
         ORDER BY date ASC
     """, (sport,))
     rows = c.fetchall()
     conn.close()
 
-    print(f"\nBackfilling {sport.upper()} Elo from {len(rows)} historical games...")
+    print(f"\nBackfilling {sport.upper()} Elo from {len(rows)} results-table games...")
 
     processed = 0
     skipped   = 0
+    bad_winner = 0
     for row in rows:
         if row["home_score"] is None or row["away_score"] is None:
             continue
         if is_exhibition_team(row["home_team"]) or is_exhibition_team(row["away_team"]):
             skipped += 1
+            continue
+        if row["actual_winner"] not in (row["home_team"], row["away_team"]):
+            bad_winner += 1
             continue
         update_elo(
             sport, row["home_team"], row["away_team"],
@@ -384,6 +408,8 @@ def backfill_elo(sport: str):
         processed += 1
 
     print(f"  Skipped {skipped} exhibition/all-star game(s)")
+    if bad_winner:
+        print(f"  Skipped {bad_winner} game(s) with a mismatched actual_winner string")
     print(f"  Backfill complete: {processed} games processed")
 
 

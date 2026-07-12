@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
+from elo_ratings import update_elo, is_exhibition_team
 
 CENTRAL_OFFSET = -5
 
@@ -190,6 +191,23 @@ def insert_result(conn, result: dict, dry_run: bool = False):
     conn.commit()
     status = "CORRECT" if result["correct"] == 1 else "WRONG"
     print(f"    [{result['sport'].upper()}] {status} -> {result['game']} -> {result['actual_winner']} (saved)")
+
+    # Keep Elo current as real results come in — added 2026-07-11.
+    # Previously elo_ratings.py only updated via manual `backfill`,
+    # which pulled from head_to_head (confirmed missing from
+    # production entirely — check_head_to_head_freshness.py). This is
+    # now the live feed that keeps elo_ratings from going stale again.
+    if not is_exhibition_team(result["home_team"]) and not is_exhibition_team(result["away_team"]):
+        try:
+            update_elo(
+                result["sport"], result["home_team"], result["away_team"],
+                result["home_score"], result["away_score"], date=result["date"]
+            )
+        except Exception as e:
+            # Elo failing to update should never block a results write —
+            # results is the source of truth; Elo can be rebacked via
+            # `python elo_ratings.py backfill <sport>` if this ever fires.
+            print(f"    ⚠️  Elo update failed for {result['game']}: {e}")
 
 
 def score_prop_results(conn, date_str: str, dry_run: bool = False):
