@@ -1,0 +1,39 @@
+name: Publish Performance Summary
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season/year filter (e.g. 2026), leave blank for all-time"
+        required: false
+        default: ""
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate performance summary
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          if [ -z "${{ github.event.inputs.season }}" ]; then
+            python publish_performance_summary.py
+          else
+            python publish_performance_summary.py --season "${{ github.event.inputs.season }}"
+          fi
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-summary
+          path: performance-summary.json
