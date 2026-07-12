@@ -7,15 +7,27 @@ defense_ratings modules into one power_score + rank per team.
 power_rankings.py (not built yet) becomes the display layer that
 just calls get_rankings(sport).
 
-    results --> elo_ratings.py --> strength_of_schedule.py -\
-            --> team_form_engine.py ----------------------------> ranking_engine.py --> power_rankings.py
-            --> <sport>_defense_ratings.py ------------------/
+    <sport>_game_results/results --> elo_ratings.py --> strength_of_schedule.py -\
+                                  --> team_form_engine.py -------------------------> ranking_engine.py --> power_rankings.py
+                                  --> <sport>_defense_ratings.py ------------------/
 
-Weighting (agreed 2026-07-11):
-    40% Team Quality   = Adjusted Elo + SOS Adjustment
-    25% Recent Form     = win % from team_form_engine.py
-    20% Efficiency      = sport-specific defense factor (proxy — see note below)
-    15% Model Confidence = avg_model_probability from team_form_engine.py
+Weighting (revised 2026-07-11, round 3 — Team Strength only):
+    40% Elo Quality  = Adjusted Elo (reliability-blended, see below)
+    25% Recent Form  = win % from team_form_engine.py
+    20% Efficiency   = sport-specific defense factor (proxy — see note below)
+    15% SOS          = capped schedule-difficulty adjustment, its own component now
+
+Model Confidence was REMOVED from power_score entirely and moved to a
+separate `betting_profile` dict on each team's result. Reason:
+avg_model_probability measures how much the BETTING MODEL has engaged
+with a team (how many of its games got a logged prediction), not how
+strong the team actually is. A genuinely elite team the model rarely
+bet on was losing ranking points for a reason that had nothing to do
+with team strength — conflating "is this team good" with "has the
+model bet on them." Those are different questions with different
+outputs now. See `betting_profile` in get_rankings()'s return shape:
+model_confidence, games_model_backed, avg_edge, avg_model_probability
+— informational, never touches power_score.
 
 Elo reliability: elo_ratings.py stays a pure rating engine and knows
 nothing about trust — that judgment lives here. games_played < 15
@@ -29,16 +41,12 @@ raw number (that would compress everyone's spread unevenly):
     target_games  = max(10, SEASON_GAMES[sport] * 0.35)  # sport-aware, ~35% of a full season
     adjusted_elo  = 1500 + (raw_elo - 1500) * reliability
 
-SOS is folded into Team Quality directly in Elo-point units
-(schedule_difficulty is already an Elo-point differential from 1500),
-capped at +/-SOS_ADJUSTMENT_CAP so a hard schedule can nudge the
-ranking without letting it outweigh actual proven Elo strength.
-
-Model Confidence reuses team_form_engine.py's avg_model_probability
-rather than building new per-team functions in performance_tracker.py
-— avoids duplicating the same picked_this_team-gated calculation in
-two places (same principle already applied to keep Team Profile from
-duplicating Power Rankings/Matchup Analyzer logic).
+SOS is now its OWN independent 15% component (previously folded
+additively into Team Quality before normalization — moved out for the
+same reason Confidence was: cleaner to normalize and weight something
+on its own terms than bake it into another component's raw value).
+Still capped at +/-SOS_ADJUSTMENT_CAP before normalization so one
+extreme schedule can't swing the raw value disproportionately.
 
 Efficiency — REAL DATA GAP, not silently worked around: the
 per-sport <sport>_defense_ratings.py files use per-stat "allowed"
@@ -156,13 +164,31 @@ def calculate_elo_score(team: str, sport: str) -> dict:
 def get_rankings(sport: str, min_games: int = 3) -> list:
     """Full ranked list for a sport. Teams below min_games (per
     team_form_engine.py's real-game-result sample) are excluded rather
-    than ranked off an insufficient sample."""
+    than ranked off an insufficient sample.
+
+    CHANGED 2026-07-11 (round 3): Model Confidence was removed from
+    power_score entirely and moved to a separate betting_profile dict.
+    Reason: avg_model_probability measures how much the BETTING MODEL
+    has engaged with a team (how many games it had a logged opinion
+    on), not how strong the team actually is. Folding it into power
+    score meant a genuinely elite team could lose ranking points
+    simply because the model hadn't predicted many of its games —
+    conflating "is this team good" with "has the model bet on them."
+    Those are two different questions and now get two different
+    outputs. SOS moves from being folded additively into Team Quality
+    to being its own independent 15% weighted component instead —
+    same reasoning: it's cleaner to normalize and weight it on its own
+    terms than to bake it into another component's raw value before
+    normalization.
+
+    New weighting: Elo 40%, Form 25%, Efficiency 20%, SOS 15%."""
     sport = _norm_sport(sport)
     teams = _all_teams_with_elo(sport)
 
-    raw_quality = {}
+    raw_elo_quality = {}
     raw_form = {}
     raw_efficiency = {}
+    raw_sos = {}
     raw_confidence = {}
     detail = {}
 
@@ -177,8 +203,8 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
         schedule_difficulty = sos["schedule_difficulty"] if not sos.get("insufficient_sample") else 0.0
         sos_adjustment = max(min(schedule_difficulty, SOS_ADJUSTMENT_CAP), -SOS_ADJUSTMENT_CAP)
 
-        rating_score = elo_info["adjusted_elo"] + sos_adjustment
-        raw_quality[team] = rating_score
+        raw_elo_quality[team] = elo_info["adjusted_elo"]
+        raw_sos[team] = sos_adjustment
         raw_form[team] = form["win_percentage"]
 
         if form["avg_model_probability"] is not None:
@@ -195,21 +221,23 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
             "form": form,
         }
 
-    quality_n = _normalize(raw_quality)
+    quality_n = _normalize(raw_elo_quality)
     form_n = _normalize(raw_form)
     efficiency_n = _normalize(raw_efficiency)
-    confidence_n = _normalize(raw_confidence)
+    sos_n = _normalize(raw_sos)
+    confidence_n = _normalize(raw_confidence)  # betting_profile only — NOT part of power_score
 
     results = []
-    for team in raw_quality:
+    for team in raw_elo_quality:
         eff_score = efficiency_n.get(team, 50.0)  # neutral if sport unmapped or team has no defense sample yet
-        conf_score = confidence_n.get(team, 50.0)  # neutral if model never picked this team
+        sos_score = sos_n.get(team, 50.0)         # neutral if insufficient SOS sample
+        conf_score = confidence_n.get(team, 50.0)  # neutral if model never picked this team — betting_profile only
 
         power_score = round(
             quality_n[team] * 0.40
             + form_n[team] * 0.25
             + eff_score * 0.20
-            + conf_score * 0.15,
+            + sos_score * 0.15,
             1,
         )
 
@@ -218,18 +246,24 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
             "sport": sport,
             "power_score": power_score,
             "weighted_components": {
-                "team_quality": round(quality_n[team] * 0.40, 1),
+                "elo_quality": round(quality_n[team] * 0.40, 1),
                 "recent_form": round(form_n[team] * 0.25, 1),
                 "efficiency": round(eff_score * 0.20, 1),
-                "model_confidence": round(conf_score * 0.15, 1),
+                "sos": round(sos_score * 0.15, 1),
             },
             "components": {
-                "team_quality": quality_n[team],
+                "elo_quality": quality_n[team],
                 "form": form_n[team],
                 "efficiency": eff_score,
                 "efficiency_is_real_data": team in raw_efficiency,
+                "sos": sos_score,
+            },
+            "betting_profile": {
                 "model_confidence": conf_score,
                 "model_confidence_is_real_data": team in raw_confidence,
+                "games_model_backed": detail[team]["form"]["games_model_backed"],
+                "avg_edge": detail[team]["form"]["avg_edge"],
+                "avg_model_probability": detail[team]["form"]["avg_model_probability"],
             },
             "raw": {
                 "elo": detail[team]["elo"]["elo"],
@@ -256,22 +290,21 @@ if __name__ == "__main__":
     rankings = get_rankings(sport_arg)
 
     print(f"\n{'='*100}")
-    print(f"  {sport_arg.upper()} POWER RANKINGS (v1)")
+    print(f"  {sport_arg.upper()} POWER RANKINGS (v1) — Team Strength only, no betting-model influence")
     print(f"{'='*100}")
-    print(f"  {'Rank':>4}  {'Team':<24} {'Power':>7} {'Qual.':>6} {'Form':>6} {'SOS':>6} {'Effic.':>7} {'Conf.':>6}")
-    print(f"  {'-'*4}  {'-'*24} {'-'*7} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*6}")
+    print(f"  {'Rank':>4}  {'Team':<24} {'Power':>7} {'Elo':>6} {'Form':>6} {'SOS':>6} {'Effic.':>7}")
+    print(f"  {'-'*4}  {'-'*24} {'-'*7} {'-'*6} {'-'*6} {'-'*6} {'-'*7}")
     for r in rankings:
         c = r["components"]
-        raw = r["raw"]
         print(f"  {r['rank']:>4}  {r['team']:<24} {r['power_score']:>7} "
-              f"{c['team_quality']:>6} {c['form']:>6} {raw['sos_adjustment_applied']:>+6} "
-              f"{c['efficiency']:>7} {c['model_confidence']:>6}")
+              f"{c['elo_quality']:>6} {c['form']:>6} {c['sos']:>6} {c['efficiency']:>7}")
 
     print(f"\n{'='*100}")
-    print("  FLAGS")
+    print("  FLAGS + BETTING PROFILE (informational only — not part of power_score)")
     print(f"{'='*100}")
     for r in rankings:
         c = r["components"]
+        bp = r["betting_profile"]
         raw = r["raw"]
         small_sample = raw["elo_games_played"] < SMALL_SAMPLE_DISPLAY_GAMES
         sos_word = ("easier than average" if raw["schedule_difficulty"] < -5
@@ -284,9 +317,14 @@ if __name__ == "__main__":
         print(f"    Small Sample:      {'Yes (' + str(raw['elo_games_played']) + ' games)' if small_sample else 'No'}")
         print(f"    SOS:               {sos_word} ({raw['schedule_difficulty']:+})")
         print(f"    Efficiency Data:   {'Real' if c['efficiency_is_real_data'] else 'Neutral placeholder (no data yet)'}")
-        print(f"    Confidence Data:   {'Real' if c['model_confidence_is_real_data'] else 'Neutral placeholder (model never picked this team)'}")
-        print(f"    Weighted:          quality={r['weighted_components']['team_quality']} "
+        print(f"    Weighted:          elo={r['weighted_components']['elo_quality']} "
               f"form={r['weighted_components']['recent_form']} "
               f"efficiency={r['weighted_components']['efficiency']} "
-              f"confidence={r['weighted_components']['model_confidence']}")
+              f"sos={r['weighted_components']['sos']}")
+        print(f"    --- Betting Profile (does not affect power_score) ---")
+        print(f"    Games Model Backed: {bp['games_model_backed']} of {raw['elo_games_played']}")
+        print(f"    Model Confidence:   {'Real' if bp['model_confidence_is_real_data'] else 'No picks logged for this team'}"
+              + (f" ({bp['avg_model_probability']})" if bp['model_confidence_is_real_data'] else ""))
+        if bp['avg_edge'] is not None:
+            print(f"    Avg Edge:           {bp['avg_edge']}")
     print(f"\n{'='*100}\n")

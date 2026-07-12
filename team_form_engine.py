@@ -230,6 +230,11 @@ def get_team_form(team: str, sport: str = None, min_games: int = 3, date_range: 
         "win_percentage": round(wins_total / games_tracked, 3),
         "avg_edge": round(sum(edges) / len(edges), 3) if edges else None,
         "avg_model_probability": round(sum(probs) / len(probs), 3) if probs else None,
+        "games_model_backed": len(edges),  # how many of games_tracked the model actually had
+                                            # a logged opinion on — distinct from win_percentage,
+                                            # this is a MODEL ACTIVITY count, not a team-strength
+                                            # metric. Kept separate deliberately (see
+                                            # ranking_engine.py's betting_profile split, 2026-07-11).
         "last_game_date": games[0]["date"],
         "recent_games": games[:10],
         "insufficient_sample": False,
