@@ -66,6 +66,7 @@ MOV_DAMPENING = {
 # column names without checking first.
 GAME_RESULTS_SOURCE = {
     "wnba": "team_game_results",
+    "nba": "team_game_results",
 }
 
 # Season game counts — used for dynamic K scaling
