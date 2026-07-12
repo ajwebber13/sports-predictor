@@ -56,6 +56,18 @@ MOV_DAMPENING = {
     "hbcu_football": True, "hbcu_mbb": True, "hbcu_wbb": True,
 }
 
+# Per-sport "games truth layer" table — derived from real box scores,
+# independent of any prediction/betting filter (see wnba_game_results.py
+# for how WNBA's is built). Sports not listed here fall back to
+# `results` in backfill_elo(), which prints a loud warning since that's
+# a betting ledger, not a full game log. Extend this dict as each
+# sport gets its own <sport>_game_results.py derivation module — don't
+# assume another sport's game log table matches wnba_game_log's exact
+# column names without checking first.
+GAME_RESULTS_SOURCE = {
+    "wnba": "team_game_results",
+}
+
 # Season game counts — used for dynamic K scaling
 # Update WNBA to 50 when new schedule confirmed
 SEASON_GAMES = {
@@ -355,19 +367,21 @@ def recalibrate_season(sport: str, dry_run: bool = False):
 
 def backfill_elo(sport: str):
     """
-    Rebuilds Elo ratings from scratch using full RESULTS history,
+    Rebuilds Elo ratings from scratch using full game-result history,
     processed in chronological order.
 
-    CHANGED 2026-07-11: originally read from head_to_head, which was
-    confirmed to not exist in production at all (check_head_to_head_freshness.py
-    run failed with "no such table: head_to_head" — the manual backfill
-    scripts that were supposed to populate it were never run against
-    Turso). `results` is the live pipeline's own graded-game table —
-    complete, comprehensive, no 1st/15th-of-month sampling gap like
-    head_to_head's original ingestion method had. Same data-quality
-    guard as team_form_engine.py: skip a row if actual_winner doesn't
-    exactly match home_team or away_team, rather than silently
-    misclassifying it.
+    CHANGED 2026-07-11 (round 2): `results` was confirmed to be a
+    betting ledger, not a games log — it only contains games where
+    render_job.py's edge/win-prob filter decided to log a prediction
+    (WNBA: 22 distinct game-dates found vs ~55+ real ones). Team
+    strength/rankings need EVERY game, not just the ones the model bet
+    on. For sports with a derived team_game_results table (see
+    GAME_RESULTS_SOURCE below — currently WNBA only, via
+    wnba_game_results.py reading real ESPN box scores independent of
+    any prediction), use that instead. Sports without one yet still
+    fall back to `results`, printed loudly so it's never a silent gap
+    — see check_head_to_head_freshness.py/check_game_log_coverage.py
+    for the investigation that led here.
     """
     init_elo_tables()
 
@@ -378,18 +392,29 @@ def backfill_elo(sport: str):
     c.execute("DELETE FROM elo_history WHERE sport = ?", (sport,))
     conn.commit()
 
-    c.execute("""
-        SELECT home_team, away_team, home_score, away_score, date, actual_winner
-        FROM results
-        WHERE sport = ?
-        ORDER BY date ASC
-    """, (sport,))
+    source_table = GAME_RESULTS_SOURCE.get(sport)
+    if source_table:
+        c.execute(f"""
+            SELECT home_team, away_team, home_score, away_score, date, winner AS actual_winner
+            FROM {source_table}
+            WHERE sport = ?
+            ORDER BY date ASC
+        """, (sport,))
+        print(f"\nBackfilling {sport.upper()} Elo from {source_table} (real games, not betting-filtered)...")
+    else:
+        c.execute("""
+            SELECT home_team, away_team, home_score, away_score, date, actual_winner
+            FROM results
+            WHERE sport = ?
+            ORDER BY date ASC
+        """, (sport,))
+        print(f"\n⚠️  No team_game_results source mapped for '{sport}' yet — falling back to `results`,")
+        print(f"    which only contains games the model actually predicted, NOT the full season.")
+        print(f"    Elo for this sport will undercount games until a derivation module like")
+        print(f"    wnba_game_results.py exists for it too.")
     rows = c.fetchall()
     conn.close()
-
-    print(f"\nBackfilling {sport.upper()} Elo from {len(rows)} results-table games...")
-
-    processed = 0
+    print(f"  {len(rows)} game(s) found.")
     skipped   = 0
     bad_winner = 0
     null_score = 0

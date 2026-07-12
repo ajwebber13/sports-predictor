@@ -62,6 +62,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
+from elo_ratings import GAME_RESULTS_SOURCE
 
 
 def _norm_sport(sport):
@@ -72,15 +73,70 @@ def _norm_sport(sport):
 
 
 def _team_game_rows(team: str, sport: str = None, date_range: tuple = None) -> list:
-    """Team-centric list of every graded game involving `team`, most
+    """Team-centric list of every real game involving `team`, most
     recent first: {date, game, sport, result ("W"/"L"), edge, model_prob}.
 
-    Rows where actual_winner doesn't exactly match home_team or
-    away_team are skipped (data-quality guard — see module docstring)."""
+    CHANGED 2026-07-11 (round 2): `results` was confirmed to be a
+    betting ledger (only games the model actually predicted), not a
+    full game log — see elo_ratings.py's GAME_RESULTS_SOURCE docstring
+    for the full investigation. When a sport has a derived
+    team_game_results table (currently WNBA only, via
+    wnba_game_results.py), this reads from that instead — real ESPN
+    outcomes, independent of whether the model ever predicted the
+    game. team_game_results has no FK to predictions (it's not built
+    from predictions at all), so edge/model_prob are picked up via a
+    separate LEFT JOIN matched on (date, home_team, away_team) instead
+    of the old prediction_id FK join — same "only populate if the
+    model actually picked THIS team" rule as before, just a different
+    join path to get there. Sports without a mapped source still fall
+    back to the old results-based query, unchanged."""
     sport = _norm_sport(sport)
     conn = get_conn()
     c = conn.cursor()
 
+    source_table = GAME_RESULTS_SOURCE.get(sport)
+
+    if source_table:
+        where = "(g.home_team = ? OR g.away_team = ?)"
+        params = [team, team]
+        if sport:
+            where += " AND g.sport = ?"
+            params.append(sport)
+        if date_range:
+            where += " AND g.date BETWEEN ? AND ?"
+            params.extend(date_range)
+
+        c.execute(f"""
+            SELECT g.date, g.sport, g.home_team, g.away_team, g.winner AS actual_winner,
+                   p.predicted_winner, p.model_prob, p.edge
+            FROM {source_table} g
+            LEFT JOIN results r ON r.date = g.date AND r.home_team = g.home_team
+                                AND r.away_team = g.away_team AND r.sport = g.sport
+            LEFT JOIN predictions p ON r.prediction_id = p.id
+            WHERE {where}
+            ORDER BY g.date DESC, g.id DESC
+        """, params)
+        rows = c.fetchall()
+        conn.close()
+
+        out = []
+        for r in rows:
+            result = "W" if r["actual_winner"] == team else "L"
+            opponent = r["away_team"] if r["home_team"] == team else r["home_team"]
+            picked_this_team = r["predicted_winner"] == team
+            out.append({
+                "date": r["date"],
+                "game": f"{r['away_team']} @ {r['home_team']}",
+                "opponent": opponent,
+                "sport": r["sport"],
+                "result": result,
+                "edge": r["edge"] if picked_this_team else None,
+                "model_prob": r["model_prob"] if picked_this_team else None,
+            })
+        return out
+
+    # Fallback: no games-truth-layer table for this sport yet — old
+    # results-based query, unchanged from before.
     where = "(r.home_team = ? OR r.away_team = ?)"
     params = [team, team]
     if sport:
@@ -184,7 +240,16 @@ def _all_teams(sport: str = None) -> list:
     sport = _norm_sport(sport)
     conn = get_conn()
     c = conn.cursor()
-    if sport:
+    source_table = GAME_RESULTS_SOURCE.get(sport) if sport else None
+    if source_table:
+        c.execute(f"""
+            SELECT DISTINCT team FROM (
+                SELECT home_team AS team FROM {source_table} WHERE sport = ? AND home_team != ''
+                UNION
+                SELECT away_team AS team FROM {source_table} WHERE sport = ? AND away_team != ''
+            )
+        """, [sport, sport])
+    elif sport:
         c.execute("""
             SELECT DISTINCT team FROM (
                 SELECT home_team AS team FROM results WHERE sport = ? AND home_team != ''
