@@ -102,7 +102,7 @@ def nfl_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
         bet_odds = round(-(bet_prob / (100 - bet_prob)) * 100) if bet_prob >= 50 else round(((100 - bet_prob) / bet_prob) * 100)
         pred_margin = round(pred.projected_home - pred.projected_away, 1)
         results.append({
-            "game": label, "bet": bet_label, "model_prob": pred.home_win_prob,
+            "game": label, "bet": bet_label, "model_prob": bet_prob,
             "implied_prob": implied_home if edge_home >= edge_away else implied_away,
             "edge": round(best_edge / 100, 4), "odds": bet_odds,
             "projected": f"{pred.projected_home}-{pred.projected_away}",
@@ -168,7 +168,7 @@ def nfl_predictions(simulations: int = Query(default=10000)):
         bet_odds = round(-(bet_prob / (100 - bet_prob)) * 100) if bet_prob >= 50 else round(((100 - bet_prob) / bet_prob) * 100)
         pred_margin = round(pred.projected_home - pred.projected_away, 1)
         results.append({
-            "game": label, "bet": bet_label, "model_prob": pred.home_win_prob,
+            "game": label, "bet": bet_label, "model_prob": bet_prob,
             "implied_prob": implied_home if e_home >= e_away else implied_away,
             "edge": round(best_edge / 100, 4), "odds": bet_odds,
             "projected": f"{pred.projected_home}-{pred.projected_away}",
