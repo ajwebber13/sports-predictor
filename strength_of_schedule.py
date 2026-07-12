@@ -110,6 +110,7 @@ def get_strength_of_schedule(team: str, sport: str = None, min_games: int = 3, d
         "sport": sport,
         "games_tracked": games_tracked,
         "avg_opponent_elo": avg_opponent_elo,
+        "schedule_difficulty": round(avg_opponent_elo - 1500, 1),
         "toughest_opponent": max(games, key=lambda g: g["opponent_elo_at_time"]),
         "weakest_opponent": min(games, key=lambda g: g["opponent_elo_at_time"]),
         "record_vs_above_avg_opponents": f"{wins_vs_above_avg}-{games_vs_above_avg - wins_vs_above_avg}",
