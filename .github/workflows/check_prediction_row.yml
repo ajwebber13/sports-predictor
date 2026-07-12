@@ -1,0 +1,45 @@
+name: Check Prediction Row
+
+on:
+  workflow_dispatch:
+    inputs:
+      team_a:
+        description: "First team name (partial match ok)"
+        required: true
+        default: "Chicago Sky"
+      team_b:
+        description: "Second team name (partial match ok)"
+        required: true
+        default: "Dallas Wings"
+      sport:
+        description: "Sport"
+        required: true
+        default: "wnba"
+      date:
+        description: "Date (YYYY-MM-DD), leave blank for today"
+        required: false
+        default: ""
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check prediction row
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          if [ -z "${{ github.event.inputs.date }}" ]; then
+            python check_prediction_row.py "${{ github.event.inputs.team_a }}" "${{ github.event.inputs.team_b }}" "${{ github.event.inputs.sport }}"
+          else
+            python check_prediction_row.py "${{ github.event.inputs.team_a }}" "${{ github.event.inputs.team_b }}" "${{ github.event.inputs.sport }}" "${{ github.event.inputs.date }}"
+          fi
