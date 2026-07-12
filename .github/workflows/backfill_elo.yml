@@ -25,4 +25,4 @@ jobs:
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-        run: python elo_ratings.py backfill ${{ github.event.inputs.sport }}
+        run: python elo_ratings.py backfill "${{ github.event.inputs.sport }}"

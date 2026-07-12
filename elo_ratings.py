@@ -484,6 +484,13 @@ if __name__ == "__main__":
 
         if cmd == "backfill":
             sport = sys.argv[2].lower() if len(sys.argv) > 2 else "wnba"
+            valid = set(K_FACTOR_BASE.keys()) | {"all"}
+            if sport not in valid:
+                print(f"  ❌ Unrecognized sport: '{sport}'")
+                print(f"     Valid values: {', '.join(sorted(valid))}")
+                print(f"     (This used to silently process 0 games instead of erroring —")
+                print(f"      fixed 2026-07-11 after a workflow-input typo did exactly that.)")
+                sys.exit(1)
             if sport == "all":
                 for s in ["wnba", "nba", "nfl", "ncaab", "ncaaf"]:
                     backfill_elo(s)
