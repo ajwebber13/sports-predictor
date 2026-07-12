@@ -1,5 +1,4 @@
 name: Publish Performance Summary
-
 on:
   workflow_dispatch:
     inputs:
@@ -8,21 +7,17 @@ on:
         required: false
         default: ""
   schedule:
-    - cron: "45 10 * * *"
-
+    - cron: "45 11 * * *"
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: pip install -r requirements.txt
-
       - name: Generate performance summary
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -33,13 +28,11 @@ jobs:
           else
             python publish_performance_summary.py --season "${{ github.event.inputs.season }}"
           fi
-
       - name: Upload as artifact
         uses: actions/upload-artifact@v4
         with:
           name: performance-summary
           path: performance-summary.json
-
       - name: Push to cp-sports-site
         env:
           CP_SITE_PAT: ${{ secrets.CP_SITE_PAT }}
