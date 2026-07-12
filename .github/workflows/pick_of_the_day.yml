@@ -21,3 +21,31 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+
+      - name: Upload daily-intelligence.json as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-intelligence
+          path: daily-intelligence.json
+
+      - name: Push to cp-sports-site
+        env:
+          CP_SITE_PAT: ${{ secrets.CP_SITE_PAT }}
+        run: |
+          if [ -z "$CP_SITE_PAT" ]; then
+            echo "CP_SITE_PAT secret not set — skipping auto-push to cp-sports-site."
+            exit 0
+          fi
+          git clone "https://x-access-token:${CP_SITE_PAT}@github.com/ajwebber13/cp-sports-site.git" site-repo
+          cp daily-intelligence.json site-repo/data/daily-intelligence.json
+          cd site-repo
+          git config user.name "C&P Analytics Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/daily-intelligence.json
+          if git diff --staged --quiet; then
+            echo "No change in daily intelligence since last run — nothing to push."
+          else
+            git commit -m "Auto-update daily intelligence $(date -u +%Y-%m-%d)"
+            git push origin main
+            echo "Pushed updated daily-intelligence.json to cp-sports-site"
+          fi
