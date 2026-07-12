@@ -392,8 +392,10 @@ def backfill_elo(sport: str):
     processed = 0
     skipped   = 0
     bad_winner = 0
+    null_score = 0
     for row in rows:
         if row["home_score"] is None or row["away_score"] is None:
+            null_score += 1
             continue
         if is_exhibition_team(row["home_team"]) or is_exhibition_team(row["away_team"]):
             skipped += 1
@@ -410,7 +412,12 @@ def backfill_elo(sport: str):
     print(f"  Skipped {skipped} exhibition/all-star game(s)")
     if bad_winner:
         print(f"  Skipped {bad_winner} game(s) with a mismatched actual_winner string")
+    if null_score:
+        print(f"  Skipped {null_score} game(s) with a missing home_score/away_score")
     print(f"  Backfill complete: {processed} games processed")
+    accounted = processed + skipped + bad_winner + null_score
+    if accounted != len(rows):
+        print(f"  ⚠️  {len(rows)} games found but only {accounted} accounted for — investigate before trusting these ratings")
 
 
 # ─────────────────────────────────────────────────────────────
