@@ -25,7 +25,8 @@ schedule, not a real #1 team). Reliability is blended toward the
 league-average anchor (1500), not applied as a flat multiplier on the
 raw number (that would compress everyone's spread unevenly):
 
-    reliability   = min(games_played / 15, 1.0)
+    reliability   = min(games_played / target_games, 1.0)
+    target_games  = max(10, SEASON_GAMES[sport] * 0.35)  # sport-aware, ~35% of a full season
     adjusted_elo  = 1500 + (raw_elo - 1500) * reliability
 
 SOS is folded into Team Quality directly in Elo-point units
@@ -64,7 +65,7 @@ import importlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
-from elo_ratings import get_elo, get_games_played
+from elo_ratings import get_elo, get_games_played, SEASON_GAMES
 from strength_of_schedule import get_strength_of_schedule
 from team_form_engine import get_team_form
 
@@ -75,7 +76,16 @@ EFFICIENCY_STAT_MAP = {
     "nba": "pts",
 }
 
-RELIABILITY_GAMES_THRESHOLD = 15  # matches elo_ratings.py's own early-season K-factor cutoff
+RELIABILITY_SEASON_FRACTION = 0.35  # full confidence (100%) around this fraction of a full season,
+                                     # sport-aware via elo_ratings.py's own SEASON_GAMES — a fixed
+                                     # +10 denominator was tried first but never actually reaches
+                                     # 100% (NBA tops out ~89% after 82 games), which is more
+                                     # conservative than intended. min target of 10 games keeps
+                                     # short seasons (NFL, NCAAF) from requiring an unrealistically
+                                     # small target_games.
+RELIABILITY_MIN_TARGET_GAMES = 10
+SMALL_SAMPLE_DISPLAY_GAMES = 10  # display-only flag threshold — not used in the actual math,
+                                  # just labels the flags output
 SOS_ADJUSTMENT_CAP = 50  # caps schedule_difficulty's swing on Team Quality — SOS should nudge
                           # the ranking, not let a hard schedule outweigh actual proven Elo strength
 
@@ -131,7 +141,9 @@ def calculate_elo_score(team: str, sport: str) -> dict:
     multiplier — see module docstring)."""
     elo = get_elo(team, sport)
     games_played = get_games_played(team, sport)
-    reliability = round(min(games_played / RELIABILITY_GAMES_THRESHOLD, 1.0), 3)
+    season_games = SEASON_GAMES.get(sport, 30)
+    target_games = max(RELIABILITY_MIN_TARGET_GAMES, season_games * RELIABILITY_SEASON_FRACTION)
+    reliability = round(min(games_played / target_games, 1.0), 3)
     adjusted_elo = round(1500 + (elo - 1500) * reliability, 1)
     return {
         "elo": elo,
@@ -165,8 +177,8 @@ def get_rankings(sport: str, min_games: int = 3) -> list:
         schedule_difficulty = sos["schedule_difficulty"] if not sos.get("insufficient_sample") else 0.0
         sos_adjustment = max(min(schedule_difficulty, SOS_ADJUSTMENT_CAP), -SOS_ADJUSTMENT_CAP)
 
-        team_quality_raw = elo_info["adjusted_elo"] + sos_adjustment
-        raw_quality[team] = team_quality_raw
+        rating_score = elo_info["adjusted_elo"] + sos_adjustment
+        raw_quality[team] = rating_score
         raw_form[team] = form["win_percentage"]
 
         if form["avg_model_probability"] is not None:
@@ -246,7 +258,7 @@ if __name__ == "__main__":
     print(f"\n{'='*100}")
     print(f"  {sport_arg.upper()} POWER RANKINGS (v1)")
     print(f"{'='*100}")
-    print(f"  {'Rank':>4}  {'Team':<24} {'Power':>7} {'Elo':>6} {'Form':>6} {'SOS':>6} {'Effic.':>7} {'Conf.':>6}")
+    print(f"  {'Rank':>4}  {'Team':<24} {'Power':>7} {'Qual.':>6} {'Form':>6} {'SOS':>6} {'Effic.':>7} {'Conf.':>6}")
     print(f"  {'-'*4}  {'-'*24} {'-'*7} {'-'*6} {'-'*6} {'-'*6} {'-'*7} {'-'*6}")
     for r in rankings:
         c = r["components"]
@@ -261,11 +273,14 @@ if __name__ == "__main__":
     for r in rankings:
         c = r["components"]
         raw = r["raw"]
-        small_sample = raw["elo_games_played"] < RELIABILITY_GAMES_THRESHOLD
+        small_sample = raw["elo_games_played"] < SMALL_SAMPLE_DISPLAY_GAMES
         sos_word = ("easier than average" if raw["schedule_difficulty"] < -5
                     else "harder than average" if raw["schedule_difficulty"] > 5
                     else "about average")
         print(f"\n  {r['team']}")
+        print(f"    Elo:               {raw['elo']}")
+        print(f"    Elo Reliability:   {round(raw['elo_reliability']*100, 1)}%")
+        print(f"    Adjusted Elo:      {raw['adjusted_elo']}")
         print(f"    Small Sample:      {'Yes (' + str(raw['elo_games_played']) + ' games)' if small_sample else 'No'}")
         print(f"    SOS:               {sos_word} ({raw['schedule_difficulty']:+})")
         print(f"    Efficiency Data:   {'Real' if c['efficiency_is_real_data'] else 'Neutral placeholder (no data yet)'}")
