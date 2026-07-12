@@ -4,8 +4,10 @@ team_form_engine.py — Culture & Pulse Analytics
 (renamed from streak_engine.py, 2026-07-11 — "Streak Finder" stays the
 feature/content name, but the engine underneath does more than
 streaks: streak, last 5/10, win %, model context, last game date, and
-now recent game history. Sits between performance_tracker.py and the
-future power_rankings.py / team_profile.py modules.)
+recent game history with opponent. This is infrastructure, not a
+feature — it sits in the dependency chain between performance_tracker.py
+and the future power_rankings.py / team_profile.py / matchup_analyzer.py
+modules.)
 
 Standalone analytics engine — same pattern as performance_tracker.py:
 dynamic queries against predictions/results, no new table, no
@@ -45,12 +47,10 @@ v1 scope: no ATS/spread streak, no O/U streak — those columns don't
 exist on results yet (confirmed via check_team_integrity.py + schema
 review, 2026-07-11). Add once spread/total outcomes are logged.
 
-TODO:
-Add league phase filtering before NBA Power Rankings.
-Summer League games currently share NBA sport tags — confirmed via
-check_team_integrity.py output on 2026-07-11 (Knicks @ Spurs, etc.
-tagged 'nba' during July, real season is October-June). Don't solve
-here — flag it when Power Rankings starts consuming this file.
+Note: league-phase filtering (Summer League, preseason, spring
+training tagged under a sport's normal season) is deliberately NOT
+handled here — this engine doesn't know league rules. That belongs in
+a future competition_filter.py / league_context.py. See roadmap notes.
 
 Usage:
     py team_form_engine.py
@@ -106,10 +106,12 @@ def _team_game_rows(team: str, sport: str = None, date_range: tuple = None) -> l
         if r["actual_winner"] not in (r["home_team"], r["away_team"]):
             continue  # actual_winner doesn't match either team string — skip rather than misclassify
         result = "W" if r["actual_winner"] == team else "L"
+        opponent = r["away_team"] if r["home_team"] == team else r["home_team"]
         picked_this_team = r["predicted_winner"] == team
         out.append({
             "date": r["date"],
             "game": r["game"],
+            "opponent": opponent,
             "sport": r["sport"],
             "result": result,
             "edge": r["edge"] if picked_this_team else None,
@@ -203,8 +205,8 @@ def _all_teams(sport: str = None) -> list:
     return [r["team"] for r in rows]
 
 
-def _scan_streaks(sport: str, min_games: int, limit: int, date_range: tuple, streak_type: str) -> list:
-    """Shared implementation for get_hot_streaks/get_cold_streaks.
+def _scan_teams(sport: str, min_games: int, limit: int, date_range: tuple, streak_type: str) -> list:
+    """Shared implementation for get_hot_teams/get_cold_teams.
     streak_type is 'win' or 'loss'."""
     teams = _all_teams(sport)
     profiles = []
@@ -232,19 +234,22 @@ def _scan_streaks(sport: str, min_games: int, limit: int, date_range: tuple, str
     ]
 
 
-def get_hot_streaks(sport: str = None, min_games: int = 3, limit: int = 10, date_range: tuple = None) -> list:
+def get_hot_teams(sport: str = None, min_games: int = 3, limit: int = 10, date_range: tuple = None) -> list:
     """Teams currently on a real win streak. Sorted by streak length,
-    then win %, then sample size."""
-    return _scan_streaks(sport, min_games, limit, date_range, "win")
+    then win %, then sample size. Named "hot teams" rather than "hot
+    streaks" deliberately — this scan currently sorts on streak
+    length, but "hot" is meant to extend later (model edge trending
+    up, ATS streak, efficiency surge) without another rename."""
+    return _scan_teams(sport, min_games, limit, date_range, "win")
 
 
-def get_cold_streaks(sport: str = None, min_games: int = 3, limit: int = 10, date_range: tuple = None) -> list:
+def get_cold_teams(sport: str = None, min_games: int = 3, limit: int = 10, date_range: tuple = None) -> list:
     """Teams currently on a real loss streak — a live fade signal.
     Sorted by streak length, then win %, then sample size."""
-    return _scan_streaks(sport, min_games, limit, date_range, "loss")
+    return _scan_teams(sport, min_games, limit, date_range, "loss")
 
 
 if __name__ == "__main__":
     print(get_team_form("Alabama"))
-    print(get_hot_streaks("nfl"))
-    print(get_cold_streaks("nba"))
+    print(get_hot_teams("nfl"))
+    print(get_cold_teams("nba"))
