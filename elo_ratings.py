@@ -415,6 +415,8 @@ def backfill_elo(sport: str):
     rows = c.fetchall()
     conn.close()
     print(f"  {len(rows)} game(s) found.")
+
+    processed = 0
     skipped   = 0
     bad_winner = 0
     null_score = 0
