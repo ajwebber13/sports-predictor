@@ -24,6 +24,7 @@ Usage:
 
 import os
 import sys
+import json
 import argparse
 import requests
 from datetime import datetime, timezone, timedelta
@@ -38,6 +39,41 @@ TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 GAME_CONFIDENCE_FLOOR = 80.0   # model_prob must clear this
 PROP_CONFIDENCE_FLOOR = 85.0   # hit_rate_overall >= this (over) or <= 100-this (fade) — raised from 80% so only the strongest signal shows, not just whatever cleared a low bar
 MIN_GAMES = 5                  # same sample-size floor as wnba_props_alert.py
+
+# Sports that should always get a "who does the model favor" line even
+# on a day nothing clears GAME_CONFIDENCE_FLOOR — added 2026-07-13 per
+# Drew's request that WNBA never go silent just because no game hit an
+# 80%+ edge. This is a genuinely different claim than a Lock pick: a
+# Lock says "the model found a real betting edge here"; a projection
+# says "here's who the model thinks wins" with no edge claim attached.
+# Keep these labeled distinctly in the message — never let a
+# projection read like a Lock, or the confidence-bar discipline that
+# already exists for real Locks gets undermined.
+ALWAYS_PROJECT_SPORTS = ["wnba"]
+
+
+def get_confidence_tier(model_prob: float) -> str:
+    """Presentation layer only — does NOT change scoring, selection,
+    or which picks qualify as a Lock vs a Projection. That logic is
+    untouched; this just labels the number that's already there.
+
+    Thresholds are on the same 0-100 percentage scale model_prob is
+    actually stored on throughout this file (see GAME_CONFIDENCE_FLOOR
+    above) — not 0-1.
+
+    Deliberately means "how strongly does the model favor this
+    outcome" and NOTHING about historical profitability. Confidence
+    calibration is a known, unresolved issue (see performance_tracker.py's
+    confidence-bucket findings — 85-89% buckets have landed at ~50%
+    actual win rate, worse than <75% buckets at ~70%). Do not relabel
+    High/Medium/Low as "good/okay/bad bet" until that's fixed — those
+    are two different claims and conflating them would be worse than
+    not having tiers at all."""
+    if model_prob >= 80:
+        return "High"
+    elif model_prob >= 65:
+        return "Medium"
+    return "Low"
 
 STAT_LABELS = {
     "pts": "PTS", "reb": "REB", "ast": "AST", "stl": "STL", "blk": "BLK",
@@ -84,6 +120,29 @@ def get_game_pick_of_the_day(sport: str, date_str: str):
         ORDER BY edge DESC
         LIMIT 1
     """, (date_str, sport, GAME_CONFIDENCE_FLOOR))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_model_projection(sport: str, date_str: str):
+    """The model's straight win projection for this sport today — NO
+    confidence floor, unlike get_game_pick_of_the_day(). This answers
+    "who does the model think wins", not "is there a real betting
+    edge here" — those are different questions. Picks the highest
+    model_prob game (most lopsided projection), not highest edge,
+    since without a floor 'highest edge' can surface a coin-flip game
+    with a large edge purely from a soft market line, which isn't
+    what "who does the model favor" is asking."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT game, bet, odds, model_prob, edge
+        FROM predictions
+        WHERE date = ? AND sport = ?
+        ORDER BY model_prob DESC
+        LIMIT 1
+    """, (date_str, sport))
     row = c.fetchone()
     conn.close()
     return dict(row) if row else None
@@ -156,7 +215,68 @@ def build_parlay_section(game_picks: dict, prop_pick: dict) -> list:
     ]
 
 
-def build_message(date_str: str, game_picks: dict, prop_pick: dict) -> str:
+DAILY_INTELLIGENCE_PATH = "daily-intelligence.json"
+
+
+def export_daily_intelligence(date_str: str, game_picks: dict, model_projections: dict,
+                               prop_pick: dict, parlay_lines: list) -> dict:
+    """Structures the SAME data build_message() renders into Telegram
+    text, as one JSON file — the single source Telegram, the website,
+    and Streamlit should all read from, instead of each independently
+    re-deriving locks/projections/props (same reasoning as reusing
+    team_form_engine.py's fields instead of rebuilding them elsewhere).
+    This function does not query the database itself — it only
+    reshapes data already fetched by run(), so it can never disagree
+    with what the Telegram message actually said."""
+    locks = [
+        {
+            "sport": sport,
+            "game": pick["game"],
+            "pick": pick["bet"],
+            "odds": pick["odds"],
+            "confidence": round(pick["model_prob"], 1),
+            "confidence_tier": get_confidence_tier(pick["model_prob"]),
+            "edge_pct": round(pick["edge"], 1),
+        }
+        for sport, pick in game_picks.items()
+    ]
+
+    projections = [
+        {
+            "sport": sport,
+            "game": proj["game"],
+            "favorite": proj["bet"],
+            "win_probability": round(proj["model_prob"], 1),
+            "confidence_tier": get_confidence_tier(proj["model_prob"]),
+        }
+        for sport, proj in model_projections.items()
+    ]
+
+    props = []
+    if prop_pick:
+        props.append({
+            "sport": prop_pick["sport"],
+            "player": prop_pick["player_name"],
+            "stat": STAT_LABELS.get(prop_pick["stat"], prop_pick["stat"].upper()),
+            "line": prop_pick["line"],
+            "side": prop_pick["side"],
+            "historical_hit_rate_pct": prop_pick["display_pct"],
+            "games_sampled": prop_pick["games_overall"],
+            "confidence_tier": get_confidence_tier(prop_pick["display_pct"]),
+        })
+
+    return {
+        "date": date_str,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "locks": locks,
+        "projections": projections,
+        "props": props,
+        "parlay_eligible": bool(parlay_lines),
+    }
+
+
+def build_message(date_str: str, game_picks: dict, prop_pick: dict, model_projections: dict = None) -> str:
+    model_projections = model_projections or {}
     pretty_date = datetime.strptime(date_str, "%Y-%m-%d").strftime("%B %d, %Y")
     lines = [
         "\U0001f512 <b>C&amp;P LOCK OF THE DAY</b>",
@@ -164,14 +284,27 @@ def build_message(date_str: str, game_picks: dict, prop_pick: dict) -> str:
         "\u2501" * 20,
     ]
 
-    if not game_picks and not prop_pick:
+    if not game_picks and not prop_pick and not model_projections:
         return ""
 
     for sport, pick in game_picks.items():
         lines.append(f"\n\U0001f3c6 <b>{sport.upper()} PICK</b>")
         lines.append(f"{pick['game']}")
         lines.append(f"\u2705 {pick['bet']} ({pick['odds']})")
-        lines.append(f"\U0001f4ca {pick['model_prob']:.1f}% confidence \u2014 Edge +{pick['edge']:.1f}%")
+        lines.append(f"\U0001f4ca {pick['model_prob']:.1f}% confidence")
+        lines.append(f"\U0001f525 Confidence Tier: {get_confidence_tier(pick['model_prob'])}")
+        lines.append(f"\U0001f4c8 Edge: +{pick['edge']:.1f}%")
+
+    for sport, proj in model_projections.items():
+        # Deliberately different framing from a Lock pick above — no
+        # checkmark, no "Edge" claim, no implication this cleared any
+        # bar. Just "here's who the model favors, and how strongly."
+        lines.append(f"\n\U0001f3af <b>{sport.upper()} MODEL PROJECTION</b>")
+        lines.append(f"{proj['game']}")
+        lines.append(f"Model favors: {proj['bet']}")
+        lines.append(f"\U0001f4ca Win Probability: {proj['model_prob']:.1f}%")
+        lines.append(f"\u2696\ufe0f Confidence Tier: {get_confidence_tier(proj['model_prob'])}")
+        lines.append(f"<i>No qualifying betting edge today \u2014 projection only, not a Lock.</i>")
 
     if prop_pick:
         stat_label = STAT_LABELS.get(prop_pick["stat"], prop_pick["stat"].upper())
@@ -208,9 +341,28 @@ def run(dry_run: bool = False):
         if pick:
             game_picks[sport] = pick
 
-    prop_pick = get_prop_of_the_day(date_str)
+    # For sports in ALWAYS_PROJECT_SPORTS, if they didn't already earn
+    # a real Lock pick above, still surface a straight model
+    # projection so that sport never goes silent for the day.
+    model_projections = {}
+    for sport in ALWAYS_PROJECT_SPORTS:
+        if sport in game_picks:
+            continue  # already has a real Lock — don't also show a redundant projection
+        proj = get_model_projection(sport, date_str)
+        if proj:
+            model_projections[sport] = proj
 
-    message = build_message(date_str, game_picks, prop_pick)
+    prop_pick = get_prop_of_the_day(date_str)
+    parlay_lines = build_parlay_section(game_picks, prop_pick)
+
+    intelligence = export_daily_intelligence(date_str, game_picks, model_projections, prop_pick, parlay_lines)
+    with open(DAILY_INTELLIGENCE_PATH, "w") as f:
+        json.dump(intelligence, f, indent=2)
+    print(f"Wrote {DAILY_INTELLIGENCE_PATH} "
+          f"({len(intelligence['locks'])} lock(s), {len(intelligence['projections'])} projection(s), "
+          f"{len(intelligence['props'])} prop(s))")
+
+    message = build_message(date_str, game_picks, prop_pick, model_projections)
     if not message:
         print("Nothing cleared the confidence bar today — no message sent.")
         return
