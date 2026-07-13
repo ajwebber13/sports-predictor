@@ -825,7 +825,19 @@ def log_prediction(bet: dict, sport: str):
     them. init_db()'s CREATE TABLE IF NOT EXISTS never touches an
     already-existing table, so the schema mismatch between this file
     and production never mattered until these functions themselves
-    were deleted."""
+    were deleted.
+
+    2026-07-13: added an explicit app-level dedupe check before the
+    insert. The DB's UNIQUE(date, sport, game) constraint keeps
+    reverting to UNIQUE(date, sport, game, bet) for reasons we could
+    not trace to any code in this repo (ruled out: duplicate schema
+    definitions elsewhere, scheduled jobs running in the window,
+    multiple Turso databases/branches, Drizzle ORM auto-sync) —
+    suspected Turso platform issue, ticket filed. This check makes the
+    app enforce one-row-per-game-per-day regardless of what the DB
+    constraint is actually doing, so duplicate picks (and the phantom
+    losses they generate once graded) can't happen going forward even
+    if the underlying constraint keeps reverting."""
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -833,6 +845,17 @@ def log_prediction(bet: dict, sport: str):
     parts = game.split(" @ ")
 
     try:
+        # Dedupe guard — delete any existing row for this exact
+        # date/sport/game before inserting, so a flipped pick on a
+        # rerun replaces the old one instead of creating a duplicate.
+        c.execute(
+            "SELECT id FROM predictions WHERE date=? AND sport=? AND game=?",
+            (today, sport, game)
+        )
+        existing = c.fetchone()
+        if existing:
+            c.execute("DELETE FROM predictions WHERE id=?", (existing["id"],))
+
         c.execute("""
             INSERT OR REPLACE INTO predictions
             (date, sport, game, home_team, away_team, bet, odds,
