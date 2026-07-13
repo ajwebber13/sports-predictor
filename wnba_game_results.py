@@ -207,7 +207,32 @@ def get_team_games(team: str, sport: str = SPORT, date_range: tuple = None) -> l
     conn.close()
     return rows
 
+def get_team_record(team: str, sport: str = SPORT, date_range: tuple = None) -> dict:
+    """Real W-L record from team_game_results, no approximation.
+    Returns confidence='low' only when there's zero data for the team
+    yet (new expansion team, not-yet-derived date range) — never
+    fabricates a record to fill the shape."""
+    games = get_team_games(team, sport=sport, date_range=date_range)
 
+    if not games:
+        return {
+            "wins": 0,
+            "losses": 0,
+            "record": "0-0",
+            "source": "team_game_results",
+            "confidence": "low",
+        }
+
+    wins = sum(1 for g in games if g["winner"] == team)
+    losses = len(games) - wins
+
+    return {
+        "wins": wins,
+        "losses": losses,
+        "record": f"{wins}-{losses}",
+        "source": "team_game_results",
+        "confidence": "high",
+    }
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Derive WNBA team-level game results from player box scores")
     parser.add_argument("cmd", choices=["derive"], help="derive: run the derivation and upsert team_game_results")

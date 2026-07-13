@@ -1,0 +1,51 @@
+name: Export WNBA Site Data
+
+on:
+  schedule:
+    # 5:50 AM CT — after grading (5:30 AM) and performance summary (5:45 AM),
+    # before the daily recap (6:30 AM). Same nightly window as
+    # publish_performance_summary.yml.
+    - cron: "50 10 * * *"  # 10:50 UTC = 5:50 AM CT (adjust for DST as needed)
+  workflow_dispatch: {}
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sports-predictor (backend)
+        uses: actions/checkout@v4
+        with:
+          path: backend
+
+      - name: Checkout cp-sports-site
+        uses: actions/checkout@v4
+        with:
+          repository: ajwebber13/cp-sports-site
+          token: ${{ secrets.CP_SITE_PAT }}
+          path: site
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Run export
+        working-directory: backend
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python export_wnba_site_data.py --site-repo-path ../site
+
+      - name: Commit and push if changed
+        working-directory: site
+        run: |
+          git config user.name "cp-sports-bot"
+          git config user.email "bot@cultureandpulse.com"
+          git add data/wnba-rankings.json
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Auto-update WNBA rankings from ranking_engine.py"
+          git push
