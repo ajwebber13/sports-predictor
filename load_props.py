@@ -28,7 +28,20 @@ import os
 import sqlite3
 import requests
 import pandas as pd
-from database import get_conn
+import streamlit as st
+from database import get_conn as _get_conn_raw
+
+@st.cache_resource
+def get_conn():
+    """Reuses one connection across reruns instead of opening a new
+    libsql connection + full Turso sync on every call. get_recent_values()
+    in dashboard.py alone was calling get_conn() once per row
+    (100-400x per page load) before this fix — each call opened a fresh
+    libsql embedded-replica connection AND did a full network sync,
+    never closed. That's what was crashing cp-picks-dashboard on
+    Render's 512MB free tier (exit 139 / SIGSEGV)."""
+    return _get_conn_raw()
+
 from datetime import datetime, timezone, timedelta
 
 # =============================================================================
