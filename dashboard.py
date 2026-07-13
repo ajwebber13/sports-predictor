@@ -27,17 +27,42 @@ load_props.load_props(). Don't redefine that logic here again; a prior
 version of this file had a second function also named load_picks() that
 did the props query — it silently overwrote the real load_picks() (Game
 Picks) above it in Python, so Tab 1 was loading props data by mistake.
+
+CONNECTION HANDLING: get_conn() below wraps database.get_conn() with
+@st.cache_resource so Streamlit reuses ONE connection across reruns
+instead of opening a new libsql connection + full Turso sync on every
+call. This must run AFTER load_dotenv() and BEFORE database.py is
+imported, since database.py reads TURSO_DATABASE_URL/TURSO_AUTH_TOKEN
+from os.environ at import time — importing database before .env is
+loaded locks in blank credentials.
+
+SPARKLINE BATCHING: get_recent_values_batch() below fetches recent
+game-log values for ALL players sharing a (sport, stat) pair in ONE
+query, instead of the old get_recent_values() pattern of one query per
+row (100-400+ queries per Player Props page load). That per-row pattern,
+even after the connection-caching fix, was still enough rapid-fire
+query volume to crash cp-picks-dashboard on Render's 512MB free tier
+(exit 139 / SIGSEGV) roughly every 15 min whenever someone opened the
+Player Props tab. Batching by (sport, stat) cuts hundreds of queries
+down to typically under 20 per page load.
 """
+
+from dotenv import load_dotenv
+load_dotenv()
 
 import os
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
-from dotenv import load_dotenv
-from database import get_conn
-import load_props
+from database import get_conn as _get_conn_raw
 
-load_dotenv()
+@st.cache_resource
+def get_conn():
+    """Reuses one connection across reruns instead of opening a new
+    libsql connection + full Turso sync on every call."""
+    return _get_conn_raw()
+
+import load_props
 
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
 
@@ -138,30 +163,45 @@ STAT_COLS = {
 }
 
 @st.cache_data(ttl=300)
-def get_recent_values(sport: str, player_name: str, stat: str, n: int = 5) -> list:
-    """Last n games' actual value for this stat, oldest to newest (left to
-    right on the sparkline). Returns [] for sports/stats without a game log
-    yet (e.g. CFB/NFL) instead of crashing — same graceful-degrade pattern
-    used everywhere else in this build."""
+def get_recent_values_batch(sport: str, stat: str, player_names: tuple, n: int = 5) -> dict:
+    """Fetches recent game-log values for ALL players sharing a
+    (sport, stat) pair in ONE query, instead of one query per player.
+    Returns {player_name: [values oldest->newest]}.
+
+    Replaces the old get_recent_values() which was called once per row
+    in the Player Props table (100-400+ queries per page load) — that
+    query volume, even with a cached/reused connection, was still
+    crashing cp-picks-dashboard on Render's 512MB free tier roughly
+    every 15 min whenever the Player Props tab was opened."""
     table = GAME_LOG_TABLES.get(sport)
-    if not table:
-        return []
+    if not table or not player_names:
+        return {}
     col_def = STAT_COLS.get(sport, {}).get(stat)
     if col_def is None:
-        return []
+        return {}
     select_expr = " + ".join(col_def) if isinstance(col_def, tuple) else col_def
+    placeholders = ",".join("?" * len(player_names))
     try:
         conn = get_conn()
         cur = conn.execute(
-            f"SELECT {select_expr} as val FROM {table} WHERE player_name = ? ORDER BY date DESC LIMIT ?",
-            (player_name, n),
+            f"SELECT player_name, {select_expr} as val, date FROM {table} "
+            f"WHERE player_name IN ({placeholders}) ORDER BY player_name, date DESC",
+            player_names,
         )
         rows = cur.fetchall()
     except Exception:
-        return []
-    values = [r[0] for r in rows if r[0] is not None]
-    values.reverse()
-    return values
+        return {}
+
+    grouped = {}
+    for r in rows:
+        name, val = r[0], r[1]
+        if val is None:
+            continue
+        grouped.setdefault(name, []).append(val)
+
+    # rows come back date DESC per player; keep only the most recent n,
+    # then reverse so the sparkline reads oldest -> newest left to right
+    return {name: list(reversed(vals[:n])) for name, vals in grouped.items()}
 
 
 def sparkline_svg(values: list, line_value: float, direction: str = "over", width: int = 90, height: int = 28) -> str:
@@ -749,9 +789,17 @@ with tab_props:
                 "projection_edge_pct", key=lambda s: s.abs(), ascending=False, na_position="last"
             )
 
+        # ---- BATCHED sparkline fetch: one query per (sport, stat) pair
+        # instead of one query per row. Build the lookup dict first, then
+        # the row loop below just does dict lookups (no DB calls).
+        recent_lookup = {}
+        for (sport_key, stat_key), group in display.groupby(["sport", "stat"]):
+            names = tuple(group["player_name"].unique())
+            recent_lookup[(sport_key, stat_key)] = get_recent_values_batch(sport_key, stat_key, names, n=5)
+
         table_rows = []
         for _, row in display.iterrows():
-            recent = get_recent_values(row["sport"], row["player_name"], row["stat"], n=5)
+            recent = recent_lookup.get((row["sport"], row["stat"]), {}).get(row["player_name"], [])
             direction = row.get("projection_direction") or "over"
             spark = sparkline_svg(recent, row["line"], direction=direction)
             table_rows.append({
