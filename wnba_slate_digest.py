@@ -883,6 +883,17 @@ def format_digest(
                 conf_tier  = "red"
                 tier_emoji = "🔴"
 
+            # Unified Pick/Model line — same wording MLB's format_game_card
+            # uses, shown regardless of whether this game clears the edge
+            # bar, so the projected winner is always visible.
+            odds_val = pred.get("odds")
+            odds_fmt = f" ({'+' if odds_val > 0 else ''}{odds_val})" if odds_val is not None else ""
+            if pred.get("has_edge") and pred.get("pick_label"):
+                pick_team_headline = pred["pick_label"].replace(" ML", "").strip()
+                lines.append(f"✅ <b>Pick: {pick_team_headline} ({w_prob_val}%)</b>{odds_fmt}")
+            else:
+                lines.append(f"🤖 Model: {winner} ({w_prob_val}%)")
+
             if pred.get("has_edge") and pred.get("pick_label"):
                 pick_team = pred["pick_label"].replace(" ML", "").strip()
                 odds_val  = pred.get("odds")
@@ -913,10 +924,10 @@ def format_digest(
                     if downgrade_reasons and conf_tier == "green":
                         conf_tier  = "yellow"
                         tier_emoji = "🟡"
-                        lines.append(f"{tier_emoji} <b>EDGE: {pred['pick_label']} | +{pred.get('edge', 0)}%{odds_str} (YELLOW)</b>")
+                        lines.append(f"{tier_emoji} <b>Confidence: YELLOW</b> (+{pred.get('edge', 0)}% edge)")
                         lines.append(f"⚠️ Downgraded — {', '.join(downgrade_reasons)}")
                     else:
-                        lines.append(f"{tier_emoji} <b>EDGE: {pred['pick_label']} | +{pred.get('edge', 0)}%{odds_str} ({conf_tier.upper()})</b>")
+                        lines.append(f"{tier_emoji} <b>Confidence: {conf_tier.upper()}</b> (+{pred.get('edge', 0)}% edge)")
                         if downgrade_reasons:
                             lines.append(f"⚠️ Note — {', '.join(downgrade_reasons)}")
 
@@ -941,16 +952,19 @@ def format_digest(
                             lines.append(f"🎯 Total: {direction} {posted_total} | {total_prob}%")
             else:
                 lines.append("🔴 No edge pick")
-                projected    = pred.get("projected", "")
                 proj_total   = pred.get("projected_total")
                 posted_total = pred.get("posted_total")
-                if projected:
-                    lines.append(f"📐 Projected: {projected}")
                 if proj_total and posted_total:
                     total_edge = round(proj_total - posted_total, 1)
                     if abs(total_edge) >= 4 and abs(total_edge) <= 15:
                         direction = "OVER" if total_edge > 0 else "UNDER"
                         lines.append(f"🎯 Lean: {direction} {posted_total} (model {proj_total})")
+
+            # Projected score — shown whenever available, regardless of
+            # edge status, matching MLB's format_game_card behavior.
+            projected = pred.get("projected", "")
+            if projected:
+                lines.append(f"📐 Projected: {projected}")
         else:
             lines.append("📊 Model prediction unavailable")
 

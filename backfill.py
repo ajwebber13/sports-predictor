@@ -74,19 +74,28 @@ def backfill_nba(seasons: list):
             if wins == 0 and pts_for == 0:
                 continue
 
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
-                INSERT OR REPLACE INTO team_stats
+                INSERT INTO team_stats
                 (sport, season, team_name, wins, losses,
-                 pts_per_game, pts_allowed, net_rating,
-                 home_wins, home_losses, away_wins, away_losses, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 points_for, points_against, source, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (sport, season, team_name) DO UPDATE SET
+                    wins           = EXCLUDED.wins,
+                    losses         = EXCLUDED.losses,
+                    points_for     = EXCLUDED.points_for,
+                    points_against = EXCLUDED.points_against,
+                    source         = EXCLUDED.source,
+                    updated_at     = EXCLUDED.updated_at
             """, ("nba", current_season, team_name, wins, losses,
-                  pts_for, pts_against, net,
-                  home_w, home_l, away_w, away_l, "espn"))
+                  pts_for, pts_against, "espn", now_str))
             saved += 1
+            print(f"    {team_name}: {wins}-{losses}, net {net:+.1f} "
+                  f"(home {home_w}-{home_l}, away {away_w}-{away_l})")
             time.sleep(0.3)
 
         except Exception as e:
+            conn.rollback()
             print(f"  NBA {team_name} error: {e}")
 
     conn.commit()
@@ -155,19 +164,28 @@ def backfill_wnba(seasons: list):
                 print(f"  Skipping {team_name} — no stats returned")
                 continue
 
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
-                INSERT OR REPLACE INTO team_stats
+                INSERT INTO team_stats
                 (sport, season, team_name, wins, losses,
-                 pts_per_game, pts_allowed, net_rating,
-                 home_wins, home_losses, away_wins, away_losses, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 points_for, points_against, source, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (sport, season, team_name) DO UPDATE SET
+                    wins           = EXCLUDED.wins,
+                    losses         = EXCLUDED.losses,
+                    points_for     = EXCLUDED.points_for,
+                    points_against = EXCLUDED.points_against,
+                    source         = EXCLUDED.source,
+                    updated_at     = EXCLUDED.updated_at
             """, ("wnba", current_season, team_name, wins, losses,
-                  pts_for, pts_against, net,
-                  home_w, home_l, away_w, away_l, "espn"))
+                  pts_for, pts_against, "espn", now_str))
             saved += 1
+            print(f"    {team_name}: {wins}-{losses}, net {net:+.1f} "
+                  f"(home {home_w}-{home_l}, away {away_w}-{away_l})")
             time.sleep(0.3)
 
         except Exception as e:
+            conn.rollback()
             print(f"  WNBA {team_name} error: {e}")
 
     conn.commit()
@@ -221,18 +239,28 @@ def backfill_nfl(seasons: list):
                 if wins == 0 and pts_for == 0:
                     continue
 
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 c.execute("""
-                    INSERT OR REPLACE INTO team_stats
+                    INSERT INTO team_stats
                     (sport, season, team_name, wins, losses,
-                     pts_per_game, pts_allowed, net_rating, source)
+                     points_for, points_against, source, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (sport, season, team_name) DO UPDATE SET
+                        wins           = EXCLUDED.wins,
+                        losses         = EXCLUDED.losses,
+                        points_for     = EXCLUDED.points_for,
+                        points_against = EXCLUDED.points_against,
+                        source         = EXCLUDED.source,
+                        updated_at     = EXCLUDED.updated_at
                 """, ("nfl", str(year), team_name, wins, losses,
-                      pts_for, pts_against, net, "espn_core"))
+                      pts_for, pts_against, "espn_core", now_str))
                 saved  += 1
                 loaded += 1
+                print(f"    {team_name}: {wins}-{losses}, net {net:+.1f}")
                 time.sleep(0.2)
 
             except Exception as e:
+                conn.rollback()
                 print(f"  NFL {team_name} {year} error: {e}")
 
         print(f"  NFL {year}: {loaded} teams loaded")
@@ -277,11 +305,17 @@ def backfill_ncaaf(seasons: list):
                 total  = rec.get("total", {})
                 wins   = total.get("wins", 0)
                 losses = total.get("losses", 0)
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 c.execute("""
-                    INSERT OR REPLACE INTO team_stats
-                    (sport, season, team_name, wins, losses, source)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, ("ncaaf", str(year), name, wins, losses, "cfbd"))
+                    INSERT INTO team_stats
+                    (sport, season, team_name, wins, losses, source, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (sport, season, team_name) DO UPDATE SET
+                        wins       = EXCLUDED.wins,
+                        losses     = EXCLUDED.losses,
+                        source     = EXCLUDED.source,
+                        updated_at = EXCLUDED.updated_at
+                """, ("ncaaf", str(year), name, wins, losses, "cfbd", now_str))
                 saved += 1
 
             print(f"  NCAAF {year}: records loaded")
@@ -357,99 +391,55 @@ def backfill_ncaab(seasons: list):
             if wins == 0 and pts_for == 0:
                 continue
 
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
-                INSERT OR REPLACE INTO team_stats
+                INSERT INTO team_stats
                 (sport, season, team_name, wins, losses,
-                 pts_per_game, pts_allowed, net_rating,
-                 home_wins, home_losses, away_wins, away_losses, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 points_for, points_against, source, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (sport, season, team_name) DO UPDATE SET
+                    wins           = EXCLUDED.wins,
+                    losses         = EXCLUDED.losses,
+                    points_for     = EXCLUDED.points_for,
+                    points_against = EXCLUDED.points_against,
+                    source         = EXCLUDED.source,
+                    updated_at     = EXCLUDED.updated_at
             """, ("ncaab", current_season, name, wins, losses,
-                  pts_for, pts_against, net,
-                  home_w, home_l, away_w, away_l, "espn"))
+                  pts_for, pts_against, "espn", now_str))
             saved += 1
+            print(f"    {name}: {wins}-{losses}, net {net:+.1f} "
+                  f"(home {home_w}-{home_l}, away {away_w}-{away_l})")
             time.sleep(0.2)
 
         except Exception:
+            conn.rollback()
             continue
-
-    conn.commit()
-    conn.close()
     print(f"NCAAB backfill complete: {saved} teams saved for {current_season}")
 
 
 # ── HEAD TO HEAD ─────────────────────────────────────────────────────────
 
 def backfill_head_to_head(sport: str, seasons: list):
-    print(f"\n📊 Backfilling {sport.upper()} head-to-head results...")
+    """MIGRATION NOTE (2026-07-14): disabled, not converted.
 
-    ESPN_SPORT_MAP = {
-        "nba":   "basketball/nba",
-        "wnba":  "basketball/wnba",
-        "nfl":   "football/nfl",
-        "ncaab": "basketball/mens-college-basketball",
-        "ncaaf": "football/college-football",
-    }
+    Confirmed against the live Turso database that a head_to_head
+    table does not exist and never has (SELECT sql FROM sqlite_master
+    WHERE type='table' AND name='head_to_head' returns no rows). This
+    function has therefore never saved a single row in production —
+    every call's INSERT would have failed with "no such table", caught
+    silently by the bare `except Exception: continue` inside the loop.
 
-    endpoint = ESPN_SPORT_MAP.get(sport)
-    if not endpoint:
-        print(f"  No endpoint for {sport}")
-        return
-
-    conn  = get_conn()
-    c     = conn.cursor()
-    saved = 0
-
-    for year in seasons:
-        for month in range(1, 13):
-            for day in [1, 15]:
-                date_str = f"{year}{str(month).zfill(2)}{str(day).zfill(2)}"
-                url      = (
-                    f"https://site.api.espn.com/apis/site/v2/sports/"
-                    f"{endpoint}/scoreboard?dates={date_str}&limit=50"
-                )
-                try:
-                    r    = requests.get(url, headers=HEADERS, timeout=10)
-                    data = r.json()
-
-                    for event in data.get("events", []):
-                        status = event.get("status", {}).get("type", {}).get("completed", False)
-                        if not status:
-                            continue
-
-                        comp        = event.get("competitions", [{}])[0]
-                        competitors = comp.get("competitors", [])
-                        home = next((t for t in competitors if t["homeAway"] == "home"), None)
-                        away = next((t for t in competitors if t["homeAway"] == "away"), None)
-
-                        if not home or not away:
-                            continue
-
-                        home_name  = home["team"]["displayName"]
-                        away_name  = away["team"]["displayName"]
-                        home_score = int(home.get("score", 0))
-                        away_score = int(away.get("score", 0))
-                        winner     = home_name if home_score > away_score else away_name
-                        game_date  = event.get("date", "")[:10]
-
-                        c.execute("""
-                            INSERT OR IGNORE INTO head_to_head
-                            (sport, season, date, home_team, away_team,
-                             home_score, away_score, winner, source)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (sport, str(year), game_date, home_name, away_name,
-                              home_score, away_score, winner, "espn"))
-                        saved += 1
-
-                    time.sleep(0.5)
-
-                except Exception:
-                    continue
-
-        print(f"  {sport.upper()} {year}: head-to-head loaded")
-
-    conn.commit()
-    conn.close()
-    print(f"{sport.upper()} head-to-head complete: {saved} records saved")
+    This isn't a migration bug to fix by inventing a matching table in
+    schema_postgres.sql; it's a feature that was never actually built.
+    schema_postgres.sql is meant to be the one source of truth for
+    what's real in production, so adding a table here to catch up with
+    dead code would misrepresent that. If head-to-head tracking is
+    wanted, it's a fresh feature to design (schema, then this function),
+    not something this migration should patch in as a side effect."""
+    print(f"  backfill_head_to_head() is disabled — head_to_head table "
+          f"was never created in production; this never wrote data. "
+          f"Skipping {sport}.")
+    return
 
 
 # ── MAIN ────────────────────────────────────────────────────────────────
@@ -478,8 +468,8 @@ def run_backfill(sports: list = None):
         elif sport == "ncaab":
             backfill_ncaab(SEASONS)
 
-        if sport != "nfl":
-            backfill_head_to_head(sport, SEASONS)
+        # head-to-head backfill removed from the default run — see
+        # backfill_head_to_head()'s docstring above.
 
     print(f"\n{'='*50}")
     print("Backfill complete.")

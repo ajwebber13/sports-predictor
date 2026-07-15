@@ -4,8 +4,23 @@ database.py - Culture & Pulse Sports Analytics
 Central database connection and schema management.
 
 Supports:
-- Turso libSQL (production)
+- Supabase Postgres (production, as of the 2026-07 migration)
+- Turso libSQL (rollback fallback only — set SUPABASE_DB_URL to use
+  Postgres; unset it and TURSO_DATABASE_URL/TURSO_AUTH_TOKEN take over
+  again, unchanged from before the migration)
 - SQLite fallback (local development)
+
+SETUP: pip install psycopg2-binary (in addition to existing deps)
+Set env var: SUPABASE_DB_URL (a full postgres:// connection string
+from your Supabase project's connection settings)
+
+MIGRATION NOTE (2026-07): Schema is now defined once, in
+schema_postgres.sql, and applied directly in Supabase. This file no
+longer creates tables itself — init_db() and _ensure_extended_tables()
+(which each had their own, sometimes conflicting, inline CREATE TABLE
+statements) have been removed for that reason. See init_db()'s
+docstring below for why that old code was actually dangerous to keep,
+not just outdated.
 """
 
 import sqlite3
@@ -29,6 +44,7 @@ DB_PATH = os.path.join(
 # of "invalid auth header: failed to parse header value" error this
 # was added to fix; same category of bug as the whitespace issue
 # already fixed in nfl_player_game_logs.py's date arguments.
+SUPABASE_DB_URL = (os.environ.get("SUPABASE_DB_URL") or "").strip()
 TURSO_URL = (os.environ.get("TURSO_DATABASE_URL") or "").strip()
 TURSO_TOKEN = (os.environ.get("TURSO_AUTH_TOKEN") or "").strip()
 
@@ -47,7 +63,9 @@ class _Row:
     every sport's predictor, render_job.py, recap_engine.py,
     prop_tracker.py, auto_results.py, and more) all assume this access
     pattern. Wrapping the connection here fixes all of them at the
-    source instead of patching each file individually."""
+    source instead of patching each file individually. Same wrapper is
+    now reused for the Postgres/psycopg2 connection for the same
+    reason."""
     __slots__ = ("_columns", "_values")
 
     def __init__(self, columns, values):
@@ -77,19 +95,35 @@ class _Row:
 
 
 class _DictCursorWrapper:
-    """Wraps a libsql cursor so fetchone()/fetchall() return _Row
-    objects instead of plain tuples. Everything else (execute,
-    rowcount, lastrowid, description, close, ...) passes straight
-    through to the real cursor via __getattr__."""
+    """Wraps a driver cursor so fetchone()/fetchall() return _Row
+    objects instead of plain tuples. Everything else (rowcount,
+    lastrowid, description, close, ...) passes straight through to the
+    real cursor via __getattr__.
 
-    def __init__(self, real_cursor):
+    translate_placeholders: when True (Postgres/psycopg2 only), SQLite-
+    style "?" placeholders in the query text are rewritten to "%s"
+    before being sent to the driver. Left False for SQLite/Turso, which
+    use "?" natively — this keeps every existing query string in the
+    codebase unchanged; only the wrapper translates."""
+
+    def __init__(self, real_cursor, translate_placeholders=False):
         self._cursor = real_cursor
+        self._translate = translate_placeholders
+
+    def _translate_sql(self, sql):
+        if self._translate and isinstance(sql, str):
+            return sql.replace("?", "%s")
+        return sql
 
     def execute(self, *args, **kwargs):
+        if args:
+            args = (self._translate_sql(args[0]),) + tuple(args[1:])
         self._cursor.execute(*args, **kwargs)
         return self
 
     def executemany(self, *args, **kwargs):
+        if args:
+            args = (self._translate_sql(args[0]),) + tuple(args[1:])
         self._cursor.executemany(*args, **kwargs)
         return self
 
@@ -111,128 +145,40 @@ class _DictCursorWrapper:
 
 
 class _DictConnWrapper:
-    """Wraps a libsql connection so both conn.cursor() and the direct
-    conn.execute() shortcut (used in Turso's own docs) return
-    dict-row-capable cursors. commit/close/sync/rollback/etc. pass
-    straight through to the real connection via __getattr__."""
+    """Wraps a driver connection so both conn.cursor() and the direct
+    conn.execute() shortcut (used in Turso's own docs, and by
+    dashboard.py's get_recent_values_batch()) return dict-row-capable
+    cursors. commit/close/rollback/etc. pass straight through to the
+    real connection via __getattr__.
 
-    def __init__(self, real_conn):
+    conn.execute() is implemented via self.cursor().execute() rather
+    than delegating to the real connection's own .execute() — psycopg2
+    Connection objects don't have a .execute() shortcut the way
+    sqlite3/libsql connections do, so delegating directly would break
+    the moment this wrapped a Postgres connection. Building the cursor
+    ourselves works the same way regardless of which driver is
+    underneath."""
+
+    def __init__(self, real_conn, translate_placeholders=False):
         self._conn = real_conn
+        self._translate = translate_placeholders
 
     def cursor(self):
-        return _DictCursorWrapper(self._conn.cursor())
+        return _DictCursorWrapper(self._conn.cursor(), self._translate)
 
     def execute(self, *args, **kwargs):
-        real_cursor = self._conn.execute(*args, **kwargs)
-        return _DictCursorWrapper(real_cursor)
+        cur = self.cursor()
+        cur.execute(*args, **kwargs)
+        return cur
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
 
 
-def _ensure_extended_tables():
-    """Tables needed by the restored logging functions below that
-    aren't in the current init_db() yet — added here via CREATE TABLE
-    IF NOT EXISTS rather than touching init_db() directly, so this
-    can't collide with whatever init_db()'s existing tables are doing
-    in production right now."""
-    conn = get_conn()
-    c = conn.cursor()
-
-    # odds_history exists already but is missing these two columns —
-    # additive ALTER, same schema-drift pattern used elsewhere in this
-    # codebase (e.g. player_props' projection columns).
-    for col_def in ("home_implied REAL", "away_implied REAL"):
-        try:
-            c.execute(f"ALTER TABLE odds_history ADD COLUMN {col_def}")
-        except Exception:
-            pass
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS line_movement (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            date            TEXT NOT NULL,
-            sport           TEXT NOT NULL,
-            home_team       TEXT NOT NULL,
-            away_team       TEXT NOT NULL,
-            opening_home_ml INTEGER,
-            opening_away_ml INTEGER,
-            closing_home_ml INTEGER,
-            closing_away_ml INTEGER,
-            movement_home   INTEGER,
-            movement_away   INTEGER,
-            sharp_signal    TEXT,
-            captured_at     TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(date, sport, home_team, away_team)
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS injuries_log (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            date            TEXT NOT NULL,
-            sport           TEXT NOT NULL,
-            team_name       TEXT NOT NULL,
-            player_name     TEXT NOT NULL,
-            status          TEXT NOT NULL,
-            position        TEXT DEFAULT '',
-            impact          REAL DEFAULT 0.0,
-            captured_at     TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(date, sport, team_name, player_name)
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS situational_factors (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-            date                TEXT NOT NULL,
-            sport               TEXT NOT NULL,
-            home_team           TEXT NOT NULL,
-            away_team           TEXT NOT NULL,
-            away_miles_traveled REAL DEFAULT 0.0,
-            away_time_zones     INTEGER DEFAULT 0,
-            home_altitude_ft    INTEGER DEFAULT 0,
-            away_road_game_num  INTEGER DEFAULT 0,
-            away_back_to_back   INTEGER DEFAULT 0,
-            home_back_to_back   INTEGER DEFAULT 0,
-            away_rest_days      INTEGER DEFAULT 1,
-            home_rest_days      INTEGER DEFAULT 1,
-            altitude_adj        REAL DEFAULT 0.0,
-            travel_adj          REAL DEFAULT 0.0,
-            total_adj           REAL DEFAULT 0.0,
-            captured_at         TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(date, sport, home_team, away_team)
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS bankroll_log (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            date            TEXT NOT NULL,
-            sport           TEXT NOT NULL,
-            game            TEXT NOT NULL,
-            bet             TEXT NOT NULL,
-            odds            INTEGER,
-            stake           REAL NOT NULL,
-            result          TEXT,
-            profit_loss     REAL DEFAULT 0.0,
-            bankroll_after  REAL DEFAULT 0.0,
-            edge_at_pick    REAL,
-            notes           TEXT DEFAULT '',
-            created_at      TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
 def log_odds(sport: str, games: list, source: str = "espn"):
     """Recovered from pre-regression database.py (commit b13a88a) —
-    render_job.py imports this directly and was silently failing
-    without it since whichever commit dropped it."""
+    render_job.py imports this directly."""
     from services.odds_parser import american_to_implied
-    _ensure_extended_tables()
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -261,14 +207,16 @@ def log_odds(sport: str, games: list, source: str = "espn"):
 
         try:
             c.execute("""
-                INSERT OR IGNORE INTO odds_history
+                INSERT INTO odds_history
                 (date, sport, home_team, away_team, home_ml, away_ml,
                  home_implied, away_implied, source, opening_home_ml, opening_away_ml)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (date, sport, home_team, away_team) DO NOTHING
             """, (today, sport, home_team, away_team, home_ml, away_ml,
                   home_implied, away_implied, source, home_ml, away_ml))
             saved += 1
         except Exception as e:
+            conn.rollback()
             print(f"Odds log error: {e}")
 
     conn.commit()
@@ -282,40 +230,44 @@ def update_closing_odds(sport: str, games: list):
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
 
-    for game in games:
-        home_team = game.get("home_team", "")
-        away_team = game.get("away_team", "")
-        home_ml   = None
-        away_ml   = None
+    try:
+        for game in games:
+            home_team = game.get("home_team", "")
+            away_team = game.get("away_team", "")
+            home_ml   = None
+            away_ml   = None
 
-        for bm in game.get("bookmakers", []):
-            for market in bm.get("markets", []):
-                if market["key"] == "h2h":
-                    for o in market.get("outcomes", []):
-                        if o["name"] == home_team:
-                            home_ml = o["price"]
-                        elif o["name"] == away_team:
-                            away_ml = o["price"]
+            for bm in game.get("bookmakers", []):
+                for market in bm.get("markets", []):
+                    if market["key"] == "h2h":
+                        for o in market.get("outcomes", []):
+                            if o["name"] == home_team:
+                                home_ml = o["price"]
+                            elif o["name"] == away_team:
+                                away_ml = o["price"]
 
-        if not home_ml or not away_ml:
-            continue
+            if not home_ml or not away_ml:
+                continue
 
-        c.execute("""
-            UPDATE odds_history
-            SET closing_home_ml = ?,
-                closing_away_ml = ?
-            WHERE date = ? AND sport = ?
-            AND home_team = ? AND away_team = ?
-        """, (home_ml, away_ml, today, sport, home_team, away_team))
+            c.execute("""
+                UPDATE odds_history
+                SET closing_home_ml = ?,
+                    closing_away_ml = ?
+                WHERE date = ? AND sport = ?
+                AND home_team = ? AND away_team = ?
+            """, (home_ml, away_ml, today, sport, home_team, away_team))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
     print(f"Updated closing lines for {sport}")
 
 
 def log_line_movement(sport: str, games: list):
     """Recovered from pre-regression database.py — render_job.py's noon retry."""
-    _ensure_extended_tables()
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -368,23 +320,34 @@ def log_line_movement(sport: str, games: list):
             sharp = f"AWAY line moved {movement_away} pts ({direction}) - possible sharp action"
 
         try:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
-                INSERT OR REPLACE INTO line_movement
+                INSERT INTO line_movement
                 (date, sport, home_team, away_team,
                  opening_home_ml, opening_away_ml,
                  closing_home_ml, closing_away_ml,
-                 movement_home, movement_away, sharp_signal)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 movement_home, movement_away, sharp_signal, captured_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (date, sport, home_team, away_team) DO UPDATE SET
+                    opening_home_ml = EXCLUDED.opening_home_ml,
+                    opening_away_ml = EXCLUDED.opening_away_ml,
+                    closing_home_ml = EXCLUDED.closing_home_ml,
+                    closing_away_ml = EXCLUDED.closing_away_ml,
+                    movement_home   = EXCLUDED.movement_home,
+                    movement_away   = EXCLUDED.movement_away,
+                    sharp_signal    = EXCLUDED.sharp_signal,
+                    captured_at     = EXCLUDED.captured_at
             """, (today, sport, home_team, away_team,
                   opening_home, opening_away,
                   home_ml, away_ml,
-                  movement_home, movement_away, sharp))
+                  movement_home, movement_away, sharp, now_str))
             saved += 1
 
             if sharp:
                 print(f"  SHARP: {sharp} - {away_team} @ {home_team}")
 
         except Exception as e:
+            conn.rollback()
             print(f"Line movement log error: {e}")
 
     conn.commit()
@@ -394,7 +357,6 @@ def log_line_movement(sport: str, games: list):
 
 def log_injuries(sport: str):
     """Recovered from pre-regression database.py — render_job.py imports this directly."""
-    _ensure_extended_tables()
     try:
         from injury_check import get_injuries
         injuries = get_injuries(sport)
@@ -420,12 +382,14 @@ def log_injuries(sport: str):
                     status      = "Unknown"
 
                 c.execute("""
-                    INSERT OR IGNORE INTO injuries_log
+                    INSERT INTO injuries_log
                     (date, sport, team_name, player_name, status)
                     VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT (date, sport, team_name, player_name) DO NOTHING
                 """, (today, sport, team_name, player_name, status))
                 saved += 1
             except Exception as e:
+                conn.rollback()
                 print(f"Injury log error: {e}")
 
     conn.commit()
@@ -438,7 +402,6 @@ def log_bankroll(date: str, sport: str, game: str, bet: str,
                  profit_loss: float, bankroll_after: float,
                  edge: float = 0.0, notes: str = ""):
     """Recovered from pre-regression database.py."""
-    _ensure_extended_tables()
     conn = get_conn()
     c    = conn.cursor()
 
@@ -454,6 +417,7 @@ def log_bankroll(date: str, sport: str, game: str, bet: str,
         status = "WIN" if result == "win" else "LOSS"
         print(f"Bankroll logged: {status} {game} | P/L: ${profit_loss} | Balance: ${bankroll_after}")
     except Exception as e:
+        conn.rollback()
         print(f"Bankroll log error: {e}")
     finally:
         conn.close()
@@ -464,30 +428,32 @@ def get_bankroll_summary():
     conn = get_conn()
     c    = conn.cursor()
 
-    c.execute("""
-        SELECT
-            COUNT(*) as total_bets,
-            SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) as wins,
-            SUM(profit_loss) as total_pl,
-            MIN(bankroll_after) as lowest_balance,
-            MAX(bankroll_after) as highest_balance,
-            MIN(date) as first_bet,
-            MAX(date) as last_bet
-        FROM bankroll_log
-    """)
-    row = c.fetchone()
+    try:
+        c.execute("""
+            SELECT
+                COUNT(*) as total_bets,
+                SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) as wins,
+                SUM(profit_loss) as total_pl,
+                MIN(bankroll_after) as lowest_balance,
+                MAX(bankroll_after) as highest_balance,
+                MIN(date) as first_bet,
+                MAX(date) as last_bet
+            FROM bankroll_log
+        """)
+        row = c.fetchone()
 
-    c.execute("""
-        SELECT sport,
-               COUNT(*) as bets,
-               SUM(profit_loss) as pl,
-               ROUND(AVG(CASE WHEN result='win' THEN 1.0 ELSE 0.0 END)*100,1) as win_rate
-        FROM bankroll_log
-        GROUP BY sport
-        ORDER BY pl DESC
-    """)
-    by_sport = c.fetchall()
-    conn.close()
+        c.execute("""
+            SELECT sport,
+                   COUNT(*) as bets,
+                   SUM(profit_loss) as pl,
+                   ROUND(AVG(CASE WHEN result='win' THEN 1.0 ELSE 0.0 END)*100,1) as win_rate
+            FROM bankroll_log
+            GROUP BY sport
+            ORDER BY pl DESC
+        """)
+        by_sport = c.fetchall()
+    finally:
+        conn.close()
 
     if not row or not row["total_bets"]:
         print("\nNo bankroll data yet.")
@@ -525,7 +491,6 @@ def get_bankroll_summary():
 def log_situational_factors(sport: str, games: list):
     """Recovered from pre-regression database.py — render_job.py imports this directly.
     Full ALTITUDE_MAP/CITY_COORDS dicts kept as-is from the original."""
-    _ensure_extended_tables()
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -753,16 +718,25 @@ def log_situational_factors(sport: str, games: list):
         total_adj  = round(altitude_adj + travel_adj + tz_adj, 2)
 
         try:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
-                INSERT OR REPLACE INTO situational_factors
+                INSERT INTO situational_factors
                 (date, sport, home_team, away_team,
                  away_miles_traveled, away_time_zones,
                  home_altitude_ft, altitude_adj,
-                 travel_adj, total_adj)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 travel_adj, total_adj, captured_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (date, sport, home_team, away_team) DO UPDATE SET
+                    away_miles_traveled = EXCLUDED.away_miles_traveled,
+                    away_time_zones     = EXCLUDED.away_time_zones,
+                    home_altitude_ft    = EXCLUDED.home_altitude_ft,
+                    altitude_adj        = EXCLUDED.altitude_adj,
+                    travel_adj          = EXCLUDED.travel_adj,
+                    total_adj           = EXCLUDED.total_adj,
+                    captured_at         = EXCLUDED.captured_at
             """, (today, sport, home_team, away_team,
                   miles, time_zones, altitude_ft,
-                  altitude_adj, travel_adj, total_adj))
+                  altitude_adj, travel_adj, total_adj, now_str))
             saved += 1
 
             if altitude_ft > 2000 or miles > 1500:
@@ -771,6 +745,7 @@ def log_situational_factors(sport: str, games: list):
                       f"Alt: {altitude_ft}ft | Adj: {total_adj}")
 
         except Exception as e:
+            conn.rollback()
             print(f"Situational log error: {e}")
 
     conn.commit()
@@ -798,8 +773,11 @@ def model_report(sport: str = None):
         params.append(sport)
 
     query += " GROUP BY sport ORDER BY win_rate DESC"
-    c.execute(query, params)
-    rows = c.fetchall()
+    try:
+        c.execute(query, params)
+        rows = c.fetchall()
+    finally:
+        conn.close()
 
     print("\nMODEL PERFORMANCE REPORT")
     print("-" * 45)
@@ -810,34 +788,23 @@ def model_report(sport: str = None):
               f"Win Rate: {row['win_rate']}% "
               f"Avg Edge: {row['avg_edge']}%")
     print("-" * 45)
-    conn.close()
 
 
 def log_prediction(bet: dict, sport: str):
     """Recovered from pre-regression database.py (commit b13a88a) —
     render_job.py imports this directly. Column names (bet, model_prob,
     home_record, predicted_winner, etc.) confirmed matching PRODUCTION's
-    actual live schema, not the stripped-down schema in this file's
-    init_db() — auto_results.py's proven-working score_prediction()/
-    insert_result() functions reference these exact same column names
-    (prediction.get("bet",...), results.edge_at_pick, etc.), and
-    tonight's real run scored 3/3 WNBA predictions successfully against
-    them. init_db()'s CREATE TABLE IF NOT EXISTS never touches an
-    already-existing table, so the schema mismatch between this file
-    and production never mattered until these functions themselves
-    were deleted.
+    actual live schema (see schema_postgres.sql).
 
     2026-07-13: added an explicit app-level dedupe check before the
-    insert. The DB's UNIQUE(date, sport, game) constraint keeps
-    reverting to UNIQUE(date, sport, game, bet) for reasons we could
-    not trace to any code in this repo (ruled out: duplicate schema
-    definitions elsewhere, scheduled jobs running in the window,
-    multiple Turso databases/branches, Drizzle ORM auto-sync) —
-    suspected Turso platform issue, ticket filed. This check makes the
-    app enforce one-row-per-game-per-day regardless of what the DB
-    constraint is actually doing, so duplicate picks (and the phantom
-    losses they generate once graded) can't happen going forward even
-    if the underlying constraint keeps reverting."""
+    insert (kept unchanged in this migration). The DB's
+    UNIQUE(date, sport, game) constraint kept reverting under Turso for
+    reasons never fully traced; this check makes the app enforce
+    one-row-per-game-per-day regardless of what the DB constraint is
+    doing. The ON CONFLICT clause added below is defense-in-depth on
+    top of that guard, not a replacement for it — kept both since the
+    guard already proved itself against the exact failure mode that
+    caused the July 13 incident."""
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -857,11 +824,26 @@ def log_prediction(bet: dict, sport: str):
             c.execute("DELETE FROM predictions WHERE id=?", (existing["id"],))
 
         c.execute("""
-            INSERT OR REPLACE INTO predictions
+            INSERT INTO predictions
             (date, sport, game, home_team, away_team, bet, odds,
              model_prob, implied_prob, edge, home_record, away_record,
              home_rest, away_rest, home_injuries, away_injuries, predicted_winner)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (date, sport, game) DO UPDATE SET
+                home_team        = EXCLUDED.home_team,
+                away_team        = EXCLUDED.away_team,
+                bet              = EXCLUDED.bet,
+                odds             = EXCLUDED.odds,
+                model_prob       = EXCLUDED.model_prob,
+                implied_prob     = EXCLUDED.implied_prob,
+                edge             = EXCLUDED.edge,
+                home_record      = EXCLUDED.home_record,
+                away_record      = EXCLUDED.away_record,
+                home_rest        = EXCLUDED.home_rest,
+                away_rest        = EXCLUDED.away_rest,
+                home_injuries    = EXCLUDED.home_injuries,
+                away_injuries    = EXCLUDED.away_injuries,
+                predicted_winner = EXCLUDED.predicted_winner
         """, (
             today, sport, game,
             parts[1] if len(parts) == 2 else "",
@@ -882,6 +864,7 @@ def log_prediction(bet: dict, sport: str):
         conn.commit()
         print(f"Logged prediction: {game}")
     except Exception as e:
+        conn.rollback()
         print(f"Prediction log error: {e}")
     finally:
         conn.close()
@@ -892,7 +875,14 @@ def log_result(sport: str, game: str, date: str,
     """Recovered from pre-regression database.py — not directly called
     by auto_results.py (which has its own insert_result() with the same
     logic inline), but kept for any other caller and for parity with
-    the original file."""
+    the original file.
+
+    results.prediction_id has a real UNIQUE constraint (see
+    schema_postgres.sql). Rows where prediction_id is NULL (no matching
+    prediction found) never conflict under that constraint in Postgres
+    — same as SQLite, which also treats NULLs as distinct for UNIQUE
+    purposes — so this preserves the original "always insert if no
+    prediction_id" behavior without extra handling."""
     conn  = get_conn()
     c     = conn.cursor()
     parts = game.split(" @ ")
@@ -920,20 +910,35 @@ def log_result(sport: str, game: str, date: str,
         correct      = 1 if pred["predicted_winner"] == actual_winner else 0
 
     try:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute("""
-            INSERT OR REPLACE INTO results
+            INSERT INTO results
             (date, sport, game, home_team, away_team,
              home_score, away_score, actual_winner,
-             prediction_id, correct, edge_at_pick, odds_at_pick)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             prediction_id, correct, edge_at_pick, odds_at_pick, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (prediction_id) DO UPDATE SET
+                date          = EXCLUDED.date,
+                sport         = EXCLUDED.sport,
+                game          = EXCLUDED.game,
+                home_team     = EXCLUDED.home_team,
+                away_team     = EXCLUDED.away_team,
+                home_score    = EXCLUDED.home_score,
+                away_score    = EXCLUDED.away_score,
+                actual_winner = EXCLUDED.actual_winner,
+                correct       = EXCLUDED.correct,
+                edge_at_pick  = EXCLUDED.edge_at_pick,
+                odds_at_pick  = EXCLUDED.odds_at_pick,
+                updated_at    = EXCLUDED.updated_at
         """, (date, sport, game, home, away,
               home_score, away_score, actual_winner,
-              pred_id, correct, edge_at_pick, odds_at_pick))
+              pred_id, correct, edge_at_pick, odds_at_pick, now_str))
         conn.commit()
 
         status = "CORRECT" if correct == 1 else "WRONG" if correct == 0 else "NO PICK"
         print(f"Result logged: {game} - {actual_winner} wins {status}")
     except Exception as e:
+        conn.rollback()
         print(f"Result log error: {e}")
     finally:
         conn.close()
@@ -953,11 +958,9 @@ def rows_to_dicts(cursor, rows):
     moment it tries to treat the first column's value as a (key, value)
     pair. This bit nfl_projections.py first, but the identical dict(r)
     pattern also exists in star_players.py, wnba/mlb/nba_projections.py,
-    and wnba/mlb/nba_defense_ratings.py — those may be silently broken
-    against production Turso too since the libsql-experimental -> libsql
-    package swap. Building the dict from cursor.description explicitly
-    works the same way regardless of what row type either package
-    returns, so it's not vulnerable to this class of bug going forward."""
+    and wnba/mlb/nba_defense_ratings.py. Building the dict from
+    cursor.description explicitly works the same way regardless of what
+    row type any driver (SQLite, Turso, or now Postgres) returns."""
     if rows is None:
         return []
     columns = [d[0] for d in cursor.description]
@@ -969,6 +972,14 @@ def rows_to_dicts(cursor, rows):
 # --------------------------------------------------
 
 def get_conn():
+
+    if SUPABASE_DB_URL:
+
+        import psycopg2
+
+        conn = psycopg2.connect(SUPABASE_DB_URL)
+
+        return _DictConnWrapper(conn, translate_placeholders=True)
 
     if TURSO_URL and TURSO_TOKEN:
 
@@ -1010,282 +1021,24 @@ def get_conn():
 # --------------------------------------------------
 
 def init_db():
-
-    conn = get_conn()
-
-    c = conn.cursor()
-
-
-    # ----------------------------
-    # TEAM DATA
-    # ----------------------------
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS team_stats (
-
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-        sport TEXT NOT NULL,
-        season TEXT NOT NULL,
-        team_name TEXT NOT NULL,
-
-        wins INTEGER DEFAULT 0,
-        losses INTEGER DEFAULT 0,
-
-        points_for REAL DEFAULT 0,
-        points_against REAL DEFAULT 0,
-
-        offensive_rating REAL DEFAULT 0,
-        defensive_rating REAL DEFAULT 0,
-
-        pace REAL DEFAULT 0,
-
-        source TEXT DEFAULT 'manual',
-
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-
-
-        UNIQUE(
-            sport,
-            season,
-            team_name
-        )
-
-    )
-    """)
-
-
-
-    # ----------------------------
-    # ODDS
-    # ----------------------------
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS odds_history (
-
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-        date TEXT NOT NULL,
-
-        sport TEXT NOT NULL,
-
-        home_team TEXT NOT NULL,
-        away_team TEXT NOT NULL,
-
-
-        home_ml INTEGER,
-        away_ml INTEGER,
-
-        spread REAL,
-
-        over_under REAL,
-
-
-        opening_home_ml INTEGER,
-        opening_away_ml INTEGER,
-
-        closing_home_ml INTEGER,
-        closing_away_ml INTEGER,
-
-
-        source TEXT DEFAULT 'api',
-
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-
-
-        UNIQUE(
-            date,
-            sport,
-            home_team,
-            away_team
-        )
-
-    )
-    """)
-
-
-
-    # ----------------------------
-    # PREDICTIONS
-    # ----------------------------
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS predictions (
-
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-        date TEXT NOT NULL,
-
-        sport TEXT NOT NULL,
-
-        game TEXT NOT NULL,
-
-
-        home_team TEXT,
-
-        away_team TEXT,
-
-
-        prediction TEXT,
-
-
-        odds INTEGER,
-
-
-        model_probability REAL,
-
-        implied_probability REAL,
-
-        edge REAL,
-
-
-        confidence REAL,
-
-
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-
-
-        UNIQUE(
-            date,
-            sport,
-            game
-        )
-
-    )
-    """)
-
-
-
-    # ----------------------------
-    # RESULTS
-    # ----------------------------
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS results (
-
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-
-        date TEXT NOT NULL,
-
-        sport TEXT NOT NULL,
-
-        game TEXT NOT NULL,
-
-
-        home_score INTEGER,
-
-        away_score INTEGER,
-
-
-        winner TEXT,
-
-
-        prediction_id INTEGER,
-
-
-        correct INTEGER,
-
-
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-
-    )
-    """)
-
-
-
-    # ----------------------------
-    # PLAYER PROPS
-    # ----------------------------
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS player_props (
-
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-
-        date TEXT,
-
-        sport TEXT,
-
-
-        player_name TEXT,
-
-        team TEXT,
-
-
-        prop TEXT,
-
-
-        line REAL,
-
-
-        projection REAL,
-
-
-        edge REAL,
-
-
-        confidence REAL,
-
-
-        result TEXT,
-
-
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-
-    )
-    """)
-
-
-
-    # ----------------------------
-    # BANKROLL TRACKING
-    # ----------------------------
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS bankroll (
-
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-
-        date TEXT,
-
-        sport TEXT,
-
-        game TEXT,
-
-
-        bet TEXT,
-
-
-        odds INTEGER,
-
-
-        stake REAL,
-
-
-        profit_loss REAL,
-
-
-        bankroll REAL,
-
-
-        result TEXT
-
-    )
-    """)
-
-
-
-    conn.commit()
-
-    conn.close()
-
-
-    print(
-        "Database initialized successfully"
-    )
+    """MIGRATION NOTE (2026-07): this used to CREATE TABLE the app's
+    core tables (predictions, results, odds_history, team_stats,
+    player_props, bankroll) with CREATE TABLE IF NOT EXISTS. That
+    schema had drifted badly from what production actually runs —
+    e.g. its version of `predictions` used columns like `prediction`,
+    `model_probability`, and `confidence`, none of which match the
+    real live schema (`bet`, `model_prob`, `home_record`, etc. — see
+    log_prediction() above and schema_postgres.sql). It only ever
+    looked safe because IF NOT EXISTS never touches a table that
+    already exists — if this had ever run against an empty database,
+    it would have silently created the wrong table shape.
+
+    Schema is now defined once, in schema_postgres.sql, and applied
+    directly against Supabase. This function is kept as a no-op (not
+    deleted outright) in case something still imports or calls it."""
+    print("init_db() is a no-op as of the 2026-07 migration — "
+          "schema is managed in schema_postgres.sql, applied directly "
+          "in Supabase, not created from this file.")
 
 
 

@@ -57,10 +57,19 @@ def load_props() -> pd.DataFrame:
     an old row."""
     conn = get_conn()
 
+    from database import SUPABASE_DB_URL
+
     existing_cols = set()
     try:
-        cur = conn.execute("PRAGMA table_info(player_props)")
-        existing_cols = {row[1] for row in cur.fetchall()}
+        if SUPABASE_DB_URL:
+            cur = conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'player_props'"
+            )
+            existing_cols = {row[0] for row in cur.fetchall()}
+        else:
+            cur = conn.execute("PRAGMA table_info(player_props)")
+            existing_cols = {row[1] for row in cur.fetchall()}
     except Exception:
         pass
 
@@ -76,7 +85,7 @@ def load_props() -> pd.DataFrame:
     cols = (["date", "sport", "player_name", "team_name", "opponent", "stat", "line",
              "over_odds", "under_odds", "hit_rate_overall", "confidence_tier"]
             + available_proj_cols
-            + ["actual_value", "hit", "team_won"])
+            + ["actual_value", "hit", "team_won", "result_status"])
 
     query_with_results = f"""
         SELECT pp.date, pp.sport, pp.player_name, pp.team_name,
@@ -84,18 +93,18 @@ def load_props() -> pd.DataFrame:
                pp.stat, pp.line, pp.over_odds, pp.under_odds,
                pp.hit_rate_overall, pp.confidence_tier
                {"," + proj_select if proj_select else ""},
-               pr.actual_value, pr.hit, pr.team_won
+               pr.actual_value, pr.hit, pr.team_won, pr.result_status
         FROM player_props pp
         LEFT JOIN (
             SELECT pr1.*
             FROM prop_results pr1
-            WHERE pr1.rowid = (
-                SELECT pr2.rowid
+            WHERE pr1.id = (
+                SELECT pr2.id
                 FROM prop_results pr2
                 WHERE pr2.date = pr1.date
                   AND pr2.player_name = pr1.player_name
                   AND pr2.stat = pr1.stat
-                ORDER BY pr2.scored_at DESC, pr2.rowid DESC
+                ORDER BY pr2.scored_at DESC, pr2.id DESC
                 LIMIT 1
             )
         ) pr
@@ -126,6 +135,7 @@ def load_props() -> pd.DataFrame:
         df["actual_value"] = None
         df["hit"] = None
         df["team_won"] = None
+        df["result_status"] = None
         # ensure every column the rest of the app expects is present, even
         # if this deploy's table doesn't have the projection columns yet
         for c in projection_cols:

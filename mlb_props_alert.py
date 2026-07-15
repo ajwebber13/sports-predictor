@@ -32,7 +32,8 @@ CENTRAL_OFFSET = -5
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
-FADE_THRESHOLD = 35
+STRONG_THRESHOLD = 80  # hit_rate_overall >= this -> shown as a strong 'over' play
+FADE_THRESHOLD = 20    # hit_rate_overall <= this -> under_rate >= 80 -> fade candidate
 MIN_GAMES = 5
 MIN_GAMES_COLUMN = "games_overall"
 
@@ -91,9 +92,10 @@ def fetch_today_props(date_str: str):
         WHERE date = ? AND sport = 'mlb'
           AND confidence_tier = 'green'
           AND hit_rate_overall IS NOT NULL
+          AND hit_rate_overall >= ?
           AND {MIN_GAMES_COLUMN} >= ?
         ORDER BY hit_rate_overall DESC
-    """, (date_str, MIN_GAMES))
+    """, (date_str, STRONG_THRESHOLD, MIN_GAMES))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows

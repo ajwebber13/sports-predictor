@@ -3,9 +3,11 @@ Culture & Pulse Picks — Tracking Dashboard
 Pulls game picks + player props from Turso (cp-analytics DB).
 
 SETUP:
-1. pip install streamlit libsql-experimental pandas
-2. Set env vars: TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, DASHBOARD_PASSWORD
-3. Deploy on Render (libsql-experimental has no Windows wheel — Linux only)
+1. pip install streamlit psycopg2-binary pandas
+2. Set env vars: SUPABASE_DB_URL, DASHBOARD_PASSWORD
+   (TURSO_DATABASE_URL / TURSO_AUTH_TOKEN kept as rollback fallback —
+   see database.py)
+3. Deploy on Render or any platform — no longer tied to Linux-only wheels
 
 Schemas used:
 - predictions / results: game picks, joined on prediction_id (see earlier notes)
@@ -63,6 +65,8 @@ def get_conn():
     return _get_conn_raw()
 
 import load_props
+import ranking_engine
+import performance_tracker
 
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
 
@@ -123,14 +127,31 @@ WNBA_TEAM_IDS = {
     "New York Liberty": 9, "Phoenix Mercury": 11, "Portland Fire": 132052,
     "Seattle Storm": 14, "Toronto Tempo": 131935, "Washington Mystics": 16,
 }
-TEAM_ID_MAPS = {"mlb": MLB_TEAM_IDS, "wnba": WNBA_TEAM_IDS}
+NFL_TEAM_IDS = {
+    "Atlanta Falcons": 1, "Buffalo Bills": 2, "Chicago Bears": 3,
+    "Cincinnati Bengals": 4, "Cleveland Browns": 5, "Dallas Cowboys": 6,
+    "Denver Broncos": 7, "Detroit Lions": 8, "Green Bay Packers": 9,
+    "Tennessee Titans": 10, "Indianapolis Colts": 11, "Kansas City Chiefs": 12,
+    "Las Vegas Raiders": 13, "Los Angeles Rams": 14, "Miami Dolphins": 15,
+    "Minnesota Vikings": 16, "New England Patriots": 17, "New Orleans Saints": 18,
+    "New York Giants": 19, "New York Jets": 20, "Philadelphia Eagles": 21,
+    "Arizona Cardinals": 22, "Pittsburgh Steelers": 23, "Los Angeles Chargers": 24,
+    "San Francisco 49ers": 25, "Seattle Seahawks": 26, "Tampa Bay Buccaneers": 27,
+    "Washington Commanders": 28, "Carolina Panthers": 29, "Jacksonville Jaguars": 30,
+    "Baltimore Ravens": 33, "Houston Texans": 34,
+}
+TEAM_ID_MAPS = {"mlb": MLB_TEAM_IDS, "wnba": WNBA_TEAM_IDS, "nfl": NFL_TEAM_IDS}
+
+ESPN_LOGO_PATH = {"wnba": "wnba", "nba": "nba", "mlb": "mlb", "nfl": "nfl"}
 
 def team_logo_url(sport: str, team_name: str) -> str:
-    ids = TEAM_ID_MAPS.get((sport or "").lower(), {})
+    sport = (sport or "").lower()
+    ids = TEAM_ID_MAPS.get(sport, {})
     team_id = ids.get(team_name)
     if not team_id:
         return ""
-    return f"https://a.espncdn.com/i/teamlogos/{sport.lower()}/500/{team_id}.png"
+    path = ESPN_LOGO_PATH.get(sport, sport)
+    return f"https://a.espncdn.com/i/teamlogos/{path}/500/{team_id}.png"
 
 def initials_avatar(name: str) -> str:
     """Colored circle with initials — used in place of a real headshot since
@@ -145,25 +166,47 @@ def initials_avatar(name: str) -> str:
         f'font-size:14px;flex-shrink:0;">{initials}</div>'
     )
 
+def grade_from_pct(pct: float) -> tuple:
+    """Converts a win% into a letter grade + color. Anchored to -110
+    breakeven (~52.4%) since that's the real bar for 'is this profitable',
+    not just 'is this above 50%'."""
+    if pct >= 65:
+        return "A+", "#3ecf8e"
+    if pct >= 60:
+        return "A", "#3ecf8e"
+    if pct >= 55:
+        return "B", "#8fd694"
+    if pct >= 52.4:
+        return "C", "#D4AF37"
+    if pct >= 48:
+        return "D", "#ff9d4d"
+    return "F", "#ff5c5c"
+
 # ---------- SPARKLINE PROPS TABLE (custom HTML/JS component) ----------
 # Streamlit's native st.dataframe renders to canvas internally, so it can't
 # show an inline recent-form sparkline per row — the thing that makes
 # Outlier/Bobby's Bets props tables actually useful at a glance. This
 # builds a real HTML table instead, with server-rendered SVG sparklines
-# (last 5 games vs the line, colored by hit/miss) and a small vanilla-JS
+# (last 10 games vs the line, colored by hit/miss) and a small vanilla-JS
 # click-to-sort so we don't lose the sortability of the native table.
 
-GAME_LOG_TABLES = {"wnba": "wnba_game_log", "mlb": "mlb_game_log", "nba": "nba_game_log"}
+GAME_LOG_TABLES = {"wnba": "wnba_game_log", "mlb": "mlb_game_log", "nba": "nba_game_log", "nfl": "nfl_game_log"}
 STAT_COLS = {
     "wnba": {"pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
              "pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast"), "ra": ("reb", "ast")},
     "nba":  {"pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
              "pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast"), "ra": ("reb", "ast")},
     "mlb":  {"hits": "hits", "runs": "runs", "rbis": "rbis", "hr": "hrs"},
+    "nfl":  {
+        "passing_completions": "passing_completions", "passing_attempts": "passing_attempts",
+        "passing_yards": "passing_yards", "passing_tds": "passing_tds", "interceptions": "interceptions",
+        "rushing_attempts": "rushing_attempts", "rushing_yards": "rushing_yards", "rushing_tds": "rushing_tds",
+        "receptions": "receptions", "receiving_yards": "receiving_yards", "receiving_tds": "receiving_tds",
+    },
 }
 
 @st.cache_data(ttl=300)
-def get_recent_values_batch(sport: str, stat: str, player_names: tuple, n: int = 5) -> dict:
+def get_recent_values_batch(sport: str, stat: str, player_names: tuple, n: int = 10) -> dict:
     """Fetches recent game-log values for ALL players sharing a
     (sport, stat) pair in ONE query, instead of one query per player.
     Returns {player_name: [values oldest->newest]}.
@@ -251,9 +294,11 @@ def build_props_html(rows: list) -> str:
     for r in rows:
         team_logo_html = f'<img src="{r["team_logo"]}" style="width:22px;height:22px;object-fit:contain;vertical-align:middle;margin-right:8px;">' if r.get("team_logo") else ""
         opp_logo_html = f'<img src="{r["opp_logo"]}" style="width:18px;height:18px;object-fit:contain;vertical-align:middle;margin-right:4px;">' if r.get("opp_logo") else ""
-        result_color = {"HIT": "#3ecf8e", "MISS": "#ff5c5c", "PENDING": "#6b6b6b"}.get(r.get("status"), "#6b6b6b")
+        result_color = {"HIT": "#3ecf8e", "MISS": "#ff5c5c", "PENDING": "#6b6b6b", "NO BET": "#8a7d55"}.get(r.get("status"), "#6b6b6b")
         body_rows.append(f"""
 <tr>
+  <td data-val="{esc(r['date'])}">{esc(r['date'])}</td>
+  <td data-val="{esc(r['game'])}">{esc(r['game'])}</td>
   <td data-val="{esc(r['player'])}">{team_logo_html}<b style="color:#fff;">{esc(r['player'])}</b><div style="color:#6b6b6b;font-size:11px;margin-left:{'30px' if team_logo_html else '0'};">{esc(r['team'])}</div></td>
   <td data-val="{esc(r['opponent'])}">{opp_logo_html}{esc(r['opponent'])}</td>
   <td data-val="{esc(r['sport'])}">{esc(r['sport']).upper()}</td>
@@ -269,8 +314,9 @@ def build_props_html(rows: list) -> str:
 </tr>""")
 
     headers = [
+        ("Date", "text", False), ("Game", "text", False),
         ("Player", "text", False), ("Opp", "text", False), ("Sport", "text", False),
-        ("Stat / Line", "text", False), ("Play", "text", False), ("Last 5", "num", True),
+        ("Stat / Line", "text", False), ("Play", "text", False), ("Last 10", "num", True),
         ("Proj", "num", True), ("Edge %", "num", True), ("Hit Rate", "num", True),
         ("Matchup", "num", True), ("Odds", "text", False), ("Result", "text", False),
     ]
@@ -450,6 +496,56 @@ def load_picks():
     return pd.DataFrame(rows, columns=cols)
 
 
+@st.cache_data(ttl=300)
+def load_rankings(sport: str):
+    """Wraps ranking_engine.get_rankings() — pure compute, no stored
+    table, so this just caches the live result for 5 minutes instead
+    of recomputing on every rerun."""
+    try:
+        return ranking_engine.get_rankings(sport)
+    except Exception:
+        return []
+
+
+@st.cache_data(ttl=300)
+def load_performance_summary(period: str, sport: str = None):
+    """Wraps performance_tracker's summary generators. period is
+    'today' | 'week' | 'season'."""
+    try:
+        if period == "season":
+            record = performance_tracker.calculate_record(sport=sport)
+            roi = performance_tracker.calculate_roi(sport=sport)
+            by_sport = performance_tracker.calculate_record_by_sport()
+            best_worst = performance_tracker.get_best_worst_pick()
+            buckets = performance_tracker.calculate_confidence_buckets()
+        elif period == "week":
+            from datetime import datetime, timedelta
+            end = datetime.now().strftime("%Y-%m-%d")
+            start = (datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d")
+            date_range = (start, end)
+            record = performance_tracker.calculate_record(date_range=date_range, sport=sport)
+            roi = performance_tracker.calculate_roi(date_range=date_range, sport=sport)
+            by_sport = performance_tracker.calculate_record_by_sport(date_range=date_range)
+            best_worst = performance_tracker.get_best_worst_pick(date_range=date_range)
+            buckets = performance_tracker.calculate_confidence_buckets(date_range=date_range)
+        else:  # today
+            from datetime import datetime
+            today = datetime.now().strftime("%Y-%m-%d")
+            record = performance_tracker.calculate_record(date=today, sport=sport)
+            roi = performance_tracker.calculate_roi(date=today, sport=sport)
+            by_sport = performance_tracker.calculate_record_by_sport(date=today)
+            best_worst = performance_tracker.get_best_worst_pick(date=today)
+            buckets = performance_tracker.calculate_confidence_buckets(date=today)
+        return {
+            "record": record, "roi": roi, "by_sport": by_sport,
+            "best_pick": best_worst["best"], "worst_pick": best_worst["worst"],
+            "highest_confidence_pick": best_worst["highest_confidence_pick"],
+            "confidence_buckets": buckets,
+        }
+    except Exception:
+        return None
+
+
 # ---------- HEADER ----------
 st.markdown("""
 <div class="cp-header">
@@ -464,7 +560,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-tab_games, tab_props = st.tabs(["Game Picks", "Player Props"])
+tab_games, tab_props, tab_rankings, tab_betting = st.tabs(
+    ["Game Picks", "Player Props", "Power Rankings", "Betting Analytics"]
+)
 
 # =========================================================
 # TAB 1: GAME PICKS
@@ -702,6 +800,8 @@ with tab_props:
         st.stop()
 
     def prop_status(row):
+        if row.get("result_status") == "NO_BET":
+            return "NO BET"
         if pd.isna(row["hit"]):
             return "PENDING"
         return "HIT" if row["hit"] == 1 else "MISS"
@@ -712,9 +812,11 @@ with tab_props:
         hits = int((settled_props["status"] == "HIT").sum())
         total = len(settled_props)
         hit_pct = round(hits / total * 100, 1) if total else 0
+        grade, grade_color = grade_from_pct(hit_pct)
         st.markdown(
             f'<div class="cp-overall"><div class="label">Props Record</div>'
-            f'<div class="value">{hits}-{total - hits} <span class="pct">· {hit_pct}%</span></div></div>',
+            f'<div class="value">{hits}-{total - hits} '
+            f'<span class="pct" style="color:{grade_color};font-weight:800;">· {grade}</span></div></div>',
             unsafe_allow_html=True,
         )
     else:
@@ -727,7 +829,7 @@ with tab_props:
     with fc1:
         sport_f = st.multiselect("Sport", options=props_df["sport"].unique(), default=list(props_df["sport"].unique()), key="p_sport")
     with fc2:
-        status_f = st.multiselect("Result", options=["HIT", "MISS", "PENDING"], default=["HIT", "MISS", "PENDING"], key="p_status")
+        status_f = st.multiselect("Result", options=["HIT", "MISS", "PENDING", "NO BET"], default=["HIT", "MISS", "PENDING"], key="p_status")
     with fc3:
         min_edge = st.slider("Min Edge %", 0.0, 50.0, 0.0, 1.0, key="p_edge")
     with fc4:
@@ -784,10 +886,12 @@ with tab_props:
         )
         display["opp_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["opponent"]), axis=1)
         display["team_logo"] = display.apply(lambda x: team_logo_url(x["sport"], x["team_name"]), axis=1)
-        if "projection_edge_pct" in display.columns:
-            display = display.sort_values(
-                "projection_edge_pct", key=lambda s: s.abs(), ascending=False, na_position="last"
-            )
+        # Default sort: date, then game (team+opponent), then player's own
+        # team — matches how Drew organizes props for posting. Edge % is
+        # still fully available by clicking that column header.
+        display = display.sort_values(
+            ["date", "team_name", "opponent"], ascending=[False, True, True]
+        )
 
         # ---- BATCHED sparkline fetch: one query per (sport, stat) pair
         # instead of one query per row. Build the lookup dict first, then
@@ -795,7 +899,7 @@ with tab_props:
         recent_lookup = {}
         for (sport_key, stat_key), group in display.groupby(["sport", "stat"]):
             names = tuple(group["player_name"].unique())
-            recent_lookup[(sport_key, stat_key)] = get_recent_values_batch(sport_key, stat_key, names, n=5)
+            recent_lookup[(sport_key, stat_key)] = get_recent_values_batch(sport_key, stat_key, names, n=10)
 
         table_rows = []
         for _, row in display.iterrows():
@@ -803,6 +907,7 @@ with tab_props:
             direction = row.get("projection_direction") or "over"
             spark = sparkline_svg(recent, row["line"], direction=direction)
             table_rows.append({
+                "date": row["date"], "game": f"{row['team_name']} vs {row['opponent']}",
                 "player": row["player_name"], "team": row["team_name"], "team_logo": row["team_logo"],
                 "opponent": row["opponent"], "opp_logo": row["opp_logo"],
                 "sport": row["sport"], "stat": row["stat"], "line": row["line"],
@@ -820,4 +925,138 @@ with tab_props:
             height=table_height,
             scrolling=True
         )
-        st.caption("Last 5: green dot = beat the line that game, red = missed · dashed line = the prop line · Matchup: >1.0 means that opponent allows more than league average for this stat, <1.0 means tougher than average")
+        st.caption("Last 10: green dot = beat the line that game, red = missed · dashed line = the prop line · Matchup: >1.0 means that opponent allows more than league average for this stat, <1.0 means tougher than average")
+
+# =========================================================
+# TAB 3: POWER RANKINGS
+# =========================================================
+with tab_rankings:
+    AVAILABLE_SPORTS = ["wnba", "nba", "nfl", "mlb"]
+    rank_sport = st.selectbox("Sport", AVAILABLE_SPORTS, key="rank_sport")
+
+    rankings = load_rankings(rank_sport)
+
+    if not rankings:
+        st.info(f"No power rankings available for {rank_sport.upper()} yet — "
+                f"needs teams with enough graded games (min 3) and Elo history.")
+    else:
+        rank_rows = []
+        for r in rankings:
+            c = r["components"]
+            raw = r["raw"]
+            small_sample = raw["elo_games_played"] < 10
+            rank_rows.append({
+                "Rank": r["rank"],
+                "Team": r["team"],
+                "Power Score": r["power_score"],
+                "Elo": c["elo_quality"],
+                "Form": c["form"],
+                "SOS": c["sos"],
+                "Efficiency": c["efficiency"],
+                "Efficiency Data": "Real" if c["efficiency_is_real_data"] else "Neutral (no data yet)",
+                "Games": raw["elo_games_played"],
+                "Small Sample": "⚠️" if small_sample else "",
+            })
+
+        rank_df = pd.DataFrame(rank_rows)
+        st.write(f"**{len(rank_df)} teams ranked**")
+        st.dataframe(
+            rank_df, width="stretch", hide_index=True,
+            column_config={
+                "Power Score": st.column_config.NumberColumn(format="%.1f"),
+                "Elo": st.column_config.NumberColumn(format="%.1f"),
+                "Form": st.column_config.NumberColumn(format="%.1f"),
+                "SOS": st.column_config.NumberColumn(format="%.1f"),
+                "Efficiency": st.column_config.NumberColumn(format="%.1f"),
+            },
+        )
+        st.caption("Power Score = 40% Elo (reliability-adjusted) + 25% Recent Form + "
+                    "20% Efficiency + 15% Strength of Schedule. Betting-model activity "
+                    "does not affect ranking. ⚠️ = fewer than 10 games played, rating "
+                    "still stabilizing.")
+
+
+# =========================================================
+# TAB 4: BETTING ANALYTICS
+# =========================================================
+with tab_betting:
+    period_label = st.radio("Period", ["Today", "Last 7 Days", "Season"], horizontal=True, key="perf_period")
+    period_key = {"Today": "today", "Last 7 Days": "week", "Season": "season"}[period_label]
+
+    summary = load_performance_summary(period_key)
+
+    if not summary or summary["record"]["total"] == 0:
+        st.info("No graded picks in this period.")
+    else:
+        r = summary["record"]
+        roi = summary["roi"]
+
+        st.markdown(
+            f'<div class="cp-overall"><div class="label">Record — {period_label}</div>'
+            f'<div class="value">{r["wins"]}-{r["losses"]} '
+            f'<span class="pct">· {r["win_rate"]}%</span></div></div>',
+            unsafe_allow_html=True,
+        )
+
+        if roi["roi_pct"] is not None:
+            sign = "+" if roi["profit_units"] >= 0 else ""
+            roi_color = "#3ecf8e" if roi["profit_units"] >= 0 else "#ff5c5c"
+            cols = st.columns(3)
+            with cols[0]:
+                st.markdown(
+                    f'<div class="cp-card"><div class="sport-name">Profit (units)</div>'
+                    f'<div class="record" style="color:{roi_color};">{sign}{roi["profit_units"]}</div></div>',
+                    unsafe_allow_html=True,
+                )
+            with cols[1]:
+                st.markdown(
+                    f'<div class="cp-card"><div class="sport-name">ROI</div>'
+                    f'<div class="record" style="color:{roi_color};">{sign}{roi["roi_pct"]}%</div></div>',
+                    unsafe_allow_html=True,
+                )
+            with cols[2]:
+                st.markdown(
+                    f'<div class="cp-card"><div class="sport-name">Picks w/ Odds</div>'
+                    f'<div class="record">{roi["picks_used"]}</div></div>',
+                    unsafe_allow_html=True,
+                )
+            if roi["picks_skipped_no_odds"]:
+                st.caption(f"{roi['picks_skipped_no_odds']} graded pick(s) skipped — no odds on record.")
+        else:
+            st.caption("No picks with recorded odds this period — ROI unavailable.")
+
+        if summary["by_sport"]:
+            st.markdown("### By Sport")
+            by_sport_df = pd.DataFrame(summary["by_sport"])
+            by_sport_df.columns = ["Sport", "Total", "Wins", "Losses", "Win %"]
+            by_sport_df["Sport"] = by_sport_df["Sport"].str.upper()
+            st.dataframe(by_sport_df, width="stretch", hide_index=True)
+
+        if summary["confidence_buckets"]:
+            st.markdown("### Model Calibration")
+            st.caption("Does the model's stated confidence match its actual win rate?")
+            bucket_df = pd.DataFrame(summary["confidence_buckets"])
+            bucket_df.columns = ["Confidence", "Total", "Wins", "Losses", "Actual Win Rate"]
+            st.dataframe(bucket_df, width="stretch", hide_index=True)
+
+        hl_cols = st.columns(2)
+        if summary["best_pick"]:
+            b = summary["best_pick"]
+            with hl_cols[0]:
+                st.markdown(f"""
+<div class="cp-card" style="border-left:3px solid #3ecf8e;">
+<div class="sport-name">Best pick &middot; {b['sport'].upper()}</div>
+<div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{b['game']}</div>
+<div style="color:#3ecf8e;font-weight:800;font-size:14px;margin-top:8px;">+{b['edge_at_pick']}% edge &middot; WIN</div>
+</div>
+""", unsafe_allow_html=True)
+        if summary["worst_pick"]:
+            w = summary["worst_pick"]
+            with hl_cols[1]:
+                st.markdown(f"""
+<div class="cp-card" style="border-left:3px solid #ff5c5c;">
+<div class="sport-name">Worst beat &middot; {w['sport'].upper()}</div>
+<div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{w['game']}</div>
+<div style="color:#ff5c5c;font-weight:800;font-size:14px;margin-top:8px;">+{w['edge_at_pick']}% edge &middot; LOSS</div>
+</div>
+""", unsafe_allow_html=True)

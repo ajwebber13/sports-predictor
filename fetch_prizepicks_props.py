@@ -1,9 +1,9 @@
 """
 fetch_prizepicks_props.py — Culture & Pulse Analytics
 ======================================================
-Pulls today's WNBA/NBA/MLB player prop lines from PropLine API (free tier,
-1,000 requests/day, no credit card). Enriches each prop with hit rates from
-prop_hit_rates.py and saves to the player_props table.
+Pulls today's WNBA/NBA/MLB/NFL player prop lines from PropLine API (free
+tier, 1,000 requests/day, no credit card). Enriches each prop with hit
+rates from prop_hit_rates.py and saves to the player_props table.
 
 PropLine is drop-in compatible with The Odds API format.
 Sign up for a free key at: https://prop-line.com
@@ -13,6 +13,7 @@ Usage:
     python fetch_prizepicks_props.py --dry-run    # print without saving
     python fetch_prizepicks_props.py --sport nba  # different sport
     python fetch_prizepicks_props.py --sport mlb  # baseball props
+    python fetch_prizepicks_props.py --sport nfl  # football props
 """
 
 import os
@@ -42,11 +43,19 @@ SPORT_KEYS = {
     "wnba": "basketball_wnba",
     "nba":  "basketball_nba",
     "mlb":  "baseball_mlb",
+    "nfl":  "football_nfl",
 }
 
-# PropLine market keys → our stat key
-# Basketball (WNBA/NBA)
+# PropLine market keys -> our stat key. Sport-specific market subsets are
+# sent to PropLine per sport since basketball/baseball/football markets
+# are mutually exclusive. MLB only includes the 4 verified stats
+# prop_hit_rates.py can actually calculate. NFL market key names match
+# The Odds API's standard NFL player-prop markets (PropLine's docstring
+# claims drop-in compatibility) — UNVERIFIED against a real PropLine
+# response, confirm with --dry-run against real odds before trusting a
+# live save.
 MARKET_MAP = {
+    # Basketball (WNBA/NBA)
     "player_points":                   "pts",
     "player_rebounds":                 "reb",
     "player_assists":                  "ast",
@@ -56,37 +65,22 @@ MARKET_MAP = {
     "player_points_rebounds":          "pr",
     "player_points_assists":           "pa",
     "player_rebounds_assists":         "ra",
-    # Baseball (MLB) — batter and pitcher markets
-    "batter_hits":                     "hits",
-    "batter_total_bases":              "total_bases",
-    "batter_rbis":                     "rbis",
-    "batter_runs_scored":               "runs",
-    "batter_home_runs":                "hr",
-    "batter_stolen_bases":              "sb",
-    "pitcher_strikeouts":              "k",
-    "pitcher_hits_allowed":            "hits_allowed",
-    "pitcher_walks":                   "walks_allowed",
-    "pitcher_earned_runs":             "earned_runs",
-}
-
-# Sport-specific market subsets — sent to PropLine per sport since
-# basketball and baseball markets are mutually exclusive. MLB only
-# includes the 4 verified stats prop_hit_rates.py can actually calculate
-# (mlb_player_stats.py doesn't capture doubles/triples/steals/pitching yet).
-MARKET_MAP = {
-    "player_points":                   "pts",
-    "player_rebounds":                 "reb",
-    "player_assists":                  "ast",
-    "player_steals":                   "stl",
-    "player_blocks":                   "blk",
-    "player_points_rebounds_assists":  "pra",
-    "player_points_rebounds":          "pr",
-    "player_points_assists":           "pa",
-    "player_rebounds_assists":         "ra",
+    # Baseball (MLB)
     "batter_hits":                     "hits",
     "batter_rbis":                     "rbis",
     "batter_runs_scored":              "runs",
     "batter_home_runs":                "hr",
+    # Football (NFL)
+    "player_pass_yds":                 "passing_yards",
+    "player_pass_tds":                 "passing_tds",
+    "player_pass_completions":         "passing_completions",
+    "player_pass_attempts":            "passing_attempts",
+    "player_pass_interceptions":       "interceptions",
+    "player_rush_yds":                 "rushing_yards",
+    "player_rush_attempts":            "rushing_attempts",
+    "player_receptions":               "receptions",
+    "player_reception_yds":            "receiving_yards",
+    "player_reception_tds":            "receiving_tds",
 }
 
 SPORT_MARKETS = {
@@ -95,6 +89,9 @@ SPORT_MARKETS = {
     "nba":  "player_points,player_rebounds,player_assists,player_steals,player_blocks,"
             "player_points_rebounds_assists,player_points_rebounds,player_points_assists,player_rebounds_assists",
     "mlb":  "batter_hits,batter_rbis,batter_runs_scored,batter_home_runs",
+    "nfl":  "player_pass_yds,player_pass_tds,player_pass_completions,player_pass_attempts,"
+            "player_pass_interceptions,player_rush_yds,player_rush_attempts,"
+            "player_receptions,player_reception_yds,player_reception_tds",
 }
 
 def get_today_ct() -> str:
@@ -364,6 +361,33 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
                       f"{projection['per_min_rate']}/min = {projection['projected_stat']} "
                       f"({projection['direction']} {projection['edge_pct']}%){df_str} "
                       f"{ {'green': '✅', 'yellow': '⚠️', 'red': '❌'}.get(projection['confidence_tier'], '') }")
+        elif sport == "nfl":
+            from nfl_projections import project_prop, get_player_team
+            player_team = get_player_team(player)
+            home_team   = prop.get("home_team", "")
+            away_team   = prop.get("away_team", "")
+            opponent_team = None
+            if player_team == home_team:
+                opponent_team = away_team
+            elif player_team == away_team:
+                opponent_team = home_team
+
+            # NFL's volume driver differs by stat (pass attempts / rush
+            # attempts / targets — see nfl_projections.py's STAT_CONFIG),
+            # not one universal stat like WNBA/NBA's minutes, so this
+            # print uses the generic volume_stat/projected_volume/
+            # per_unit_rate field names instead of the basketball-specific
+            # ones the other branches use.
+            projection = project_prop(player, stat, line, opponent_team=opponent_team)
+            if projection.get("error"):
+                print(f"      projection: insufficient recent data")
+            else:
+                df = projection["defense_factor"]
+                df_str = f" | vs {opponent_team} D-factor {df}" if opponent_team else " | opponent unknown, no D adj"
+                print(f"      projection: {projection['projected_volume']} {projection['volume_stat']} x "
+                      f"{projection['per_unit_rate']}/unit = {projection['projected_stat']} "
+                      f"({projection['direction']} {projection['edge_pct']}%){df_str} "
+                      f"{ {'green': '✅', 'yellow': '⚠️', 'red': '❌'}.get(projection['confidence_tier'], '') }")
 
         if not dry_run:
             save_prop_with_hit_rates(
@@ -388,6 +412,9 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
                 save_projection(today, sport, player, stat, projection)
             elif sport == "nba" and projection:
                 from nba_projections import save_projection
+                save_projection(today, sport, player, stat, projection)
+            elif sport == "nfl" and projection:
+                from nfl_projections import save_projection
                 save_projection(today, sport, player, stat, projection)
             saved += 1
 

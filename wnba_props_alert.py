@@ -14,11 +14,18 @@ IMPORTANT — how tiers work:
     - off-role downgrade: a PTS prop on a player whose primary category
       isn't "scorer" (see wnba_player_categories.py) drops one tier,
       since points is the highest-variance stat for non-scorers
-  Base thresholds before those adjustments:
+  Base tier thresholds (unchanged — same ones the dashboard uses):
     >= 65%        -> green
     50% - 64.9%   -> yellow
     < 50% / None  -> red
   "Hit" = actual_value > line, i.e. an OVER.
+
+  Telegram-specific floor:
+  This alert only surfaces green-tier props at hit_rate_overall >= 80%
+  (STRONG_THRESHOLD), stricter than the 65% green cutoff itself — cuts
+  noise from marginal green props that clear 65% but aren't strong
+  enough to headline an alert. The dashboard still shows all green
+  props at 65%+; this floor only affects what gets sent to Telegram.
 
   Sample size floor:
   hit_rate_overall alone is meaningless on 1-2 games (it can only be
@@ -35,9 +42,9 @@ Fade signal (unders):
   All prop lines are half-points (X.5), so there's no push case — a game
   either clears the line or doesn't. That means the under rate is exact,
   not approximate: under_rate = 100 - hit_rate_overall. No separate model
-  needed. Props with hit_rate_overall <= 35 (i.e. under_rate >= 65) get
-  surfaced as fades, since a low over-rate is a real signal to play the
-  under, not just noise to exclude.
+  needed. Props with hit_rate_overall <= 20 (i.e. under_rate >= 80) get
+  surfaced as fades, same 80% floor as the over side, since a low
+  over-rate is a real signal to play the under, not just noise to exclude.
 
 Message formatting (updated 2026-07-05):
   Teams are shown as 3-letter abbreviations (TEAM_ABBR) instead of full
@@ -74,7 +81,8 @@ CENTRAL_OFFSET = -5
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"
 
-FADE_THRESHOLD = 35  # hit_rate_overall <= this -> under_rate >= 65 -> fade candidate
+STRONG_THRESHOLD = 80  # hit_rate_overall >= this -> shown as a strong 'over' play
+FADE_THRESHOLD = 20    # hit_rate_overall <= this -> under_rate >= 80 -> fade candidate
 
 # Minimum games behind a hit rate before it's trusted enough to alert on.
 # 1-2 games can only produce 0% or 100%, which looks like a strong signal
@@ -159,9 +167,10 @@ def fetch_today_props(date_str: str):
         WHERE date = ? AND sport = 'wnba'
           AND confidence_tier = 'green'
           AND hit_rate_overall IS NOT NULL
+          AND hit_rate_overall >= ?
           AND {MIN_GAMES_COLUMN} >= ?
         ORDER BY hit_rate_overall DESC
-    """, (date_str, MIN_GAMES))
+    """, (date_str, STRONG_THRESHOLD, MIN_GAMES))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows

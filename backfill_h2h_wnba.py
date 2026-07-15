@@ -100,6 +100,30 @@ def fetch_wnba_games_for_date(date: datetime) -> list:
 
 
 def backfill_wnba_h2h(start_year: int = 2016, end_year: int = None):
+    """MIGRATION NOTE (2026-07-14): disabled, not converted.
+
+    Same finding as backfill.py's backfill_head_to_head() and
+    home_away_splits.py's build_splits(): this writes to head_to_head,
+    confirmed to not exist in the live Turso database. Every INSERT
+    here has always been failing silently, caught by the bare
+    `except Exception as e: pass` inside the loop — this script has
+    never saved a single record despite its year-by-year progress
+    output implying otherwise.
+
+    Not converting this to Postgres syntax, since doing so would make
+    it actually start writing to a table that doesn't exist in
+    schema_postgres.sql either — same "don't invent schema to catch up
+    with dead code" reasoning as the other two head_to_head-dependent
+    functions. Kept as _unused_backfill_wnba_h2h() below since its
+    day-by-day approach is a real improvement over backfill.py's old
+    1st/15th sampling — worth reusing if head-to-head tracking gets
+    built as a real feature later."""
+    print(f"  backfill_wnba_h2h() is disabled — depends on the "
+          f"head_to_head table, which was never created in production.")
+    return
+
+
+def _unused_backfill_wnba_h2h(start_year: int = 2016, end_year: int = None):
     """
     Pull all WNBA games for every day of every season
     and load into head_to_head table.
@@ -123,10 +147,11 @@ def backfill_wnba_h2h(start_year: int = 2016, end_year: int = None):
             for g in games:
                 try:
                     c.execute("""
-                        INSERT OR IGNORE INTO head_to_head
+                        INSERT INTO head_to_head
                         (sport, season, date, home_team, away_team,
                          home_score, away_score, winner, game_type, source)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT DO NOTHING
                     """, (
                         "wnba", str(year), g["date"],
                         g["home_team"], g["away_team"],
@@ -136,7 +161,7 @@ def backfill_wnba_h2h(start_year: int = 2016, end_year: int = None):
                     if c.rowcount > 0:
                         year_saved += 1
                 except Exception as e:
-                    pass
+                    conn.rollback()
 
             # Light rate limiting — ESPN free API
             time.sleep(0.3)

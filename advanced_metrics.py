@@ -225,18 +225,30 @@ def backfill_advanced_metrics(sport: str):
             )
 
         try:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
-                INSERT OR REPLACE INTO advanced_metrics
+                INSERT INTO advanced_metrics
                 (sport, season, team_name, off_rating, def_rating,
-                 net_rating, pace, ts_pct, reb_pct, ast_pct, tov_pct, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 net_rating, pace, ts_pct, reb_pct, ast_pct, tov_pct, source, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (sport, season, team_name) DO UPDATE SET
+                    off_rating = EXCLUDED.off_rating,
+                    def_rating = EXCLUDED.def_rating,
+                    net_rating = EXCLUDED.net_rating,
+                    pace       = EXCLUDED.pace,
+                    ts_pct     = EXCLUDED.ts_pct,
+                    reb_pct    = EXCLUDED.reb_pct,
+                    ast_pct    = EXCLUDED.ast_pct,
+                    tov_pct    = EXCLUDED.tov_pct,
+                    source     = EXCLUDED.source,
+                    updated_at = EXCLUDED.updated_at
             """, (
                 sport, CURRENT_SEASON, team_name,
                 metrics["off_rating"], metrics["def_rating"],
                 metrics["net_rating"], metrics["pace"],
                 metrics["ts_pct"], metrics["reb_pct"],
                 metrics["ast_pct"], metrics["tov_pct"],
-                "espn"
+                "espn", now_str
             ))
             saved += 1
 
@@ -247,6 +259,7 @@ def backfill_advanced_metrics(sport: str):
                   f"Pace: {metrics['pace']}")
 
         except Exception as e:
+            conn.rollback()
             print(f"  Save error {team_name}: {e}")
 
         time.sleep(0.3)

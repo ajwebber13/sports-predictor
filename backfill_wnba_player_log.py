@@ -34,45 +34,20 @@ SEASON_START_DEFAULT = "2026-05-08"  # 2026 WNBA regular season tip-off
 
 
 def setup_game_log_table():
-    """Create wnba_game_log if it doesn't exist, matching the columns
-    prop_hit_rates.py already queries (player_name, date, opponent,
-    home_away, minutes, pts, reb, ast, stl, blk)."""
-    conn = get_conn()
-    c    = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS wnba_game_log (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            date         TEXT NOT NULL,      -- YYYYMMDD, matches head_to_head style
-            player_name  TEXT NOT NULL,
-            team_name    TEXT NOT NULL,
-            opponent     TEXT NOT NULL,
-            home_away    TEXT NOT NULL,      -- 'home' or 'away'
-            minutes      REAL DEFAULT 0,
-            pts          REAL DEFAULT 0,
-            reb          REAL DEFAULT 0,
-            ast          REAL DEFAULT 0,
-            stl          REAL DEFAULT 0,
-            blk          REAL DEFAULT 0,
-            source       TEXT DEFAULT 'espn',
-            captured_at  TEXT DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(date, player_name)
-        )
-    """)
+    """MIGRATION NOTE (2026-07-14): no-op as of the Postgres migration.
 
-    # Migration for a wnba_game_log created before this script existed —
-    # CREATE TABLE IF NOT EXISTS won't add columns to an existing table.
-    try:
-        c.execute("ALTER TABLE wnba_game_log ADD COLUMN source TEXT DEFAULT 'espn'")
-    except Exception:
-        pass  # column already exists
-
-    try:
-        c.execute("ALTER TABLE wnba_game_log ADD COLUMN captured_at TEXT")
-    except Exception:
-        pass  # column already exists
-
-    conn.commit()
-    conn.close()
+    wnba_game_log already exists in schema_postgres.sql. Worth flagging
+    loudly: this file's own CREATE TABLE defined
+    UNIQUE(date, player_name) — only 2 columns. Production's REAL
+    constraint is UNIQUE(date, player_name, team_name) — 3 columns,
+    matching what wnba_player_stats.py already assumes (and what the
+    original CSV schema export confirmed). Same class of drift as
+    prop_hit_rates.py's mismatched player_props constraint. Since
+    IF NOT EXISTS meant this never actually ran against the real
+    table, it never mattered — but fetch_and_save_boxscore()'s
+    ON CONFLICT target below must use the REAL 3-column constraint,
+    not this file's own (incorrect, and now removed) assumption."""
+    pass
 
 
 def date_range(start: datetime, end: datetime):
@@ -192,10 +167,11 @@ def fetch_and_save_boxscore(event_id: str, date_str: str, conn) -> int:
 
                 try:
                     c.execute("""
-                        INSERT OR IGNORE INTO wnba_game_log
+                        INSERT INTO wnba_game_log
                         (date, player_name, team_name, opponent, home_away,
                          minutes, pts, reb, ast, stl, blk, source)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (date, player_name, team_name) DO NOTHING
                     """, (
                         date_str, name, team_name, opponent,
                         "home" if i == 0 else "away",  # ESPN lists home team's block first
@@ -204,6 +180,7 @@ def fetch_and_save_boxscore(event_id: str, date_str: str, conn) -> int:
                     if c.rowcount > 0:
                         saved += 1
                 except Exception as e:
+                    conn.rollback()
                     print(f"    save error ({name}): {e}")
 
     conn.commit()

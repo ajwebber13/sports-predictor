@@ -91,21 +91,34 @@ def build_metrics():
         net_rating = round(off_pts - opp_pts, 1)
 
         try:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             c.execute("""
-                INSERT OR REPLACE INTO advanced_metrics
+                INSERT INTO advanced_metrics
                 (sport, season, team_name, off_rating, def_rating,
-                 net_rating, pace, ts_pct, reb_pct, ast_pct, tov_pct, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 net_rating, pace, ts_pct, reb_pct, ast_pct, tov_pct, source, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (sport, season, team_name) DO UPDATE SET
+                    off_rating = EXCLUDED.off_rating,
+                    def_rating = EXCLUDED.def_rating,
+                    net_rating = EXCLUDED.net_rating,
+                    pace       = EXCLUDED.pace,
+                    ts_pct     = EXCLUDED.ts_pct,
+                    reb_pct    = EXCLUDED.reb_pct,
+                    ast_pct    = EXCLUDED.ast_pct,
+                    tov_pct    = EXCLUDED.tov_pct,
+                    source     = EXCLUDED.source,
+                    updated_at = EXCLUDED.updated_at
             """, (
                 "hbcu_football", str(CURRENT_SEASON), team_name,
                 off_pts, opp_pts, net_rating,
                 round(sacks / max(games, 1), 2),  # repurpose pace field for sacks/game
                 round(tfl / max(games, 1), 2),     # repurpose ts_pct field for TFL/game
-                0.0, 0.0, 0.0, "espn",
+                0.0, 0.0, 0.0, "espn", now_str,
             ))
             saved += 1
             print(f"  {team_name:<38} Off: {off_pts:<6} Def: {opp_pts:<6} Net: {net_rating:+.1f}")
         except Exception as e:
+            conn.rollback()
             print(f"  Save error {team_name}: {e}")
 
         time.sleep(0.3)

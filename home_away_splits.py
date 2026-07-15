@@ -15,6 +15,7 @@ Usage:
 """
 
 from database import get_conn
+from datetime import datetime
 
 
 def init_splits_table():
@@ -40,6 +41,29 @@ def init_splits_table():
 
 
 def build_splits(sport: str):
+    """MIGRATION NOTE (2026-07-14): disabled, not converted.
+
+    This reads FROM head_to_head, which — like backfill.py's
+    backfill_head_to_head() — was confirmed to not exist in the live
+    Turso database. This function has therefore never been able to
+    produce real output; calling it would crash outright on "no such
+    table: head_to_head" (there's no try/except around that SELECT).
+
+    Same reasoning as disabling backfill_head_to_head(): this isn't a
+    migration bug to patch by inventing a head_to_head table in
+    schema_postgres.sql, it's a feature that depends entirely on data
+    that's never existed. get_split_adjustment() below already
+    degrades gracefully — it returns 0.0 whenever home_away_splits is
+    empty (which it always has been), so disabling this write path
+    changes nothing about live prediction behavior. If head-to-head
+    tracking gets built as a real feature later, this can be revisited
+    alongside it."""
+    print(f"  build_splits() is disabled — depends on the head_to_head "
+          f"table, which was never created in production. Skipping {sport}.")
+    return
+
+
+def _unused_build_splits(sport: str):
     """
     Calculates home/away point margin splits for every team
     using the head_to_head table.
@@ -105,19 +129,20 @@ def build_splits(sport: str):
         home_pct = round(d["home_wins"] / home_games, 3)
         away_pct = round(d["away_wins"] / away_games, 3)
 
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute("""
             INSERT INTO home_away_splits
             (sport, team_name, home_games, away_games, home_avg_margin,
              away_avg_margin, home_away_gap, home_win_pct, away_win_pct, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(sport, team_name) DO UPDATE SET
                 home_games = ?, away_games = ?, home_avg_margin = ?,
                 away_avg_margin = ?, home_away_gap = ?, home_win_pct = ?,
-                away_win_pct = ?, last_updated = datetime('now')
+                away_win_pct = ?, last_updated = ?
         """, (
             sport, team, home_games, away_games, home_avg, away_avg, gap,
-            home_pct, away_pct,
-            home_games, away_games, home_avg, away_avg, gap, home_pct, away_pct,
+            home_pct, away_pct, now_str,
+            home_games, away_games, home_avg, away_avg, gap, home_pct, away_pct, now_str,
         ))
         saved += 1
 

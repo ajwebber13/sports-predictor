@@ -120,8 +120,8 @@ def run(sports: list, dry_run: bool = False):
                 SELECT opening_home_ml, opening_away_ml
                 FROM odds_history
                 WHERE date = ? AND sport = ?
-                AND (home_team = ? OR home_team LIKE ?)
-                AND (away_team = ? OR away_team LIKE ?)
+                AND (home_team = ? OR LOWER(home_team) LIKE LOWER(?))
+                AND (away_team = ? OR LOWER(away_team) LIKE LOWER(?))
                 LIMIT 1
             """, (today, sport, home_team, f"%{home_team}%", away_team, f"%{away_team}%"))
             row = c.fetchone()
@@ -157,20 +157,29 @@ def run(sports: list, dry_run: bool = False):
                     SET closing_home_ml = ?,
                         closing_away_ml = ?
                     WHERE date = ? AND sport = ?
-                    AND (home_team = ? OR home_team LIKE ?)
-                    AND (away_team = ? OR away_team LIKE ?)
+                    AND (home_team = ? OR LOWER(home_team) LIKE LOWER(?))
+                    AND (away_team = ? OR LOWER(away_team) LIKE LOWER(?))
                 """, (current_home_ml, current_away_ml, today, sport,
                       home_team, f"%{home_team}%", away_team, f"%{away_team}%"))
 
                 # Write to line_movement table
                 c.execute("""
-                    INSERT OR REPLACE INTO line_movement
+                    INSERT INTO line_movement
                     (date, sport, home_team, away_team,
                      opening_home_ml, opening_away_ml,
                      closing_home_ml, closing_away_ml,
                      movement_home, movement_away,
                      sharp_signal, captured_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (date, sport, home_team, away_team) DO UPDATE SET
+                        opening_home_ml = EXCLUDED.opening_home_ml,
+                        opening_away_ml = EXCLUDED.opening_away_ml,
+                        closing_home_ml = EXCLUDED.closing_home_ml,
+                        closing_away_ml = EXCLUDED.closing_away_ml,
+                        movement_home   = EXCLUDED.movement_home,
+                        movement_away   = EXCLUDED.movement_away,
+                        sharp_signal    = EXCLUDED.sharp_signal,
+                        captured_at     = EXCLUDED.captured_at
                 """, (today, sport, home_team, away_team,
                       opening_home, opening_away,
                       current_home_ml, current_away_ml,

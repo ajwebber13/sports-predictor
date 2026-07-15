@@ -226,46 +226,27 @@ def parse_box_score(event_id: str) -> list:
 
 
 def save_game_stats(game_stats: list, date_str: str):
-    """Save individual game stats to nfl_game_log."""
+    """Save individual game stats to nfl_game_log.
+
+    MIGRATION NOTE (2026-07): removed the inline
+    CREATE TABLE IF NOT EXISTS — same reasoning as the other sport
+    stat files: nfl_game_log already exists in schema_postgres.sql
+    with matching columns."""
     conn = get_conn()
     c    = conn.cursor()
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS nfl_game_log (
-            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-            date                 TEXT NOT NULL,
-            player_name          TEXT NOT NULL,
-            team_name            TEXT NOT NULL,
-            position             TEXT DEFAULT '',
-            passing_completions  REAL DEFAULT 0,
-            passing_attempts     REAL DEFAULT 0,
-            passing_yards        REAL DEFAULT 0,
-            passing_tds          REAL DEFAULT 0,
-            interceptions        REAL DEFAULT 0,
-            rushing_attempts     REAL DEFAULT 0,
-            rushing_yards        REAL DEFAULT 0,
-            rushing_tds          REAL DEFAULT 0,
-            receptions           REAL DEFAULT 0,
-            receiving_yards      REAL DEFAULT 0,
-            receiving_tds        REAL DEFAULT 0,
-            targets              REAL DEFAULT 0,
-            opponent             TEXT DEFAULT '',
-            home_away            TEXT DEFAULT '',
-            UNIQUE(date, player_name, team_name)
-        )
-    """)
 
     saved = 0
     for p in game_stats:
         try:
             c.execute("""
-                INSERT OR IGNORE INTO nfl_game_log
+                INSERT INTO nfl_game_log
                 (date, player_name, team_name, position,
                  passing_completions, passing_attempts, passing_yards, passing_tds, interceptions,
                  rushing_attempts, rushing_yards, rushing_tds,
                  receptions, receiving_yards, receiving_tds, targets,
                  opponent, home_away)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (date, player_name, team_name) DO NOTHING
             """, (
                 date_str, p["player_name"], p["team_name"], p.get("position", ""),
                 p["passing_completions"], p["passing_attempts"], p["passing_yards"], p["passing_tds"], p["interceptions"],
@@ -275,6 +256,7 @@ def save_game_stats(game_stats: list, date_str: str):
             ))
             saved += 1
         except Exception as e:
+            conn.rollback()
             print(f"  Save error {p['player_name']}: {e}")
 
     conn.commit()

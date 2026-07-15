@@ -95,12 +95,27 @@ def backfill_nba_stats():
 
                 try:
                     c.execute("""
-                        INSERT OR REPLACE INTO player_stats_history
+                        INSERT INTO player_stats_history
                         (sport, season, team_name, player_name, position,
                          games_played, pts_per_game, reb_per_game, ast_per_game,
                          stl_per_game, blk_per_game, fg_pct, three_pct, ft_pct,
                          minutes_per_game, usage_rate, impact_score, source)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (sport, season, team_name, player_name) DO UPDATE SET
+                            position         = EXCLUDED.position,
+                            games_played     = EXCLUDED.games_played,
+                            pts_per_game     = EXCLUDED.pts_per_game,
+                            reb_per_game     = EXCLUDED.reb_per_game,
+                            ast_per_game     = EXCLUDED.ast_per_game,
+                            stl_per_game     = EXCLUDED.stl_per_game,
+                            blk_per_game     = EXCLUDED.blk_per_game,
+                            fg_pct           = EXCLUDED.fg_pct,
+                            three_pct        = EXCLUDED.three_pct,
+                            ft_pct           = EXCLUDED.ft_pct,
+                            minutes_per_game = EXCLUDED.minutes_per_game,
+                            usage_rate       = EXCLUDED.usage_rate,
+                            impact_score     = EXCLUDED.impact_score,
+                            source           = EXCLUDED.source
                     """, (
                         "nba", season, team_name, player_name, "",
                         gp, pts, reb, ast, stl, blk,
@@ -111,13 +126,26 @@ def backfill_nba_stats():
                     # Update current profile if this is latest season
                     if season == "2024-25":
                         c.execute("""
-                            INSERT OR REPLACE INTO player_profiles
+                            INSERT INTO player_profiles
                             (sport, team_name, player_name, position,
                              pts_per_game, reb_per_game, ast_per_game,
                              stl_per_game, blk_per_game, fg_pct, three_pct,
                              ft_pct, minutes_per_game, usage_rate,
                              impact_score, season)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT (sport, team_name, player_name, season) DO UPDATE SET
+                                position         = EXCLUDED.position,
+                                pts_per_game     = EXCLUDED.pts_per_game,
+                                reb_per_game     = EXCLUDED.reb_per_game,
+                                ast_per_game     = EXCLUDED.ast_per_game,
+                                stl_per_game     = EXCLUDED.stl_per_game,
+                                blk_per_game     = EXCLUDED.blk_per_game,
+                                fg_pct           = EXCLUDED.fg_pct,
+                                three_pct        = EXCLUDED.three_pct,
+                                ft_pct           = EXCLUDED.ft_pct,
+                                minutes_per_game = EXCLUDED.minutes_per_game,
+                                usage_rate       = EXCLUDED.usage_rate,
+                                impact_score     = EXCLUDED.impact_score
                         """, (
                             "nba", team_name, player_name, "",
                             pts, reb, ast, stl, blk,
@@ -127,6 +155,7 @@ def backfill_nba_stats():
                     saved += 1
 
                 except Exception as e:
+                    conn.rollback()
                     print(f"  Save error {player_name}: {e}")
 
             conn.commit()
@@ -197,12 +226,13 @@ def backfill_nfl_stats():
 
             try:
                 c.execute("""
-                    INSERT OR IGNORE INTO player_stats_history
+                    INSERT INTO player_stats_history
                     (sport, season, team_name, player_name, position,
                      games_played, pts_per_game, reb_per_game, ast_per_game,
                      stl_per_game, blk_per_game, fg_pct, three_pct, ft_pct,
                      minutes_per_game, usage_rate, impact_score, source)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (sport, season, team_name, player_name) DO NOTHING
                 """, (
                     "nfl", season, team_name, player_name, position,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "nfl_data_py"
@@ -211,11 +241,19 @@ def backfill_nfl_stats():
                 # Update current profile for 2024
                 if str(season) == "2024":
                     c.execute("""
-                        INSERT OR REPLACE INTO player_profiles
+                        INSERT INTO player_profiles
                         (sport, team_name, player_name, position,
                          height, weight, college, jersey_number,
                          status, impact_score, season)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (sport, team_name, player_name, season) DO UPDATE SET
+                            position      = EXCLUDED.position,
+                            height        = EXCLUDED.height,
+                            weight        = EXCLUDED.weight,
+                            college       = EXCLUDED.college,
+                            jersey_number = EXCLUDED.jersey_number,
+                            status        = EXCLUDED.status,
+                            impact_score  = EXCLUDED.impact_score
                     """, (
                         "nfl", team_name, player_name, position,
                         height, weight, college, jersey,
@@ -224,6 +262,7 @@ def backfill_nfl_stats():
                 saved += 1
 
             except Exception as e:
+                conn.rollback()
                 continue
 
         conn.commit()
@@ -262,6 +301,7 @@ def backfill_nfl_stats():
                     WHERE sport = 'nfl' AND player_name = ?
                 """, (impact, pts_per_game, player_name))
             except Exception:
+                conn.rollback()
                 continue
 
         conn.commit()

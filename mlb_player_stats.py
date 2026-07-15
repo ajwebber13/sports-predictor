@@ -125,37 +125,27 @@ def parse_box_score(event_id: str) -> list:
 
 
 def save_game_stats(game_stats: list, date_str: str):
-    """Save individual game stats to a game log table."""
+    """Save individual game stats to a game log table.
+
+    MIGRATION NOTE (2026-07): removed the inline
+    CREATE TABLE IF NOT EXISTS mlb_game_log that used to run here every
+    call — mlb_game_log already exists in schema_postgres.sql with the
+    same columns and UNIQUE constraint, so this was pure redundancy
+    (and its AUTOINCREMENT syntax would have thrown a hard Postgres
+    error on first run, same landmine class already removed from
+    database.py's init_db())."""
     conn = get_conn()
     c    = conn.cursor()
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS mlb_game_log (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            date        TEXT NOT NULL,
-            player_name TEXT NOT NULL,
-            team_name   TEXT NOT NULL,
-            at_bats     REAL DEFAULT 0,
-            hits        REAL DEFAULT 0,
-            runs        REAL DEFAULT 0,
-            rbis        REAL DEFAULT 0,
-            hrs         REAL DEFAULT 0,
-            walks       REAL DEFAULT 0,
-            avg         REAL DEFAULT 0,
-            opponent    TEXT DEFAULT '',
-            home_away   TEXT DEFAULT '',
-            UNIQUE(date, player_name, team_name)
-        )
-    """)
 
     saved = 0
     for p in game_stats:
         try:
             c.execute("""
-                INSERT OR IGNORE INTO mlb_game_log
+                INSERT INTO mlb_game_log
                 (date, player_name, team_name, at_bats, hits, runs,
                  rbis, hrs, walks, avg, opponent, home_away)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (date, player_name, team_name) DO NOTHING
             """, (
                 date_str, p["player_name"], p["team_name"],
                 p["at_bats"], p["hits"], p["runs"],
@@ -164,6 +154,7 @@ def save_game_stats(game_stats: list, date_str: str):
             ))
             saved += 1
         except Exception as e:
+            conn.rollback()
             print(f"  Save error {p['player_name']}: {e}")
 
     conn.commit()
@@ -203,12 +194,23 @@ def build_player_averages():
 
         try:
             c.execute("""
-                INSERT OR REPLACE INTO player_profiles
+                INSERT INTO player_profiles
                 (sport, team_name, player_name,
                  pts_per_game, reb_per_game, ast_per_game,
                  stl_per_game, blk_per_game, fg_pct, three_pct, ft_pct,
                  minutes_per_game, impact_score, season)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (sport, team_name, player_name, season) DO UPDATE SET
+                    pts_per_game     = EXCLUDED.pts_per_game,
+                    reb_per_game     = EXCLUDED.reb_per_game,
+                    ast_per_game     = EXCLUDED.ast_per_game,
+                    stl_per_game     = EXCLUDED.stl_per_game,
+                    blk_per_game     = EXCLUDED.blk_per_game,
+                    fg_pct           = EXCLUDED.fg_pct,
+                    three_pct        = EXCLUDED.three_pct,
+                    ft_pct           = EXCLUDED.ft_pct,
+                    minutes_per_game = EXCLUDED.minutes_per_game,
+                    impact_score     = EXCLUDED.impact_score
             """, (
                 "mlb", row["team_name"], row["player_name"],
                 row["avg_rbis"], row["avg_hits"], row["avg_runs"],
@@ -218,12 +220,13 @@ def build_player_averages():
             ))
 
             c.execute("""
-                INSERT OR IGNORE INTO player_stats_history
+                INSERT INTO player_stats_history
                 (sport, season, team_name, player_name,
                  games_played, pts_per_game, reb_per_game, ast_per_game,
                  stl_per_game, blk_per_game, fg_pct, three_pct, ft_pct,
                  minutes_per_game, impact_score, source)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (sport, season, team_name, player_name) DO NOTHING
             """, (
                 "mlb", season, row["team_name"], row["player_name"],
                 row["games"], row["avg_rbis"], row["avg_hits"], row["avg_runs"],
@@ -234,6 +237,7 @@ def build_player_averages():
             saved += 1
 
         except Exception as e:
+            conn.rollback()
             print(f"  Average save error {row['player_name']}: {e}")
 
     conn.commit()

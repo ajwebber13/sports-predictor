@@ -28,10 +28,8 @@ Usage (import):
 import os
 import sys
 import json
-import sqlite3
 from itertools import combinations
-
-DB_PATH = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
+from database import get_conn
 
 # ─────────────────────────────────────────────
 # CORRELATION RULES
@@ -327,8 +325,7 @@ def _build_summary(legs, raw, adj, correlations, weak_legs, tier, payout) -> str
 
 def get_model_prob(team: str, date: str = None) -> float | None:
     """Pull today's model probability for a team ML from predictions table."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_conn()
     c    = conn.cursor()
 
     if not date:

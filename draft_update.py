@@ -91,7 +91,7 @@ def update_rosters(sport: str):
 
             try:
                 c.execute("""
-                    INSERT OR REPLACE INTO player_profiles
+                    INSERT INTO player_profiles
                     (sport, team_name, player_name, position, height, weight,
                      college, draft_year, draft_round, draft_pick, jersey_number,
                      status, pts_per_game, reb_per_game, ast_per_game,
@@ -99,6 +99,27 @@ def update_rosters(sport: str):
                      minutes_per_game, usage_rate, impact_score, season)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                             ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (sport, team_name, player_name, season) DO UPDATE SET
+                        position          = EXCLUDED.position,
+                        height            = EXCLUDED.height,
+                        weight            = EXCLUDED.weight,
+                        college           = EXCLUDED.college,
+                        draft_year        = EXCLUDED.draft_year,
+                        draft_round       = EXCLUDED.draft_round,
+                        draft_pick        = EXCLUDED.draft_pick,
+                        jersey_number     = EXCLUDED.jersey_number,
+                        status            = EXCLUDED.status,
+                        pts_per_game      = EXCLUDED.pts_per_game,
+                        reb_per_game      = EXCLUDED.reb_per_game,
+                        ast_per_game      = EXCLUDED.ast_per_game,
+                        stl_per_game      = EXCLUDED.stl_per_game,
+                        blk_per_game      = EXCLUDED.blk_per_game,
+                        fg_pct            = EXCLUDED.fg_pct,
+                        three_pct         = EXCLUDED.three_pct,
+                        ft_pct            = EXCLUDED.ft_pct,
+                        minutes_per_game  = EXCLUDED.minutes_per_game,
+                        usage_rate        = EXCLUDED.usage_rate,
+                        impact_score      = EXCLUDED.impact_score
                 """, (
                     player["sport"], player["team_name"], player["player_name"],
                     player["position"], player["height"], player["weight"],
@@ -110,6 +131,7 @@ def update_rosters(sport: str):
                     player["usage_rate"], player["impact_score"], player["season"],
                 ))
             except Exception as e:
+                conn.rollback()
                 print(f"  Save error {player['player_name']}: {e}")
 
         time.sleep(0.3)

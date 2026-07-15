@@ -26,7 +26,12 @@ HEADERS = {
 
 
 def init_player_tables():
-    """Add player tables to the DB."""
+    """Add player tables to the DB. No-op on Postgres — both tables
+    already exist from schema_postgres.sql, and SQLite's AUTOINCREMENT
+    syntax below isn't valid Postgres syntax to begin with."""
+    from database import SUPABASE_DB_URL
+    if SUPABASE_DB_URL:
+        return
     conn = get_conn()
     c    = conn.cursor()
 
@@ -253,13 +258,33 @@ def backfill_players(sport: str):
             try:
                 # Save to player_profiles (current)
                 c.execute("""
-                    INSERT OR REPLACE INTO player_profiles
+                    INSERT INTO player_profiles
                     (sport, team_name, player_name, position, height, weight,
                      college, draft_year, draft_round, draft_pick, jersey_number,
                      pts_per_game, reb_per_game, ast_per_game, stl_per_game,
                      blk_per_game, fg_pct, three_pct, ft_pct, minutes_per_game,
                      usage_rate, impact_score, season)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (sport, team_name, player_name, season) DO UPDATE SET
+                        position          = EXCLUDED.position,
+                        height            = EXCLUDED.height,
+                        weight            = EXCLUDED.weight,
+                        college           = EXCLUDED.college,
+                        draft_year        = EXCLUDED.draft_year,
+                        draft_round       = EXCLUDED.draft_round,
+                        draft_pick        = EXCLUDED.draft_pick,
+                        jersey_number     = EXCLUDED.jersey_number,
+                        pts_per_game      = EXCLUDED.pts_per_game,
+                        reb_per_game      = EXCLUDED.reb_per_game,
+                        ast_per_game      = EXCLUDED.ast_per_game,
+                        stl_per_game      = EXCLUDED.stl_per_game,
+                        blk_per_game      = EXCLUDED.blk_per_game,
+                        fg_pct            = EXCLUDED.fg_pct,
+                        three_pct         = EXCLUDED.three_pct,
+                        ft_pct            = EXCLUDED.ft_pct,
+                        minutes_per_game  = EXCLUDED.minutes_per_game,
+                        usage_rate        = EXCLUDED.usage_rate,
+                        impact_score      = EXCLUDED.impact_score
                 """, (
                     player["sport"], player["team_name"], player["player_name"],
                     player["position"], player["height"], player["weight"],
@@ -273,12 +298,13 @@ def backfill_players(sport: str):
 
                 # Save to history
                 c.execute("""
-                    INSERT OR IGNORE INTO player_stats_history
+                    INSERT INTO player_stats_history
                     (sport, season, team_name, player_name, position, games_played,
                      pts_per_game, reb_per_game, ast_per_game, stl_per_game,
                      blk_per_game, fg_pct, three_pct, ft_pct, minutes_per_game,
                      usage_rate, impact_score, source)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (sport, season, team_name, player_name) DO NOTHING
                 """, (
                     player["sport"], player["season"], player["team_name"],
                     player["player_name"], player["position"], player["games_played"],

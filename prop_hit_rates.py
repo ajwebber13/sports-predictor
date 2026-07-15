@@ -26,6 +26,7 @@ SPORT_TABLES = {
     "wnba": "wnba_game_log",
     "mlb":  "mlb_game_log",
     "nba":  "nba_game_log",
+    "nfl":  "nfl_game_log",
 }
 
 STAT_EXPR = {
@@ -40,12 +41,26 @@ STAT_EXPR = {
     "mlb": {
         "hits": "hits", "runs": "runs", "rbis": "rbis", "hr": "hrs",
     },
+    "nfl": {
+        "passing_completions": "passing_completions",
+        "passing_attempts":    "passing_attempts",
+        "passing_yards":       "passing_yards",
+        "passing_tds":         "passing_tds",
+        "interceptions":       "interceptions",
+        "rushing_attempts":    "rushing_attempts",
+        "rushing_yards":       "rushing_yards",
+        "rushing_tds":         "rushing_tds",
+        "receptions":          "receptions",
+        "receiving_yards":     "receiving_yards",
+        "receiving_tds":       "receiving_tds",
+    },
 }
 
 MIN_GAMES_FILTER = {
     "wnba": "minutes > 0",
     "nba":  "minutes > 0",
     "mlb":  "at_bats > 0",
+    "nfl":  "(passing_attempts > 0 OR rushing_attempts > 0 OR targets > 0)",
 }
 
 
@@ -66,44 +81,22 @@ def _fetchall_dicts(c) -> list:
 
 
 def setup_props_table():
-    conn = _get_conn()
-    c    = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS player_props (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            date            TEXT NOT NULL,
-            sport           TEXT NOT NULL DEFAULT 'wnba',
-            player_name     TEXT NOT NULL,
-            team_name       TEXT NOT NULL,
-            opponent        TEXT NOT NULL,
-            home_away       TEXT,
-            stat            TEXT NOT NULL,
-            line            REAL NOT NULL,
-            over_odds       INTEGER,
-            under_odds      INTEGER,
-            hit_rate_overall   REAL,
-            hit_rate_vs_opp    REAL,
-            hit_rate_home_away REAL,
-            hit_rate_b2b       REAL,
-            games_overall      INTEGER,
-            games_vs_opp       INTEGER,
-            games_home_away    INTEGER,
-            confidence_tier    TEXT,
-            source          TEXT DEFAULT 'odds_api',
-            captured_at     TEXT,
-            injury_status   TEXT,
-            UNIQUE(date, sport, player_name, stat)
-        )
-    """)
+    """MIGRATION NOTE (2026-07-14): no-op as of the Postgres migration.
 
-    for col_def in ("injury_status TEXT", "game_home_team TEXT", "game_away_team TEXT"):
-        try:
-            c.execute(f"ALTER TABLE player_props ADD COLUMN {col_def}")
-        except Exception:
-            pass
+    player_props already exists in schema_postgres.sql with all the
+    columns this used to CREATE/ALTER in (including injury_status,
+    game_home_team, game_away_team). Worth flagging: this file's own
+    CREATE TABLE defined UNIQUE(date, sport, player_name, stat) — a
+    DIFFERENT constraint than production's real
+    UNIQUE(date, player_name, stat) (no sport column). Since
+    IF NOT EXISTS meant this never actually ran against the real
+    table, it never mattered — but it means the ON CONFLICT target in
+    save_prop_with_hit_rates() below must match the REAL constraint,
+    not this file's own (incorrect) assumption about it.
 
-    conn.commit()
-    conn.close()
+    Kept as a no-op function rather than deleted since it's called
+    from save_prop_with_hit_rates() and __main__ below."""
+    pass
 
 
 def get_hit_rate(
@@ -301,13 +294,31 @@ def save_prop_with_hit_rates(
     c    = conn.cursor()
     try:
         c.execute("""
-            INSERT OR REPLACE INTO player_props
+            INSERT INTO player_props
             (date, sport, player_name, team_name, opponent, home_away,
              stat, line, over_odds, under_odds,
              hit_rate_overall, hit_rate_vs_opp, hit_rate_home_away,
              games_overall, games_vs_opp, games_home_away,
              confidence_tier, captured_at, game_home_team, game_away_team)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (date, player_name, stat) DO UPDATE SET
+                sport               = EXCLUDED.sport,
+                team_name           = EXCLUDED.team_name,
+                opponent            = EXCLUDED.opponent,
+                home_away           = EXCLUDED.home_away,
+                line                = EXCLUDED.line,
+                over_odds           = EXCLUDED.over_odds,
+                under_odds          = EXCLUDED.under_odds,
+                hit_rate_overall    = EXCLUDED.hit_rate_overall,
+                hit_rate_vs_opp     = EXCLUDED.hit_rate_vs_opp,
+                hit_rate_home_away  = EXCLUDED.hit_rate_home_away,
+                games_overall       = EXCLUDED.games_overall,
+                games_vs_opp        = EXCLUDED.games_vs_opp,
+                games_home_away     = EXCLUDED.games_home_away,
+                confidence_tier     = EXCLUDED.confidence_tier,
+                captured_at         = EXCLUDED.captured_at,
+                game_home_team      = EXCLUDED.game_home_team,
+                game_away_team      = EXCLUDED.game_away_team
         """, (
             date, sport, player_name, team_name, opponent, home_away,
             stat, line, over_odds, under_odds,
@@ -319,6 +330,7 @@ def save_prop_with_hit_rates(
         ))
         conn.commit()
     except Exception as e:
+        conn.rollback()
         print(f"  Prop save error ({player_name} {stat}): {e}")
     finally:
         conn.close()

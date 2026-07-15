@@ -12,10 +12,10 @@ Usage:
 
 import os
 import sys
-import sqlite3
 import requests
 import time
 from datetime import datetime, timezone, timedelta
+from database import get_conn
 
 API_KEY       = os.getenv("ODDS_API_KEY", "")
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
@@ -122,16 +122,20 @@ def find_match(db_home: str, db_away: str, api_games: list) -> dict | None:
 
 
 def run_backfill():
-    db_path = os.path.join(os.path.dirname(__file__), "cp_analytics.db")
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
+    conn = get_conn()
+    c    = conn.cursor()
 
-    # Fetch all predictions missing odds
+    # MIGRATION NOTE (2026-07): predictions.odds is a real INTEGER
+    # column in production (confirmed against schema_postgres.sql).
+    # SQLite's loose typing let this WHERE clause compare that
+    # INTEGER column to string literals ('N/A', 'None') without
+    # complaint; Postgres won't implicitly compare int-to-text, so
+    # casting explicitly here to preserve whatever legacy rows might
+    # actually hold those text sentinels instead of a real NULL.
     c.execute("""
         SELECT id, date, sport, home_team, away_team
         FROM predictions
-        WHERE odds IS NULL OR odds = 'N/A' OR odds = 'None'
+        WHERE odds IS NULL OR CAST(odds AS TEXT) = 'N/A' OR CAST(odds AS TEXT) = 'None'
         ORDER BY date
     """)
     bad_rows = c.fetchall()
@@ -184,31 +188,45 @@ def run_backfill():
                   f"home {home_ml:+d} / away {away_ml:+d}")
 
             if not DRY_RUN:
-                # Patch predictions.odds (stored as text like "-140" or "+115")
-                odds_str = str(home_ml) if home_ml < 0 else f"+{home_ml}"
-                c.execute("""
-                    UPDATE predictions
-                    SET odds = ?
-                    WHERE id = ?
-                """, (odds_str, game["id"]))
+                try:
+                    # Patch predictions.odds. MIGRATION NOTE: previously
+                    # wrote a formatted string like "+115"/"−140" — odds
+                    # is a real INTEGER column in production, so this
+                    # would throw "invalid input syntax for type
+                    # integer" on Postgres. Writing the raw signed int
+                    # instead, matching how database.py's
+                    # log_prediction() stores odds everywhere else in
+                    # this codebase (no "+"/string formatting at the
+                    # storage layer — that's a display-time concern).
+                    c.execute("""
+                        UPDATE predictions
+                        SET odds = ?
+                        WHERE id = ?
+                    """, (home_ml, game["id"]))
 
-                # Insert into odds_history if not already there
-                c.execute("""
-                    INSERT OR IGNORE INTO odds_history
-                    (date, sport, home_team, away_team,
-                     home_ml, away_ml, home_implied, away_implied,
-                     opening_home_ml, opening_away_ml,
-                     source, captured_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    date_str, sport,
-                    game["home_team"], game["away_team"],
-                    home_ml, away_ml,
-                    home_implied, away_implied,
-                    home_ml, away_ml,  # opening = same as closing for historical
-                    "odds_api_historical",
-                    datetime.now(timezone.utc).isoformat(),
-                ))
+                    # Insert into odds_history if not already there
+                    c.execute("""
+                        INSERT INTO odds_history
+                        (date, sport, home_team, away_team,
+                         home_ml, away_ml, home_implied, away_implied,
+                         opening_home_ml, opening_away_ml,
+                         source, captured_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (date, sport, home_team, away_team) DO NOTHING
+                    """, (
+                        date_str, sport,
+                        game["home_team"], game["away_team"],
+                        home_ml, away_ml,
+                        home_implied, away_implied,
+                        home_ml, away_ml,  # opening = same as closing for historical
+                        "odds_api_historical",
+                        datetime.now(timezone.utc).isoformat(),
+                    ))
+                except Exception as e:
+                    conn.rollback()
+                    print(f"    ⚠️  Save error {game['away_team']} @ {game['home_team']}: {e}")
+                    missed += 1
+                    continue
 
             patched += 1
 
