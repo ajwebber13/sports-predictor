@@ -17,8 +17,10 @@ Uses live ESPN stats to calculate:
 """
 
 import numpy as np
+from datetime import datetime
 from dataclasses import dataclass
 from cfb_data import CFBTeamStats, get_rest_days
+from database import get_conn, get_situational_row as _get_situational_row
 try:
     # Prefer CFBD (real SP+ ratings blended in) if the cfbd package
     # and CFBD_API_KEY are set up. Falls back to plain ESPN inside
@@ -43,6 +45,9 @@ BYE_WEEK_THRESHOLD = 10     # days since last game to count as a bye
 BYE_WEEK_BONUS     = 1.5    # pts boost coming off a bye
 SHORT_WEEK_PEN     = -1.0   # pts penalty for a short week (<6 days — Tue/Wed MACtion)
 SHORT_WEEK_DAYS    = 6
+
+
+
 
 
 # ─────────────────────────────────────────────────────────────
@@ -115,6 +120,7 @@ class CFBPredictionEngine:
         defense: CFBTeamStats,
         is_home: bool,
         rest_days: int,
+        situational_adj: float = 0.0,
     ) -> float:
         """
         Expected points using points-per-game and yards-per-play
@@ -174,6 +180,16 @@ class CFBPredictionEngine:
         to_adj += (offense.turnovers_forced - LEAGUE_AVG_TO) * 1.0
         base += to_adj
 
+        # Situational (travel/altitude/timezone) — away-team-only
+        # penalty, same reasoning as WNBA/MLB: it's computed against
+        # whoever is traveling, not applied symmetrically. Road trips
+        # matter more in CFB than most sports (Boise State hosting a
+        # team crossing 3 time zones, altitude for Air Force/Wyoming
+        # home games), so this one's worth having even though CFB
+        # already had decent rest-day logic on its own.
+        if not is_home:
+            base += situational_adj
+
         return max(base, 7.0)
 
     def predict(
@@ -185,11 +201,20 @@ class CFBPredictionEngine:
         simulations:  int   = 10000,
     ) -> CFBPrediction:
 
-        home_rest = get_rest_days(home_stats.team_name)
-        away_rest = get_rest_days(away_stats.team_name)
+        situational = _get_situational_row(home_stats.team_name, away_stats.team_name, sport="cfb")
+        if situational:
+            home_rest = situational["home_rest_days"] if situational["home_rest_days"] is not None else get_rest_days(home_stats.team_name)
+            away_rest = situational["away_rest_days"] if situational["away_rest_days"] is not None else get_rest_days(away_stats.team_name)
+            total_adj = situational["total_adj"] if situational["total_adj"] is not None else 0.0
+        else:
+            home_rest = get_rest_days(home_stats.team_name)
+            away_rest = get_rest_days(away_stats.team_name)
+            total_adj = 0.0
 
-        exp_home = self._expected_score(home_stats, away_stats, is_home=True,  rest_days=home_rest)
-        exp_away = self._expected_score(away_stats, home_stats, is_home=False, rest_days=away_rest)
+        exp_home = self._expected_score(home_stats, away_stats, is_home=True,  rest_days=home_rest,
+                                        situational_adj=total_adj)
+        exp_away = self._expected_score(away_stats, home_stats, is_home=False, rest_days=away_rest,
+                                        situational_adj=total_adj)
 
         # Monte Carlo
         scores_home = np.maximum(np.random.normal(exp_home, SCORE_STD_DEV, simulations), 0)

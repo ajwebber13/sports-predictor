@@ -488,9 +488,76 @@ def get_bankroll_summary():
     print(f"{'='*50}\n")
 
 
+# Maps each sport to the game log table that has one row per team per
+# game played — used to find a team's most recent game date so rest
+# days / back-to-back can be computed. Same table set dashboard.py's
+# GAME_LOG_TABLES already uses for sparklines.
+SITUATIONAL_GAME_LOG_TABLES = {
+    "wnba": "wnba_game_log",
+    "nba":  "nba_game_log",
+    "mlb":  "mlb_game_log",
+    "nfl":  "nfl_game_log",
+}
+
+
+def _get_rest_days(conn, team_name: str, sport: str, game_date: str) -> int:
+    """Days since this team's most recent PRIOR game (strictly before
+    game_date). Returns 1 (treated as a back-to-back trigger) if no
+    prior game is on record — safer default than guessing a large
+    rest gap for a team with no logged history yet."""
+    table = SITUATIONAL_GAME_LOG_TABLES.get(sport)
+    if not table:
+        return 1
+    try:
+        c = conn.cursor()
+        c.execute(f"""
+            SELECT MAX(date) as last_date FROM {table}
+            WHERE team_name = ? AND date < ?
+        """, (team_name, game_date))
+        row = c.fetchone()
+        last_date = row["last_date"] if row else None
+        if not last_date:
+            return 1
+        d1 = datetime.strptime(game_date.replace("-", ""), "%Y%m%d") if "-" not in game_date[:4] or len(game_date) == 8 else datetime.strptime(game_date, "%Y-%m-%d")
+        d0_str = last_date if "-" in str(last_date) else f"{last_date[:4]}-{last_date[4:6]}-{last_date[6:]}"
+        d0 = datetime.strptime(d0_str, "%Y-%m-%d")
+        return max((d1 - d0).days, 0)
+    except Exception:
+        return 1
+
+
+def get_situational_row(home_team: str, away_team: str, sport: str, date: str = None):
+    """Reads today's already-computed situational_factors row for this
+    matchup. Shared across every sport predictor (wnba, mlb, cfb, nfl)
+    instead of each one carrying its own copy — render_job.py's daily
+    job runs log_situational_factors() BEFORE predictions are
+    generated, so this row should already exist for any game being
+    predicted same-day. Returns None if no row exists yet (callers
+    fall back to their own live rest-days lookup, not a guess)."""
+    date = date or datetime.now().strftime("%Y-%m-%d")
+    conn = get_conn()
+    c = conn.cursor()
+    try:
+        c.execute("""
+            SELECT home_rest_days, away_rest_days, total_adj
+            FROM situational_factors
+            WHERE date = ? AND sport = ? AND home_team = ? AND away_team = ?
+        """, (date, sport, home_team, away_team))
+        return c.fetchone()
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
 def log_situational_factors(sport: str, games: list):
     """Recovered from pre-regression database.py — render_job.py imports this directly.
-    Full ALTITUDE_MAP/CITY_COORDS dicts kept as-is from the original."""
+    Full ALTITUDE_MAP/CITY_COORDS dicts kept as-is from the original.
+
+    2026-07: added real back_to_back/rest_days calculation — the
+    situational_factors table always had these columns, but this
+    function never computed or saved them, so they sat empty since the
+    table was created."""
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -676,6 +743,8 @@ def log_situational_factors(sport: str, games: list):
         "UNLV Runnin Rebels":      (36.11, -115.14),
     }
 
+    
+
     def haversine(lat1, lon1, lat2, lon2):
         import math
         R    = 3958.8
@@ -702,6 +771,11 @@ def log_situational_factors(sport: str, games: list):
         altitude_ft = ALTITUDE_MAP.get(home_team, 0)
         time_zones  = get_time_zones(home_team, away_team)
 
+        home_rest_days = _get_rest_days(conn, home_team, sport, today)
+        away_rest_days = _get_rest_days(conn, away_team, sport, today)
+        home_back_to_back = 1 if home_rest_days <= 1 else 0
+        away_back_to_back = 1 if away_rest_days <= 1 else 0
+
         miles = 0
         if home_coords and away_coords:
             miles = haversine(
@@ -724,8 +798,10 @@ def log_situational_factors(sport: str, games: list):
                 (date, sport, home_team, away_team,
                  away_miles_traveled, away_time_zones,
                  home_altitude_ft, altitude_adj,
-                 travel_adj, total_adj, captured_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 travel_adj, total_adj, captured_at,
+                 home_rest_days, away_rest_days,
+                 home_back_to_back, away_back_to_back)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (date, sport, home_team, away_team) DO UPDATE SET
                     away_miles_traveled = EXCLUDED.away_miles_traveled,
                     away_time_zones     = EXCLUDED.away_time_zones,
@@ -733,10 +809,16 @@ def log_situational_factors(sport: str, games: list):
                     altitude_adj        = EXCLUDED.altitude_adj,
                     travel_adj          = EXCLUDED.travel_adj,
                     total_adj           = EXCLUDED.total_adj,
-                    captured_at         = EXCLUDED.captured_at
+                    captured_at         = EXCLUDED.captured_at,
+                    home_rest_days      = EXCLUDED.home_rest_days,
+                    away_rest_days      = EXCLUDED.away_rest_days,
+                    home_back_to_back   = EXCLUDED.home_back_to_back,
+                    away_back_to_back   = EXCLUDED.away_back_to_back
             """, (today, sport, home_team, away_team,
                   miles, time_zones, altitude_ft,
-                  altitude_adj, travel_adj, total_adj, now_str))
+                  altitude_adj, travel_adj, total_adj, now_str,
+                  home_rest_days, away_rest_days,
+                  home_back_to_back, away_back_to_back))
             saved += 1
 
             if altitude_ft > 2000 or miles > 1500:

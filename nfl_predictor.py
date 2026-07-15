@@ -11,9 +11,11 @@ Live NFL prediction model. Same shape as cfb_predictor.py:
 """
 
 import numpy as np
+from datetime import datetime
 from dataclasses import dataclass
 from nfl_data import NFLTeamStats, get_team_stats, get_rest_days
 from predictor import NFL_CONSTANTS
+from database import get_conn, get_situational_row as _get_situational_row
 
 LEAGUE_AVG_PPG  = NFL_CONSTANTS["league_avg_pts"]       # 23.0
 LEAGUE_AVG_TO   = NFL_CONSTANTS["league_avg_to_given"]  # 1.2
@@ -26,6 +28,7 @@ BYE_WEEK_BONUS      = 1.0   # NFL bye bonus is smaller than CFB's — less
 SHORT_WEEK_DAYS     = 5     # Thursday game after a Sunday game ≈ 4 days
 SHORT_WEEK_PEN       = -2.0 # bigger penalty than CFB — well-documented
                              # Thursday Night Football scoring dip
+
 
 
 @dataclass
@@ -83,7 +86,8 @@ class NFLPrediction:
 class NFLPredictionEngine:
 
     def _expected_score(self, offense: NFLTeamStats, defense: NFLTeamStats,
-                         is_home: bool, rest_days: int) -> float:
+                         is_home: bool, rest_days: int,
+                         situational_adj: float = 0.0) -> float:
         try:
             from database import get_conn
             conn = get_conn()
@@ -126,17 +130,33 @@ class NFLPredictionEngine:
         to_adj += (offense.turnovers_forced - LEAGUE_AVG_TO) * 1.0
         base += to_adj
 
+        # Situational (travel/altitude/timezone) — away-team-only,
+        # same reasoning as WNBA/MLB/CFB. West-coast-to-east-coast
+        # early kickoffs and Denver's altitude are the real NFL cases
+        # this covers.
+        if not is_home:
+            base += situational_adj
+
         return max(base, 6.0)
 
     def predict(self, home_stats: NFLTeamStats, away_stats: NFLTeamStats,
                 spread_line: float = 0.0, over_under: float = 44.0,
                 simulations: int = 10000) -> NFLPrediction:
 
-        home_rest = get_rest_days(home_stats.team_name)
-        away_rest = get_rest_days(away_stats.team_name)
+        situational = _get_situational_row(home_stats.team_name, away_stats.team_name, sport="nfl")
+        if situational:
+            home_rest = situational["home_rest_days"] if situational["home_rest_days"] is not None else get_rest_days(home_stats.team_name)
+            away_rest = situational["away_rest_days"] if situational["away_rest_days"] is not None else get_rest_days(away_stats.team_name)
+            total_adj = situational["total_adj"] if situational["total_adj"] is not None else 0.0
+        else:
+            home_rest = get_rest_days(home_stats.team_name)
+            away_rest = get_rest_days(away_stats.team_name)
+            total_adj = 0.0
 
-        exp_home = self._expected_score(home_stats, away_stats, is_home=True,  rest_days=home_rest)
-        exp_away = self._expected_score(away_stats, home_stats, is_home=False, rest_days=away_rest)
+        exp_home = self._expected_score(home_stats, away_stats, is_home=True,  rest_days=home_rest,
+                                        situational_adj=total_adj)
+        exp_away = self._expected_score(away_stats, home_stats, is_home=False, rest_days=away_rest,
+                                        situational_adj=total_adj)
 
         scores_home = np.maximum(np.random.normal(exp_home, SCORE_STD_DEV, simulations), 0)
         scores_away = np.maximum(np.random.normal(exp_away, SCORE_STD_DEV, simulations), 0)

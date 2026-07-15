@@ -12,9 +12,11 @@ Uses live ESPN stats to calculate:
 """
 
 import numpy as np
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Tuple
-from wnba_data import WNBATeamStats, get_team_stats, get_rest_days
+from wnba_data import WNBATeamStats, get_team_stats
+from database import get_conn, get_situational_row as _get_situational_row
 
 # ─────────────────────────────────────────────────────────────
 # CONSTANTS
@@ -99,6 +101,7 @@ class WNBAPredictionEngine:
         is_home: bool,
         rest_days: int,
         opp_rest_days: int,
+        situational_adj: float = 0.0,
     ) -> float:
         """
         Calculate expected score using offensive/defensive ratings.
@@ -156,6 +159,14 @@ class WNBAPredictionEngine:
         to_adj = (league_avg_to - offense.turnovers_per_game) * 0.3
         base += to_adj
 
+        # Situational (travel/altitude/timezone) — total_adj from
+        # situational_factors is computed as an AWAY-team penalty
+        # (travel distance, home team's altitude, timezone crossing),
+        # so it only applies when this team is the away team. Home
+        # court advantage is already handled separately above.
+        if not is_home:
+            base += situational_adj
+
         return max(base, 55.0)
 
     def predict(
@@ -167,13 +178,26 @@ class WNBAPredictionEngine:
         simulations:  int   = 10000,
     ) -> WNBAPrediction:
 
-        home_rest = get_rest_days(home_stats.team_name)
-        away_rest = get_rest_days(away_stats.team_name)
+        situational = _get_situational_row(home_stats.team_name, away_stats.team_name, sport="wnba")
+
+        if situational:
+            home_rest = situational["home_rest_days"] if situational["home_rest_days"] is not None else 3
+            away_rest = situational["away_rest_days"] if situational["away_rest_days"] is not None else 3
+            total_adj = situational["total_adj"] if situational["total_adj"] is not None else 0.0
+        else:
+            # No row for today yet (e.g. testing a matchup ad hoc,
+            # outside the normal daily job) — safe neutral defaults,
+            # not a guess dressed up as real data.
+            home_rest = 3
+            away_rest = 3
+            total_adj = 0.0
 
         exp_home = self._expected_score(home_stats, away_stats, is_home=True,
-                                        rest_days=home_rest, opp_rest_days=away_rest)
+                                        rest_days=home_rest, opp_rest_days=away_rest,
+                                        situational_adj=total_adj)
         exp_away = self._expected_score(away_stats, home_stats, is_home=False,
-                                        rest_days=away_rest, opp_rest_days=home_rest)
+                                        rest_days=away_rest, opp_rest_days=home_rest,
+                                        situational_adj=total_adj)
 
         # Monte Carlo
         scores_home = np.maximum(np.random.normal(exp_home, SCORE_STD_DEV, simulations), 40)

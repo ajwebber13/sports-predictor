@@ -6,11 +6,13 @@ low, discrete, and can't go negative — normal distribution breaks down here).
 """
 
 import numpy as np
+from datetime import datetime
 from mlb_data import (
     get_mlb_events, get_team_stats, get_starting_pitcher, get_pitcher_stats,
     get_team_record, get_team_injuries, get_team_rest_days,
 )
 from mlb_weather import get_stadium_weather, get_weather_adj
+from database import get_conn, get_situational_row as _get_situational_row
 
 MLB_CONSTANTS = {
     "home_adv": 0.35,      # home teams average ~0.35 more runs/game than road teams
@@ -21,11 +23,15 @@ MLB_CONSTANTS = {
 SIMS = 10000
 
 
-def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0):
+
+def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situational_adj=0.0):
     """
     Build a team's projected runs for the game.
     Base runs_per_game, adjusted for home/away split, opposing pitcher
-    quality (ERA + WHIP blend), and stadium weather.
+    quality (ERA + WHIP blend), stadium weather, and situational travel
+    (situational_adj — only applies to the away team, same reasoning
+    as WNBA: it's computed as a travel/altitude/timezone penalty on
+    whoever is traveling, not a symmetric adjustment).
     """
     base = team_stats.get("runs_per_game", 4.5)
 
@@ -43,6 +49,9 @@ def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0):
         base *= combined_factor
 
     base *= weather_adj
+
+    if not is_home:
+        base += situational_adj
 
     return max(base, 0.5)
 
@@ -92,8 +101,21 @@ def predict_game(event):
     weather = get_stadium_weather(home_team)
     weather_adj = get_weather_adj(weather)
 
+    situational = _get_situational_row(home_team, away_team, sport="mlb")
+    if situational:
+        home_rest = situational["home_rest_days"] if situational["home_rest_days"] is not None else get_team_rest_days(home_id)
+        away_rest = situational["away_rest_days"] if situational["away_rest_days"] is not None else get_team_rest_days(away_id)
+        total_adj = situational["total_adj"] if situational["total_adj"] is not None else 0.0
+    else:
+        # No row for today yet — fall back to the original live ESPN
+        # lookup for rest days (display only, matches prior behavior),
+        # no situational adjustment applied since none is on record.
+        home_rest = get_team_rest_days(home_id)
+        away_rest = get_team_rest_days(away_id)
+        total_adj = 0.0
+
     home_runs_proj = project_runs(home_stats, home_pitcher_stats, is_home=True, weather_adj=weather_adj)
-    away_runs_proj = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj)
+    away_runs_proj = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj, situational_adj=total_adj)
 
     result = simulate_game(home_runs_proj, away_runs_proj)
     result["home_team"] = home_team
@@ -104,8 +126,8 @@ def predict_game(event):
     result["away_record"] = get_team_record(away_comp)
     result["home_injuries"] = get_team_injuries(home_comp)
     result["away_injuries"] = get_team_injuries(away_comp)
-    result["home_rest"] = get_team_rest_days(home_id)
-    result["away_rest"] = get_team_rest_days(away_id)
+    result["home_rest"] = home_rest
+    result["away_rest"] = away_rest
 
     return result
 
