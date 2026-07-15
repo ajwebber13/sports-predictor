@@ -37,23 +37,74 @@ ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 ESPN_INJURY_URLS = {
     "NBA":  "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries",
     "WNBA": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/injuries",
+    "NFL":  "https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries",
+    "CFB":  "https://site.api.espn.com/apis/site/v2/sports/football/college-football/injuries",
+    "MLB":  "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/injuries",
 }
 
 ODDS_API_SPORT_KEYS = {
     "NBA":  "basketball_nba",
     "WNBA": "basketball_wnba",
+    "NFL":  "americanfootball_nfl",
+    "CFB":  "americanfootball_ncaaf",
+    "MLB":  "baseball_mlb",
 }
 
-# Impact weights by position (how much a player affects the line)
-POSITION_IMPACT = {
-    "PG":  0.9,   # Point guard — high impact
-    "SG":  0.7,
-    "SF":  0.7,
-    "PF":  0.6,
-    "C":   0.6,
-    "G":   0.8,
-    "F":   0.65,
-    "":    0.5,   # Unknown position
+# Impact weights by position — basketball/football/baseball use
+# completely different position sets, so this is keyed by sport
+# rather than one flat dict (a football "C" is a center/lineman,
+# a basketball "C" is a center; they don't mean the same thing).
+POSITION_IMPACT_BY_SPORT = {
+    "NBA": {
+        "PG": 0.9, "SG": 0.7, "SF": 0.7, "PF": 0.6, "C": 0.6,
+        "G": 0.8, "F": 0.65, "": 0.5,
+    },
+    "WNBA": {
+        "PG": 0.9, "SG": 0.7, "SF": 0.7, "PF": 0.6, "C": 0.6,
+        "G": 0.8, "F": 0.65, "": 0.5,
+    },
+    "NFL": {
+        "QB": 1.0, "RB": 0.6, "WR": 0.55, "TE": 0.4,
+        "OT": 0.5, "OG": 0.35, "C": 0.35, "OL": 0.4,
+        "DE": 0.45, "DT": 0.35, "EDGE": 0.5, "LB": 0.45,
+        "CB": 0.5, "S": 0.4, "DB": 0.45,
+        "K": 0.15, "P": 0.1, "": 0.35,
+    },
+    "CFB": {
+        "QB": 1.0, "RB": 0.55, "WR": 0.5, "TE": 0.35,
+        "OT": 0.45, "OG": 0.3, "C": 0.3, "OL": 0.35,
+        "DE": 0.4, "DT": 0.3, "EDGE": 0.45, "LB": 0.4,
+        "CB": 0.45, "S": 0.35, "DB": 0.4,
+        "K": 0.1, "P": 0.1, "": 0.3,
+    },
+    "MLB": {
+        # Starting pitcher is deliberately NOT weighted highest here —
+        # the confirmed starter's ERA/WHIP already feeds project_runs()
+        # directly in mlb_predictor.py, so double-counting a starter's
+        # own injury would apply the hit twice. This map is for the
+        # OTHER 8 spots in the lineup (a missing everyday bat).
+        "1B": 0.5, "2B": 0.45, "3B": 0.5, "SS": 0.5,
+        "C": 0.4, "OF": 0.45, "LF": 0.45, "CF": 0.5, "RF": 0.45,
+        "DH": 0.4, "SP": 0.2, "RP": 0.15, "": 0.35,
+    },
+}
+
+# Backward-compat flat alias (old NBA/WNBA-only shape) — kept so any
+# other file still importing POSITION_IMPACT directly doesn't break.
+POSITION_IMPACT = POSITION_IMPACT_BY_SPORT["NBA"]
+
+# How many points a full impact_score of 1.0 (top-3 significant
+# injuries, fully weighted) is worth in each sport's own scoring
+# scale. Basketball games run ~80-100 pts, football ~20-30, baseball
+# ~4-5 runs — the old flat "* 4.0" formula only ever made sense for
+# basketball; applying it to MLB was wiping out almost an entire
+# team's projected runs off one Day-To-Day tag.
+SPORT_INJURY_SCALE = {
+    "NBA":  4.0,
+    "WNBA": 4.0,
+    "NFL":  3.0,
+    "CFB":  3.0,
+    "MLB":  0.4,
 }
 
 # Status severity
@@ -82,7 +133,9 @@ class InjuryReport:
         self.impact      = self._calc_impact()  # must be last
 
     def _calc_impact(self) -> float:
-        pos_weight = POSITION_IMPACT.get(self.position.upper(), 0.5)
+        sport_key = self.league.upper()
+        pos_map = POSITION_IMPACT_BY_SPORT.get(sport_key, POSITION_IMPACT_BY_SPORT["NBA"])
+        pos_weight = pos_map.get(self.position.upper(), pos_map.get("", 0.5))
         sev_weight = INJURY_SEVERITY.get(self.status, 0.3)
         base_impact = round(pos_weight * sev_weight, 3)
 
@@ -199,12 +252,45 @@ def get_team_injury_impact(team_name: str,
     return round(total_impact, 3), sorted_injuries
 
 
-def injury_adj_pts(impact_score: float) -> float:
+def injury_adj_pts(impact_score: float, league: str = "NBA") -> float:
     """
-    Convert impact score to point adjustment.
-    Max ~4 pts for a full star player out.
+    Convert impact score to a point adjustment, scaled to the sport's
+    own scoring range (see SPORT_INJURY_SCALE — this used to be a
+    flat -4.0 for every sport, which was fine for basketball but
+    absurd for MLB where 4 runs is nearly a whole game's output).
     """
-    return round(-impact_score * 4.0, 2)
+    scale = SPORT_INJURY_SCALE.get(league.upper(), 4.0)
+    return round(-impact_score * scale, 2)
+
+
+# ─────────────────────────────────────────────
+# CACHE — fetch_injuries() hits ESPN for the whole league in one
+# call, so a predictor calling get_matchup_injury_adj() once per
+# game on a 12-game slate would otherwise refetch the same league
+# data 12 times. One cache entry per league per process run.
+# ─────────────────────────────────────────────
+_injury_cache: dict[str, dict] = {}
+
+
+def _get_cached_injuries(league: str) -> dict[str, list]:
+    league = league.upper()
+    if league not in _injury_cache:
+        _injury_cache[league] = fetch_injuries(league)
+    return _injury_cache[league]
+
+
+def get_matchup_injury_adj(home_team: str, away_team: str, league: str) -> tuple[float, float]:
+    """
+    Single entry point predictors call: returns (home_adj, away_adj),
+    each a <=0 point adjustment to subtract from that team's OWN
+    projected score. Unlike situational_adj (travel/altitude), this
+    is NOT away-only — a team missing its starters loses output
+    whether it's playing home or away.
+    """
+    injuries = _get_cached_injuries(league)
+    home_impact, _ = get_team_injury_impact(home_team, injuries)
+    away_impact, _ = get_team_injury_impact(away_team, injuries)
+    return injury_adj_pts(home_impact, league), injury_adj_pts(away_impact, league)
 
 
 # ─────────────────────────────────────────────
@@ -281,8 +367,8 @@ def get_matchup_intel(home_team: str, away_team: str, league: str) -> dict:
     # Injuries
     home_impact, home_inj = get_team_injury_impact(home_team, injuries)
     away_impact, away_inj = get_team_injury_impact(away_team, injuries)
-    home_inj_adj = injury_adj_pts(home_impact)
-    away_inj_adj = injury_adj_pts(away_impact)
+    home_inj_adj = injury_adj_pts(home_impact, league)
+    away_inj_adj = injury_adj_pts(away_impact, league)
 
     # Line movement
     home_move = movements.get(home_team)

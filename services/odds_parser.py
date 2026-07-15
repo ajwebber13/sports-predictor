@@ -131,10 +131,56 @@ def get_espn_odds(sport: str) -> list:
 
             odds_data  = comp.get("odds", [{}])
             odds_obj   = odds_data[0] if odds_data else {}
-            home_ml    = odds_obj.get("homeTeamOdds", {}).get("moneyLine") or -110
-            away_ml    = odds_obj.get("awayTeamOdds", {}).get("moneyLine") or -110
+
+            # No silent fallback here — a missing real moneyLine is
+            # "we don't have this game's real price," not "-110 both
+            # sides." That defaulting is exactly the fabricated-odds
+            # pattern this project already found and fixed once
+            # (the July 9 incident, a different code path). If ESPN
+            # doesn't have a real number, this game gets NO h2h market
+            # at all — downstream code (log_odds, log_prediction,
+            # calculate_roi/calculate_clv) already handles a missing/
+            # None odds value correctly by excluding it, rather than
+            # silently trusting a fake symmetric line.
+            raw_home_ml = odds_obj.get("homeTeamOdds", {}).get("moneyLine")
+            raw_away_ml = odds_obj.get("awayTeamOdds", {}).get("moneyLine")
+            has_real_ml = raw_home_ml is not None and raw_away_ml is not None
+
             spread     = odds_obj.get("spread", 0)
             over_under = odds_obj.get("overUnder", 0)
+
+            markets = []
+            if has_real_ml:
+                markets.append({
+                    "key": "h2h",
+                    "outcomes": [
+                        {"name": home_name, "price": int(raw_home_ml)},
+                        {"name": away_name, "price": int(raw_away_ml)},
+                    ]
+                })
+            else:
+                print(f"  [ESPN fallback] no real moneyline for {away_name} @ {home_name} — "
+                      f"skipping h2h market rather than defaulting to -110/-110")
+
+            # Spread/total markets legitimately default to -110 —
+            # that's the real, standard vig price books use for point
+            # spreads and totals, unlike moneylines which vary widely
+            # by matchup. Leaving these untouched is correct, not the
+            # same bug.
+            markets.append({
+                "key": "spreads",
+                "outcomes": [
+                    {"name": home_name, "point": spread, "price": -110},
+                    {"name": away_name, "point": -spread if spread else 0, "price": -110},
+                ]
+            })
+            markets.append({
+                "key": "totals",
+                "outcomes": [
+                    {"name": "Over",  "point": over_under, "price": -110},
+                    {"name": "Under", "point": over_under, "price": -110},
+                ]
+            })
 
             games.append({
                 "home_team":     home_name,
@@ -144,29 +190,7 @@ def get_espn_odds(sport: str) -> list:
                 "bookmakers": [{
                     "key":     "espn",
                     "title":   "ESPN",
-                    "markets": [
-                        {
-                            "key": "h2h",
-                            "outcomes": [
-                                {"name": home_name, "price": int(home_ml)},
-                                {"name": away_name, "price": int(away_ml)},
-                            ]
-                        },
-                        {
-                            "key": "spreads",
-                            "outcomes": [
-                                {"name": home_name, "point": spread, "price": -110},
-                                {"name": away_name, "point": -spread if spread else 0, "price": -110},
-                            ]
-                        },
-                        {
-                            "key": "totals",
-                            "outcomes": [
-                                {"name": "Over",  "point": over_under, "price": -110},
-                                {"name": "Under", "point": over_under, "price": -110},
-                            ]
-                        },
-                    ]
+                    "markets": markets,
                 }]
             })
         except Exception:

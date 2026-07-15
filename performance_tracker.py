@@ -11,9 +11,13 @@ working (results.correct, results.edge_at_pick, results.odds_at_pick —
 confirmed live via tonight's real scoring run). ROI is computed from
 actual American odds per pick, not a flat -110 assumption.
 
-Deliberately deferred to v2, not built here yet:
-  - CLV (closing_odds lives in odds_history, not results — needs a
-    real join/reconciliation pass before this can trust it)
+CLV (calculate_clv) reconciles results -> predictions -> odds_history
+to compare odds_at_pick against the real captured closing line. Only
+covers picks made after get_line_movement_adj()/update_closing_odds()
+went live — historical picks before that table existed will show as
+skipped_no_clv, not backfilled or guessed.
+
+Deliberately still deferred, not built here yet:
   - units/stake sizing (no unit_size column on predictions yet —
     every pick is treated as 1 flat unit for now; real bet-sizing
     logic needs that schema addition first, not guessed here)
@@ -34,6 +38,7 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
+from services.odds_parser import american_to_implied
 
 
 def _american_profit(odds: int, won: bool) -> float:
@@ -56,6 +61,99 @@ def _date_filter_sql(date: str = None, date_range: tuple = None):
     if date_range:
         return "date BETWEEN ? AND ?", [date_range[0], date_range[1]]
     return "1=1", []
+
+
+def calculate_clv(date: str = None, date_range: tuple = None, sport: str = None) -> dict:
+    """
+    Real Closing Line Value — the reconciliation deferred since v1.1.
+
+    CLV answers: did we get a better price than the market eventually
+    settled on? Positive CLV means our odds_at_pick implied a LOWER
+    probability than the closing line did for the same side — i.e.
+    the market moved toward us after we bet, which is the strongest
+    evidence a model is finding real value (independent of whether
+    any individual bet actually won).
+
+    Requires three joins: results (our pick + outcome) -> predictions
+    (which team we actually picked, via predicted_winner) ->
+    odds_history (the real closing line for that matchup, via
+    update_closing_odds()). Picks missing any piece are excluded from
+    the average and counted in picks_skipped_no_clv — never guessed
+    or defaulted, same principle as picks_skipped_no_odds in
+    calculate_roi().
+
+    Deliberately its own function rather than folding the join
+    straight into calculate_roi() — CLV is meaningful on far fewer
+    picks than ROI (needs a captured closing line, which not every
+    graded pick will have), so conflating the two counts would
+    understate ROI's sample size for no reason.
+    """
+    conn = get_conn()
+    c = conn.cursor()
+    where, params = _date_filter_sql(date, date_range)
+    where = where.replace("date", "r.date")  # qualify against the join
+    if sport:
+        where += " AND r.sport = ?"
+        params.append(sport)
+
+    c.execute(f"""
+        SELECT r.correct, r.odds_at_pick, r.home_team, r.away_team,
+               p.predicted_winner,
+               oh.closing_home_ml, oh.closing_away_ml
+        FROM results r
+        LEFT JOIN predictions p ON r.prediction_id = p.id
+        LEFT JOIN odds_history oh
+            ON oh.date = r.date AND oh.sport = r.sport
+            AND oh.home_team = r.home_team AND oh.away_team = r.away_team
+        WHERE {where} AND r.correct IS NOT NULL
+    """, params)
+    rows = c.fetchall()
+    conn.close()
+
+    clv_values = []
+    skipped = 0
+
+    for r in rows:
+        picked_team = r["predicted_winner"]
+        home_team   = r["home_team"]
+        away_team   = r["away_team"]
+        odds_at_pick = r["odds_at_pick"]
+        closing_home = r["closing_home_ml"]
+        closing_away = r["closing_away_ml"]
+
+        if not picked_team or odds_at_pick is None:
+            skipped += 1
+            continue
+
+        if picked_team == home_team:
+            closing_ml = closing_home
+        elif picked_team == away_team:
+            closing_ml = closing_away
+        else:
+            # predicted_winner doesn't match either team name exactly
+            # — a real data inconsistency, not something to guess past.
+            skipped += 1
+            continue
+
+        if closing_ml is None:
+            # No closing line captured for this game (e.g. noon retry
+            # never ran, or game wasn't tracked that day) — skip, not zero.
+            skipped += 1
+            continue
+
+        pick_implied  = american_to_implied(odds_at_pick)
+        close_implied = american_to_implied(closing_ml)
+        clv_pct = round((close_implied - pick_implied) * 100, 2)
+        clv_values.append(clv_pct)
+
+    if not clv_values:
+        return {"avg_clv_pct": None, "picks_used": 0, "picks_skipped_no_clv": skipped}
+
+    return {
+        "avg_clv_pct": round(sum(clv_values) / len(clv_values), 2),
+        "picks_used": len(clv_values),
+        "picks_skipped_no_clv": skipped,
+    }
 
 
 def calculate_record(date: str = None, date_range: tuple = None, sport: str = None) -> dict:
@@ -112,9 +210,11 @@ def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None)
     graded_with_odds = [r for r in rows if r["odds_at_pick"] is not None]
     skipped_no_odds = len(rows) - len(graded_with_odds)
 
+    clv = calculate_clv(date=date, date_range=date_range, sport=sport)
+
     if not graded_with_odds:
         return {"units_risked": 0, "profit_units": 0.0, "roi_pct": None, "picks_used": 0,
-                "picks_skipped_no_odds": skipped_no_odds, "clv": None}
+                "picks_skipped_no_odds": skipped_no_odds, "clv": clv}
 
     total_profit = 0.0
     for r in graded_with_odds:
@@ -129,7 +229,7 @@ def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None)
         "roi_pct": roi_pct,
         "picks_used": len(graded_with_odds),
         "picks_skipped_no_odds": skipped_no_odds,
-        "clv": None,  # reserved — closing_odds lives in odds_history, not results yet; wire in once that join is verified
+        "clv": clv,
     }
 
 
@@ -165,21 +265,28 @@ def calculate_record_by_sport(date: str = None, date_range: tuple = None) -> lis
     return out
 
 
-def calculate_confidence_buckets(date: str = None, date_range: tuple = None) -> list:
+def calculate_confidence_buckets(date: str = None, date_range: tuple = None, sport: str = None) -> list:
     """Model calibration check: does 90%+ confidence actually win ~90%
     of the time? Joins results to predictions via the existing
     prediction_id FK (already on the results table from the pre-
     regression schema — no new columns needed) to pull model_prob per
     graded pick, then buckets. A model claiming 90% and landing at 65%
-    is broken — this is how you'd catch that."""
+    is broken — this is how you'd catch that.
+
+    sport param added for the per-sport calibration audit — pass None
+    to pool all sports together (original v1.1 behavior, unchanged)."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
+    where = where.replace('date', 'r.date')
+    if sport:
+        where += " AND r.sport = ?"
+        params.append(sport)
     c.execute(f"""
         SELECT r.correct, p.model_prob
         FROM results r
         JOIN predictions p ON r.prediction_id = p.id
-        WHERE {where.replace('date', 'r.date')} AND r.correct IS NOT NULL AND p.model_prob IS NOT NULL
+        WHERE {where} AND r.correct IS NOT NULL AND p.model_prob IS NOT NULL
     """, params)
     rows = c.fetchall()
     conn.close()
@@ -315,6 +422,15 @@ def _print_summary(summary: dict, title: str):
         print(f"  ROI:       {sign}{roi['roi_pct']}%")
         if roi["picks_skipped_no_odds"]:
             print(f"  (skipped {roi['picks_skipped_no_odds']} graded pick(s) with no odds_at_pick on record)")
+
+        clv = roi.get("clv") or {}
+        if clv.get("avg_clv_pct") is not None:
+            clv_sign = "+" if clv["avg_clv_pct"] >= 0 else ""
+            print(f"  CLV:       {clv_sign}{clv['avg_clv_pct']}% avg ({clv['picks_used']} picks with a captured closing line)")
+            if clv["picks_skipped_no_clv"]:
+                print(f"  (skipped {clv['picks_skipped_no_clv']} graded pick(s) with no closing line on record)")
+        else:
+            print("  CLV:       no picks with a captured closing line this period")
     else:
         print("  Units/ROI: no picks with recorded odds this period")
 

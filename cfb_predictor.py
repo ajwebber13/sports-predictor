@@ -20,7 +20,8 @@ import numpy as np
 from datetime import datetime
 from dataclasses import dataclass
 from cfb_data import CFBTeamStats, get_rest_days
-from database import get_conn, get_situational_row as _get_situational_row
+from database import get_conn, get_situational_row as _get_situational_row, get_line_movement_adj
+from intel_feed import get_matchup_injury_adj
 try:
     # Prefer CFBD (real SP+ ratings blended in) if the cfbd package
     # and CFBD_API_KEY are set up. Falls back to plain ESPN inside
@@ -121,14 +122,20 @@ class CFBPredictionEngine:
         is_home: bool,
         rest_days: int,
         situational_adj: float = 0.0,
-    ) -> float:
+        injury_adj: float = 0.0,
+        line_adj: float = 0.0,
+    ) -> tuple[float, dict]:
         """
         Expected points using points-per-game and yards-per-play
         differentials, adjusted for home field, bye weeks, and
         turnover margin. Falls back to advanced_metrics (Elo) if
         it's populated for CFB — mirrors the WNBA predictor's
         try-the-DB-first pattern.
+
+        Returns (final_score, factors) — pure additive like WNBA, so
+        sum(factors.values()) == final_score. Verified in __main__.
         """
+        factors = {}
         try:
             from database import get_conn
             conn = get_conn()
@@ -163,22 +170,22 @@ class CFBPredictionEngine:
             ypp_gap = (offense.yards_per_play_off - defense.yards_per_play_def)
             base += ypp_gap * 2.0  # each yard/play edge worth ~2 pts
 
-        # Home field
-        if is_home:
-            base += HOME_FIELD_ADV * 0.5
-        else:
-            base -= HOME_FIELD_ADV * 0.5
+        factors["base_projection"] = round(base, 2)
 
-        # Bye week / short week adjustment
+        home_adj = HOME_FIELD_ADV * 0.5 if is_home else -HOME_FIELD_ADV * 0.5
+        factors["home_field"] = round(home_adj, 2)
+
         if rest_days >= BYE_WEEK_THRESHOLD:
-            base += BYE_WEEK_BONUS
+            rest_adj = BYE_WEEK_BONUS
         elif rest_days < SHORT_WEEK_DAYS:
-            base += SHORT_WEEK_PEN
+            rest_adj = SHORT_WEEK_PEN
+        else:
+            rest_adj = 0.0
+        factors["rest"] = round(rest_adj, 2)
 
-        # Turnover margin adjustment
-        to_adj = (LEAGUE_AVG_TO - offense.turnovers_given) * 1.5
+        to_adj  = (LEAGUE_AVG_TO - offense.turnovers_given) * 1.5
         to_adj += (offense.turnovers_forced - LEAGUE_AVG_TO) * 1.0
-        base += to_adj
+        factors["turnover_margin"] = round(to_adj, 2)
 
         # Situational (travel/altitude/timezone) — away-team-only
         # penalty, same reasoning as WNBA/MLB: it's computed against
@@ -187,10 +194,15 @@ class CFBPredictionEngine:
         # team crossing 3 time zones, altitude for Air Force/Wyoming
         # home games), so this one's worth having even though CFB
         # already had decent rest-day logic on its own.
-        if not is_home:
-            base += situational_adj
+        sit_adj = situational_adj if not is_home else 0.0
+        factors["situational"] = round(sit_adj, 2)
 
-        return max(base, 7.0)
+        factors["injury"] = round(injury_adj, 2)
+
+        factors["line_movement"] = round(line_adj, 2)
+
+        final_score = max(sum(factors.values()), 7.0)
+        return final_score, factors
 
     def predict(
         self,
@@ -211,10 +223,37 @@ class CFBPredictionEngine:
             away_rest = get_rest_days(away_stats.team_name)
             total_adj = 0.0
 
-        exp_home = self._expected_score(home_stats, away_stats, is_home=True,  rest_days=home_rest,
-                                        situational_adj=total_adj)
-        exp_away = self._expected_score(away_stats, home_stats, is_home=False, rest_days=away_rest,
-                                        situational_adj=total_adj)
+        try:
+            home_inj_adj, away_inj_adj = get_matchup_injury_adj(
+                home_stats.team_name, away_stats.team_name, league="CFB")
+        except Exception as e:
+            print(f"  [CFB] injury adj fetch failed, defaulting to 0: {e}")
+            home_inj_adj, away_inj_adj = 0.0, 0.0
+
+        try:
+            home_line_adj, away_line_adj = get_line_movement_adj(
+                home_stats.team_name, away_stats.team_name, sport="cfb")
+        except Exception as e:
+            print(f"  [CFB] line movement fetch failed, defaulting to 0: {e}")
+            home_line_adj, away_line_adj = 0.0, 0.0
+
+        exp_home, home_factors = self._expected_score(home_stats, away_stats, is_home=True,  rest_days=home_rest,
+                                        situational_adj=total_adj, injury_adj=home_inj_adj, line_adj=home_line_adj)
+        exp_away, away_factors = self._expected_score(away_stats, home_stats, is_home=False, rest_days=away_rest,
+                                        situational_adj=total_adj, injury_adj=away_inj_adj, line_adj=away_line_adj)
+
+        try:
+            from database import save_prediction_factors
+            today = datetime.now().strftime("%Y-%m-%d")
+            game_id = f"{today}_{away_stats.team_name}_{home_stats.team_name}".replace(" ", "-")
+            save_prediction_factors(
+                sport="cfb", game_id=game_id,
+                home_team=home_stats.team_name, away_team=away_stats.team_name,
+                home_score_final=round(exp_home, 2), away_score_final=round(exp_away, 2),
+                home_factors=home_factors, away_factors=away_factors,
+            )
+        except Exception as e:
+            print(f"  [CFB] factor logging failed (non-fatal): {e}")
 
         # Monte Carlo
         scores_home = np.maximum(np.random.normal(exp_home, SCORE_STD_DEV, simulations), 0)
@@ -254,8 +293,58 @@ class CFBPredictionEngine:
         )
 
 
+def _parity_check_old_style(offense, defense, is_home, rest_days,
+                             situational_adj=0.0, injury_adj=0.0, line_adj=0.0):
+    """Reference implementation — exact pre-refactor math, parity check only."""
+    base = (offense.pts_per_game + defense.pts_allowed) / 2
+    ypp_gap = (offense.yards_per_play_off - defense.yards_per_play_def)
+    base += ypp_gap * 2.0
+    if is_home:
+        base += HOME_FIELD_ADV * 0.5
+    else:
+        base -= HOME_FIELD_ADV * 0.5
+    if rest_days >= BYE_WEEK_THRESHOLD:
+        base += BYE_WEEK_BONUS
+    elif rest_days < SHORT_WEEK_DAYS:
+        base += SHORT_WEEK_PEN
+    to_adj  = (LEAGUE_AVG_TO - offense.turnovers_given) * 1.5
+    to_adj += (offense.turnovers_forced - LEAGUE_AVG_TO) * 1.0
+    base += to_adj
+    if not is_home:
+        base += situational_adj
+    base += injury_adj
+    base += line_adj
+    return max(base, 7.0)
+
+
+class _SyntheticCFBStats:
+    """Minimal stand-in so the parity check runs even out of season
+    (CFB/NFL have no live current-season data in July)."""
+    def __init__(self, team_name, pts_per_game, pts_allowed, ypp_off, ypp_def,
+                 to_given, to_forced):
+        self.team_name = team_name
+        self.pts_per_game = pts_per_game
+        self.pts_allowed = pts_allowed
+        self.yards_per_play_off = ypp_off
+        self.yards_per_play_def = ypp_def
+        self.turnovers_given = to_given
+        self.turnovers_forced = to_forced
+
+
 if __name__ == "__main__":
     print("Testing CFB prediction engine...")
+
+    # Parity check — synthetic data, doesn't depend on live season stats
+    syn_home = _SyntheticCFBStats("Test Home", 31.0, 24.0, 6.2, 5.4, 1.1, 1.4)
+    syn_away = _SyntheticCFBStats("Test Away", 27.0, 28.0, 5.8, 5.9, 1.3, 1.0)
+    engine_for_parity = CFBPredictionEngine()
+    new_score, factors = engine_for_parity._expected_score(
+        syn_home, syn_away, is_home=True, rest_days=7, situational_adj=0.0, injury_adj=-2.5, line_adj=0.4)
+    old_score = _parity_check_old_style(syn_home, syn_away, is_home=True, rest_days=7, injury_adj=-2.5, line_adj=0.4)
+    parity_ok = abs(new_score - old_score) < 0.01
+    print(f"Parity check: new={new_score:.2f} old={old_score:.2f} -> {'PASS' if parity_ok else 'FAIL — DO NOT SHIP'}")
+    print(f"  Factors: {factors}\n")
+
     home = get_team_stats("Georgia")
     away = get_team_stats("Alabama")
 

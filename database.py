@@ -267,11 +267,17 @@ def update_closing_odds(sport: str, games: list):
 
 
 def log_line_movement(sport: str, games: list):
-    """Recovered from pre-regression database.py — render_job.py's noon retry."""
+    """Recovered from pre-regression database.py — render_job.py's noon retry.
+
+    Now also RETURNS the list of sharp-signal hits it detects (game,
+    sharp text), instead of only printing them — render_job.py uses
+    this to build a real Telegram steam alert. Storage/print behavior
+    unchanged, this is additive."""
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
     saved = 0
+    sharp_hits = []
 
     for game in games:
         home_team = game.get("home_team", "")
@@ -345,6 +351,11 @@ def log_line_movement(sport: str, games: list):
 
             if sharp:
                 print(f"  SHARP: {sharp} - {away_team} @ {home_team}")
+                sharp_hits.append({
+                    "sport": sport,
+                    "game": f"{away_team} @ {home_team}",
+                    "detail": sharp,
+                })
 
         except Exception as e:
             conn.rollback()
@@ -353,6 +364,7 @@ def log_line_movement(sport: str, games: list):
     conn.commit()
     conn.close()
     print(f"Line movement logged: {saved} games ({sport})")
+    return sharp_hits
 
 
 def log_injuries(sport: str):
@@ -524,6 +536,60 @@ def _get_rest_days(conn, team_name: str, sport: str, game_date: str) -> int:
         return max((d1 - d0).days, 0)
     except Exception:
         return 1
+
+
+def get_line_movement_adj(home_team: str, away_team: str, sport: str, date: str = None):
+    """
+    Reads today's already-computed line_movement row for this matchup
+    and converts it into a small point adjustment per team, same
+    pattern as get_situational_row(). render_job.py's noon retry runs
+    update_closing_odds()/log_line_movement() BEFORE this would ever
+    be called by an evening rerun — but for the common case (predict()
+    called earlier in the day, before the noon retry), this table
+    often won't have a row yet. Returns (0.0, 0.0) in that case, same
+    as every other factor's "no data yet" fallback — never a guess.
+
+    Deliberately a SMALL nudge, not a primary signal (per the agreed
+    Tier 3 guidance). Scaled per sport — same lesson as
+    SPORT_INJURY_SCALE in intel_feed.py: a flat point cap only makes
+    sense for one sport's scoring range. WNBA/NBA run ~85-100 pts,
+    NFL/CFB ~22-29 pts, MLB ~4.5 runs — a cap sized for basketball
+    would be a third of an MLB team's entire projected score.
+    """
+    LINE_MOVEMENT_SCALE = {
+        # (points per 10-pt odds move, max cap)
+        "WNBA": (0.3, 1.5),
+        "NBA":  (0.3, 1.5),
+        "NFL":  (0.12, 0.6),
+        "CFB":  (0.12, 0.6),
+        "MLB":  (0.03, 0.15),
+    }
+    per_10pt, cap = LINE_MOVEMENT_SCALE.get(sport.upper(), (0.3, 1.5))
+
+    date = date or datetime.now().strftime("%Y-%m-%d")
+    conn = get_conn()
+    c = conn.cursor()
+    try:
+        c.execute("""
+            SELECT movement_home, movement_away
+            FROM line_movement
+            WHERE date = ? AND sport = ? AND home_team = ? AND away_team = ?
+        """, (date, sport, home_team, away_team))
+        row = c.fetchone()
+        if not row or row["movement_home"] is None or row["movement_away"] is None:
+            return 0.0, 0.0
+
+        def _to_pts(movement):
+            # Odds getting MORE negative (shorter) = market backing
+            # that team harder = positive point adjustment for them.
+            pts = -movement / 10 * per_10pt
+            return round(max(min(pts, cap), -cap), 3)
+
+        return _to_pts(row["movement_home"]), _to_pts(row["movement_away"])
+    except Exception:
+        return 0.0, 0.0
+    finally:
+        conn.close()
 
 
 def get_situational_row(home_team: str, away_team: str, sport: str, date: str = None):
@@ -933,8 +999,8 @@ def log_prediction(bet: dict, sport: str):
             bet.get("bet", ""),
             bet.get("odds"),
             bet.get("model_prob", 0),
-            bet.get("implied_prob", 0),
-            round(bet.get("edge", 0) * 100, 2),
+            bet.get("implied_prob", 0) if bet.get("implied_prob") is not None else None,
+            round(bet["edge"] * 100, 2) if bet.get("edge") is not None else None,
             bet.get("home_record", ""),
             bet.get("away_record", ""),
             bet.get("home_rest"),
@@ -948,6 +1014,61 @@ def log_prediction(bet: dict, sport: str):
     except Exception as e:
         conn.rollback()
         print(f"Prediction log error: {e}")
+    finally:
+        conn.close()
+
+
+def save_prediction_factors(sport: str, game_id: str, home_team: str,
+                             away_team: str, home_score_final: float,
+                             away_score_final: float, home_factors: dict,
+                             away_factors: dict, prediction_id: int = None):
+    """
+    Explainability layer — logs the individual point adjustments that
+    produced each team's final projected score, into the standalone
+    prediction_factors table (see create_prediction_factors.sql).
+    Deliberately NOT joined into predictions/log_prediction() itself;
+    additive-only table given the 7/13 predictions incident, so a bug
+    here can never touch the actual prediction ledger.
+
+    game_id should be date-scoped (e.g. "2026-07-15_LAL_MIN") so the
+    same matchup happening twice in a season doesn't collide against
+    the UNIQUE(sport, game_id) constraint.
+
+    factors dicts are point adjustments only (v1 — no base/final
+    probability split, no second Monte Carlo run), e.g.:
+        {"home_advantage": 4.2, "rest": 1.8, "injury": -6.0,
+         "situational": -0.9, "line_movement": 0.6}
+
+    Safe to call even if this fails — wrapped so a logging error never
+    blocks the actual prediction from being made or saved.
+    """
+    import json
+    conn = get_conn()
+    c    = conn.cursor()
+    try:
+        c.execute("""
+            INSERT INTO prediction_factors
+            (prediction_id, game_id, sport, home_team, away_team,
+             home_score_final, away_score_final, home_factors, away_factors)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (sport, game_id) DO UPDATE SET
+                prediction_id     = EXCLUDED.prediction_id,
+                home_team         = EXCLUDED.home_team,
+                away_team         = EXCLUDED.away_team,
+                home_score_final  = EXCLUDED.home_score_final,
+                away_score_final  = EXCLUDED.away_score_final,
+                home_factors      = EXCLUDED.home_factors,
+                away_factors      = EXCLUDED.away_factors,
+                created_at        = NOW()
+        """, (
+            prediction_id, game_id, sport, home_team, away_team,
+            home_score_final, away_score_final,
+            json.dumps(home_factors), json.dumps(away_factors),
+        ))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"  [factors] save error (non-fatal, prediction unaffected): {e}")
     finally:
         conn.close()
 

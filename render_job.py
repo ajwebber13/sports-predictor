@@ -256,6 +256,8 @@ def run(sports: list, retry: bool = False):
         log(f"Could not import season gates: {e}")
         return
 
+    all_sharp_hits = []  # accumulated across every sport this run, for one consolidated steam alert
+
     for sport in sports:
         if not is_in_season(sport):
             log(f"{sport.upper()}: out of season — skipping")
@@ -263,6 +265,29 @@ def run(sports: list, retry: bool = False):
 
         if retry:
             try:
+                # Capture line movement FIRST, before any potential
+                # re-alert. Previously this ran after run_alerts(),
+                # which meant a fresh noon-retry pick was generated
+                # and sent before movement data existed for that
+                # game — log_line_movement() was purely writing a
+                # record for later analysis, never actually feeding
+                # a live prediction. Flipping the order means
+                # run_alerts() -> predict() can now read a real
+                # movement row via get_line_movement_adj() (wired
+                # into wnba_predictor.py so far) if this retry finds
+                # a new pick worth sending.
+                try:
+                    from services.odds_parser import get_live_odds
+                    from database import log_line_movement, update_closing_odds
+                    games_for_movement = get_live_odds(sport)
+                    update_closing_odds(sport, games_for_movement)
+                    sharp_hits = log_line_movement(sport, games_for_movement)
+                    if sharp_hits:
+                        all_sharp_hits.extend(sharp_hits)
+                    log(f"Line movement captured for {sport}")
+                except Exception as e:
+                    log(f"Line movement error for {sport}: {e}")
+
                 r    = requests.get(SPORT_ENDPOINTS[sport], timeout=60)
                 data = r.json()
                 bets = data.get("best_bets", [])
@@ -272,22 +297,23 @@ def run(sports: list, retry: bool = False):
                 else:
                     log(f"{sport.upper()}: still no edges on retry — skipping")
 
-                try:
-                    from services.odds_parser import get_live_odds
-                    from database import log_line_movement, update_closing_odds
-                    games = get_live_odds(sport)
-                    update_closing_odds(sport, games)
-                    log_line_movement(sport, games)
-                    log(f"Line movement captured for {sport}")
-                except Exception as e:
-                    log(f"Line movement error for {sport}: {e}")
-
             except Exception as e:
                 log(f"Retry check error for {sport}: {e}")
         else:
             run_alerts(sport)
 
         time.sleep(5)
+
+    if retry and all_sharp_hits:
+        lines = ["⚡ <b>Line Movement Alert</b>", ""]
+        for hit in all_sharp_hits:
+            lines.append(f"🏟 {hit['game']} ({hit['sport'].upper()})")
+            lines.append(f"   {hit['detail']}")
+        lines.append("")
+        lines.append("Culture & Pulse Analytics | Line movement, not a pick.")
+        send_telegram("\n".join(lines))
+        log(f"Sent consolidated steam alert covering {len(all_sharp_hits)} game(s) across "
+            f"{len(set(h['sport'] for h in all_sharp_hits))} sport(s)")
 
     if not retry:
         log("")

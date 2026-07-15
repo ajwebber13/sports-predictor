@@ -12,7 +12,8 @@ from mlb_data import (
     get_team_record, get_team_injuries, get_team_rest_days,
 )
 from mlb_weather import get_stadium_weather, get_weather_adj
-from database import get_conn, get_situational_row as _get_situational_row
+from database import get_conn, get_situational_row as _get_situational_row, get_line_movement_adj
+from intel_feed import get_matchup_injury_adj
 
 MLB_CONSTANTS = {
     "home_adv": 0.35,      # home teams average ~0.35 more runs/game than road teams
@@ -24,21 +25,34 @@ SIMS = 10000
 
 
 
-def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situational_adj=0.0):
+def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situational_adj=0.0, injury_adj=0.0, line_adj=0.0):
     """
     Build a team's projected runs for the game.
-    Base runs_per_game, adjusted for home/away split, opposing pitcher
-    quality (ERA + WHIP blend), stadium weather, and situational travel
-    (situational_adj — only applies to the away team, same reasoning
-    as WNBA: it's computed as a travel/altitude/timezone penalty on
-    whoever is traveling, not a symmetric adjustment).
-    """
-    base = team_stats.get("runs_per_game", 4.5)
 
-    if is_home:
-        base += MLB_CONSTANTS["home_adv"] / 2
-    else:
-        base -= MLB_CONSTANTS["home_adv"] / 2
+    Returns (final_runs, factors) — factors is a named breakdown for
+    the prediction_factors explainability log. Unlike WNBA/CFB/NFL,
+    this is NOT a pure sum: pitcher quality and weather are real
+    multipliers on the base rate (an ace doesn't subtract a fixed
+    number of runs, he multiplies your scoring chances down), while
+    situational travel and injuries are point adjustments added on
+    top. The factors dict keeps multipliers labeled as multipliers
+    (pitcher_factor, weather_factor) so nothing gets summed that
+    shouldn't be — see the parity check in __main__, which replays
+    the actual formula rather than summing the dict.
+
+    injury_adj covers the OTHER 8 lineup spots (a missing everyday
+    bat) — the starting pitcher's own quality is already priced in
+    via era/whip above, so this deliberately does not double-count
+    a starter being hurt.
+    """
+    factors = {}
+
+    base = team_stats.get("runs_per_game", 4.5)
+    factors["base_runs_per_game"] = round(base, 3)
+
+    home_adj = MLB_CONSTANTS["home_adv"] / 2 if is_home else -MLB_CONSTANTS["home_adv"] / 2
+    factors["home_away_adj"] = round(home_adj, 3)
+    base += home_adj
 
     if pitcher_stats:
         era = pitcher_stats.get("era", 4.20)
@@ -46,14 +60,26 @@ def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situationa
         era_factor = era / 4.20
         whip_factor = whip / 1.30
         combined_factor = (era_factor * 0.7) + (whip_factor * 0.3)
-        base *= combined_factor
+    else:
+        combined_factor = 1.0
+    factors["pitcher_factor"] = round(combined_factor, 3)
+    base *= combined_factor
 
+    factors["weather_factor"] = round(weather_adj, 3)
     base *= weather_adj
 
-    if not is_home:
-        base += situational_adj
+    sit_adj = situational_adj if not is_home else 0.0
+    factors["situational"] = round(sit_adj, 3)
+    base += sit_adj
 
-    return max(base, 0.5)
+    factors["injury"] = round(injury_adj, 3)
+    base += injury_adj
+
+    factors["line_movement"] = round(line_adj, 3)
+    base += line_adj
+
+    final = max(base, 0.5)
+    return final, factors
 
 
 def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS):
@@ -114,8 +140,33 @@ def predict_game(event):
         away_rest = get_team_rest_days(away_id)
         total_adj = 0.0
 
-    home_runs_proj = project_runs(home_stats, home_pitcher_stats, is_home=True, weather_adj=weather_adj)
-    away_runs_proj = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj, situational_adj=total_adj)
+    try:
+        home_inj_adj, away_inj_adj = get_matchup_injury_adj(home_team, away_team, league="MLB")
+    except Exception as e:
+        print(f"  [MLB] injury adj fetch failed, defaulting to 0: {e}")
+        home_inj_adj, away_inj_adj = 0.0, 0.0
+
+    try:
+        home_line_adj, away_line_adj = get_line_movement_adj(home_team, away_team, sport="mlb")
+    except Exception as e:
+        print(f"  [MLB] line movement fetch failed, defaulting to 0: {e}")
+        home_line_adj, away_line_adj = 0.0, 0.0
+
+    home_runs_proj, home_factors = project_runs(home_stats, home_pitcher_stats, is_home=True, weather_adj=weather_adj, injury_adj=home_inj_adj, line_adj=home_line_adj)
+    away_runs_proj, away_factors = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj, situational_adj=total_adj, injury_adj=away_inj_adj, line_adj=away_line_adj)
+
+    try:
+        from database import save_prediction_factors
+        today = datetime.now().strftime("%Y-%m-%d")
+        game_id = f"{today}_{away_team}_{home_team}".replace(" ", "-")
+        save_prediction_factors(
+            sport="mlb", game_id=game_id,
+            home_team=home_team, away_team=away_team,
+            home_score_final=round(home_runs_proj, 2), away_score_final=round(away_runs_proj, 2),
+            home_factors=home_factors, away_factors=away_factors,
+        )
+    except Exception as e:
+        print(f"  [MLB] factor logging failed (non-fatal): {e}")
 
     result = simulate_game(home_runs_proj, away_runs_proj)
     result["home_team"] = home_team
@@ -132,7 +183,42 @@ def predict_game(event):
     return result
 
 
+def _parity_check_old_style(team_stats, pitcher_stats, is_home, weather_adj=1.0,
+                             situational_adj=0.0, injury_adj=0.0, line_adj=0.0):
+    """Reference implementation — exact pre-refactor math, parity check only."""
+    base = team_stats.get("runs_per_game", 4.5)
+    if is_home:
+        base += MLB_CONSTANTS["home_adv"] / 2
+    else:
+        base -= MLB_CONSTANTS["home_adv"] / 2
+    if pitcher_stats:
+        era = pitcher_stats.get("era", 4.20)
+        whip = pitcher_stats.get("whip", 1.30)
+        era_factor = era / 4.20
+        whip_factor = whip / 1.30
+        combined_factor = (era_factor * 0.7) + (whip_factor * 0.3)
+        base *= combined_factor
+    base *= weather_adj
+    if not is_home:
+        base += situational_adj
+    base += injury_adj
+    base += line_adj
+    return max(base, 0.5)
+
+
 if __name__ == "__main__":
+    # Parity check on synthetic inputs — doesn't need a live event
+    test_stats = {"runs_per_game": 4.8}
+    test_pitcher = {"era": 3.50, "whip": 1.15}
+    new_score, factors = project_runs(test_stats, test_pitcher, is_home=True,
+                                       weather_adj=1.05, injury_adj=-0.3, line_adj=0.05)
+    old_score = _parity_check_old_style(test_stats, test_pitcher, is_home=True,
+                                         weather_adj=1.05, injury_adj=-0.3, line_adj=0.05)
+    parity_ok = abs(new_score - old_score) < 0.01
+    print(f"Parity check: new={new_score:.3f} old={old_score:.3f} -> {'PASS' if parity_ok else 'FAIL — DO NOT SHIP'}")
+    print(f"  Factors: {factors}")
+    print()
+
     events = get_mlb_events()
     for event in events:
         pred = predict_game(event)
