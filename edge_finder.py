@@ -249,6 +249,55 @@ def format_edge_finder_report(date: str, sport: str = "wnba", top_n: int = 5, **
     return "\n".join(lines).rstrip()
 
 
+def log_edge_finder_picks(date: str, sport: str, picks: list) -> int:
+    """Records picks to edge_finder_picks — one immutable row per pick,
+    capturing the edge_score/confidence AS OF the moment it was sent.
+    Deliberately separate from player_props, which gets overwritten as
+    the day's projections change; results tracking needs to compare
+    against what was actually claimed at pick time, not a number that
+    could have drifted since.
+
+    ON CONFLICT DO NOTHING (not DO UPDATE) — a pick, once logged, is a
+    historical fact. Calling this again for the same (date, sport,
+    player, stat) should never silently rewrite what was claimed.
+
+    Callers should only call this for picks that were ACTUALLY SENT
+    (e.g. edge_finder_alert.py after a successful, non-dry-run send) —
+    never from a dashboard view, API hit, or --dry-run, which recompute
+    on demand and would corrupt the tracking history with picks nobody
+    ever saw.
+
+    Requires the edge_finder_picks table — see
+    edge_finder_picks_schema.sql. Returns the number of picks
+    attempted (rows already logged for that date/sport/player/stat are
+    silently skipped via ON CONFLICT DO NOTHING, not double-counted —
+    but this return value doesn't distinguish new inserts from skips,
+    since rowcount behavior isn't guaranteed consistent across the
+    Postgres/Turso/SQLite backends this connects to)."""
+    if not picks:
+        return 0
+
+    conn = _get_conn()
+    c = conn.cursor()
+    try:
+        for p in picks:
+            c.execute("""
+                INSERT INTO edge_finder_picks
+                (date, sport, player_name, stat, line, direction, edge_score, confidence,
+                 hit_rate_overall, games_overall, projection_edge_pct, defense_factor)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (date, sport, player_name, stat) DO NOTHING
+            """, (
+                date, sport, p["player_name"], p["stat"], p["line"], p["projection_direction"],
+                p["edge_score"], p["confidence"], p["hit_rate_overall"], p["games_overall"],
+                p["projection_edge_pct"], p["defense_factor"],
+            ))
+        conn.commit()
+    finally:
+        conn.close()
+    return len(picks)
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Rank today's props by composite Edge Score")

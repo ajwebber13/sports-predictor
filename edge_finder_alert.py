@@ -38,7 +38,7 @@ except ImportError:
     pass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from edge_finder import get_edge_finder, _defense_rank, SUPPORTED_SPORTS, \
+from edge_finder import get_edge_finder, log_edge_finder_picks, _defense_rank, SUPPORTED_SPORTS, \
     MIN_HIT_RATE, MIN_EDGE_PCT, MIN_SAMPLE_SIZE
 
 CENTRAL_OFFSET = -5
@@ -138,6 +138,16 @@ def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, t
 
     send_message(message)
     time.sleep(2)  # match existing alert pacing
+
+    # Log AFTER a real send, not before and not on dry-run — a pick that
+    # was never actually sent shouldn't count in results tracking.
+    try:
+        n = log_edge_finder_picks(date_str, sport, picks)
+        print(f"Logged {n} pick(s) to edge_finder_picks for results tracking.")
+    except Exception as e:
+        # Never let a logging failure look like the alert itself failed —
+        # the message already sent successfully by this point.
+        print(f"WARNING: alert sent, but logging to edge_finder_picks failed: {e}")
 
 
 if __name__ == "__main__":
