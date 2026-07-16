@@ -67,6 +67,7 @@ def get_conn():
 import load_props
 import ranking_engine
 import performance_tracker
+import edge_finder
 
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
 
@@ -560,8 +561,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-tab_games, tab_props, tab_rankings, tab_betting = st.tabs(
-    ["Game Picks", "Player Props", "Power Rankings", "Betting Analytics"]
+tab_games, tab_props, tab_edge, tab_rankings, tab_betting = st.tabs(
+    ["Game Picks", "Player Props", "Edge Finder", "Power Rankings", "Betting Analytics"]
 )
 
 # =========================================================
@@ -926,6 +927,88 @@ with tab_props:
             scrolling=True
         )
         st.caption("Last 10: green dot = beat the line that game, red = missed · dashed line = the prop line · Matchup: >1.0 means that opponent allows more than league average for this stat, <1.0 means tougher than average")
+
+# =========================================================
+# TAB: EDGE FINDER
+# =========================================================
+with tab_edge:
+    st.markdown(
+        '<div style="color:#8a7d55;font-size:12px;margin-bottom:14px;font-family:\'Oswald\',sans-serif;'
+        'letter-spacing:1.5px;text-transform:uppercase;">Composite ranking — hit rate + projection edge + defense matchup</div>',
+        unsafe_allow_html=True,
+    )
+
+    ec1, ec2, ec3 = st.columns([1, 1, 1])
+    with ec1:
+        edge_sport = st.selectbox("Sport", options=edge_finder.SUPPORTED_SPORTS, index=0, key="e_sport")
+    with ec2:
+        # Central-time "today" — matches the convention fetch_prizepicks_props.py
+        # and routes_props.py use, so this defaults to the same slate the
+        # live pipeline just fetched, not whatever date the server's UTC
+        # clock happens to think it is.
+        from datetime import datetime as _dt, timedelta as _td
+        _today_ct = (_dt.utcnow() - _td(hours=5)).strftime("%Y-%m-%d")
+        edge_date = st.text_input("Date (YYYY-MM-DD)", value=_today_ct, key="e_date")
+    with ec3:
+        edge_top_n = st.slider("Show top", 3, 20, 5, key="e_top_n")
+
+    try:
+        edge_picks = edge_finder.get_edge_finder(edge_date, sport=edge_sport, top_n=edge_top_n)
+    except Exception as e:
+        st.error("edge_finder.get_edge_finder failed")
+        st.exception(e)
+        edge_picks = []
+
+    if not edge_picks:
+        st.info(
+            f"No qualifying edges for {edge_sport.upper()} on {edge_date}. "
+            f"This means nothing cleared the confidence guardrails "
+            f"(min {edge_finder.MIN_HIT_RATE}% hit rate, {edge_finder.MIN_EDGE_PCT}%+ edge, "
+            f"{edge_finder.MIN_SAMPLE_SIZE}+ games) — not necessarily a broken query."
+        )
+    else:
+        CONFIDENCE_COLOR = {"HIGH": "#3ecf8e", "MEDIUM": "#e8c547"}
+
+        for i, p in enumerate(edge_picks, 1):
+            conf_color = CONFIDENCE_COLOR.get(p["confidence"], "#8a7d55")
+            direction_label = "Over" if p["projection_direction"] == "over" else "Under"
+
+            # Real league-wide defense rank for this opponent/stat, same
+            # lookup the console/Telegram report uses — falls back to a
+            # plain opponent name if the rank lookup can't resolve.
+            rank, total = edge_finder._defense_rank(
+                edge_sport, p["stat"], p["opponent"], p["projection_direction"]
+            )
+            matchup_label = (
+                f"#{rank}/{total} Defense vs {p['stat'].upper()}" if rank
+                else f"vs {p['opponent']}"
+            )
+
+            st.markdown(f"""
+<div class="cp-overall" style="border-left-color:{conf_color};">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:16px;">
+<div>
+<div class="label">#{i} &middot; {p['team_name']} vs {p['opponent']}</div>
+<div class="value" style="font-size:20px;">{p['player_name']} &middot; {p['stat'].upper()} {direction_label} {p['line']}</div>
+</div>
+<div style="text-align:right;">
+<div class="label">Edge Score</div>
+<div style="color:{conf_color};font-size:26px;font-weight:800;">{p['edge_score']}</div>
+<div style="color:{conf_color};font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-top:2px;">{p['confidence']}</div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(212,175,55,0.14);">
+<div><div class="label">Hit Rate</div><div style="color:#fff;font-weight:700;">{p['hit_rate_overall']}% ({p['games_overall']}G)</div></div>
+<div><div class="label">Projection Edge</div><div style="color:#fff;font-weight:700;">{p['projection_edge_pct']:+.1f}%</div></div>
+<div><div class="label">Matchup</div><div style="color:#fff;font-weight:700;">{matchup_label}</div></div>
+</div>
+</div>
+""", unsafe_allow_html=True)
+
+        st.caption(
+            "Edge Score = 40% hit rate + 40% projection edge + 20% defense matchup, "
+            "normalized against today's slate. HIGH confidence requires score >=80 and 15+ games."
+        )
 
 # =========================================================
 # TAB 3: POWER RANKINGS
