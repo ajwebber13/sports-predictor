@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Send Edge Finder alert
-        run: python edge_finder_alert.py --sport wnba --top 5
+        run: python edge_finder_alert.py --sport wnba --top 5 --parlay-legs 3
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}

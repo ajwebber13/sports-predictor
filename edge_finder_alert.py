@@ -41,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from edge_finder import get_edge_finder, log_edge_finder_picks, _defense_rank, SUPPORTED_SPORTS, \
     MIN_HIT_RATE, MIN_EDGE_PCT, MIN_SAMPLE_SIZE
 from ai_prop_analyzer import generate_prop_analysis
+from edge_finder_parlay import build_parlay
 
 CENTRAL_OFFSET = -5
 
@@ -55,7 +56,7 @@ def get_today_ct() -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).strftime("%Y-%m-%d")
 
 
-def build_message(date: str, sport: str, picks: list, brief: bool = False) -> str:
+def build_message(date: str, sport: str, picks: list, brief: bool = False, parlay_legs: int = 0) -> str:
     lines = [f"<b>\U0001F525 EDGE FINDER \u2014 {sport.upper()} TOP {len(picks)}</b>", ""]
 
     for i, p in enumerate(picks, 1):
@@ -83,6 +84,27 @@ def build_message(date: str, sport: str, picks: list, brief: bool = False) -> st
             lines.append(f"   <i>{analysis}</i>")
         lines.append("")
 
+    if parlay_legs and parlay_legs > 0:
+        # Draws legs from this SAME picks list, already shown above —
+        # the parlay is a combination of what the audience just read,
+        # not a second, separately-fetched set of players.
+        parlay = build_parlay(picks, legs=parlay_legs)
+        lines.append(DIVIDER)
+        if parlay["error"]:
+            lines.append(f"<i>Parlay unavailable today: {parlay['error']}</i>")
+        else:
+            price_str = f"+{parlay['parlay_odds']}" if parlay["parlay_odds"] > 0 else str(parlay["parlay_odds"])
+            lines.append(f"<b>\U0001F3B0 {parlay_legs}-LEG PARLAY: {price_str}</b>")
+            for leg in parlay["legs"]:
+                leg_direction = "Over" if leg["projection_direction"] == "over" else "Under"
+                lines.append(f"  \u2022 {leg['player_name']} {leg['stat'].upper()} {leg_direction} {leg['line']}")
+            lines.append(
+                f"  $1 \u2192 ${parlay['payout_per_unit'] + 1:.2f} return "
+                f"(+${parlay['payout_per_unit']:.2f} profit)"
+            )
+            lines.append("<i>Independent-leg pricing, no correlation adjustment.</i>")
+        lines.append("")
+
     lines.append(DIVIDER)
     lines.append(
         f"<i>Guardrails: {MIN_HIT_RATE}%+ hit rate, {MIN_EDGE_PCT}%+ edge, "
@@ -103,7 +125,8 @@ def send_message(text: str):
         print(f"Failed: {r.status_code} {r.text}")
 
 
-def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, top_n: int = 5, brief: bool = False):
+def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, top_n: int = 5,
+        brief: bool = False, parlay_legs: int = 0):
     if sport not in SUPPORTED_SPORTS:
         print(f"ERROR: unsupported sport '{sport}'. Use one of {SUPPORTED_SPORTS}.")
         sys.exit(1)
@@ -129,7 +152,7 @@ def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, t
         )
         return
 
-    message = build_message(date_str, sport, picks, brief=brief)
+    message = build_message(date_str, sport, picks, brief=brief, parlay_legs=parlay_legs)
     print("\n" + "\u2500" * 40)
     print(message)
     print("\u2500" * 40 + "\n")
@@ -163,5 +186,8 @@ if __name__ == "__main__":
     parser.add_argument("--date", metavar="YYYY-MM-DD", help="Preview alert for a specific date instead of today")
     parser.add_argument("--top", type=int, default=5, help="How many picks to include (default 5)")
     parser.add_argument("--brief", action="store_true", help="Skip the AI Prop Analyzer sentence, just the stat line")
+    parser.add_argument("--parlay-legs", type=int, default=0, choices=[0, 2, 3, 4],
+                         help="Append an N-leg parlay built from these same picks (0 = no parlay, default)")
     args = parser.parse_args()
-    run(sport=args.sport, dry_run=args.dry_run, date_override=args.date, top_n=args.top, brief=args.brief)
+    run(sport=args.sport, dry_run=args.dry_run, date_override=args.date, top_n=args.top,
+        brief=args.brief, parlay_legs=args.parlay_legs)
