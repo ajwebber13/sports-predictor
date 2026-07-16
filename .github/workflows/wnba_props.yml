@@ -21,6 +21,7 @@ jobs:
         run: python fetch_prizepicks_props.py --sport wnba
         env:
           PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 
@@ -38,6 +39,7 @@ jobs:
         run: python fetch_prizepicks_props.py --sport mlb
         env:
           PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
 
@@ -56,5 +58,6 @@ jobs:
         run: python wnba_props_alert.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
