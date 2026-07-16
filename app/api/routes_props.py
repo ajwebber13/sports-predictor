@@ -60,3 +60,53 @@ def props_browser(sport: str = Query(default=None), date: str = Query(default=No
 
     props.sort(key=lambda x: abs(x.get("edge_pct") or 0), reverse=True)
     return {"date": target_date, "sport": sport, "count": len(props), "props": props}
+
+
+@router.get("/edge-finder")
+def props_edge_finder(
+    sport: str = Query(default="wnba"),
+    date: str = Query(default=None),
+    top: int = Query(default=5, ge=1, le=50),
+):
+    """
+    Returns the day's top props ranked by composite Edge Score (see
+    edge_finder.py — 40% hit rate, 40% projection edge %, 20%
+    direction-aware defense matchup, all normalized against today's
+    slate). This is the ranking layer on top of /props/browser's raw
+    data, not a separate data source.
+
+    Rows are filtered by edge_finder's confidence guardrails
+    (MIN_HIT_RATE/MIN_EDGE_PCT/MIN_SAMPLE_SIZE) before ranking — a
+    short or empty `picks` list on a given day means nothing cleared
+    the bar, not a broken query.
+    """
+    from edge_finder import get_edge_finder, SUPPORTED_SPORTS
+
+    if sport not in SUPPORTED_SPORTS:
+        return {"error": f"Unsupported sport '{sport}'. Use one of {SUPPORTED_SPORTS}."}
+
+    target_date = date or _today_ct()
+    picks = get_edge_finder(target_date, sport=sport, top_n=top)
+
+    return {
+        "date": target_date,
+        "sport": sport,
+        "count": len(picks),
+        "picks": [
+            {
+                "player":         p["player_name"],
+                "team":           p["team_name"],
+                "opponent":       p["opponent"],
+                "stat":           p["stat"],
+                "line":           p["line"],
+                "direction":      p["projection_direction"],
+                "edge_score":     p["edge_score"],
+                "confidence":     p["confidence"],
+                "hit_rate":       p["hit_rate_overall"],
+                "hit_rate_games": p["games_overall"],
+                "projection_edge_pct": p["projection_edge_pct"],
+                "defense_factor": p["defense_factor"],
+            }
+            for p in picks
+        ],
+    }

@@ -394,7 +394,7 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
                 date        = today,
                 player_name = player,
                 team_name   = player_team or prop.get("team", ""),
-                opponent    = "",
+                opponent    = opponent_team or "",
                 home_away   = prop.get("home_away", ""),
                 stat        = stat,
                 line        = line,
