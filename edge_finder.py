@@ -141,7 +141,7 @@ def get_edge_finder(
         SELECT player_name, team_name, opponent, stat, line,
                hit_rate_overall, games_overall,
                projection_edge_pct, projection_direction, projection_tier,
-               defense_factor, confidence_tier
+               defense_factor, confidence_tier, over_odds, under_odds
         FROM player_props
         WHERE date = ? AND sport = ?
           AND hit_rate_overall IS NOT NULL

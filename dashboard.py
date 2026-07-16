@@ -68,6 +68,7 @@ import load_props
 import ranking_engine
 import performance_tracker
 import edge_finder
+import player_profile
 
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
 
@@ -561,8 +562,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-tab_games, tab_props, tab_edge, tab_rankings, tab_betting = st.tabs(
-    ["Game Picks", "Player Props", "Edge Finder", "Power Rankings", "Betting Analytics"]
+tab_games, tab_props, tab_edge, tab_players, tab_rankings, tab_betting = st.tabs(
+    ["Game Picks", "Player Props", "Edge Finder", "Player Profiles", "Power Rankings", "Betting Analytics"]
 )
 
 # =========================================================
@@ -1013,6 +1014,75 @@ with tab_edge:
 # =========================================================
 # TAB 3: POWER RANKINGS
 # =========================================================
+# =========================================================
+# TAB: PLAYER PROFILES
+# =========================================================
+with tab_players:
+    st.markdown(
+        '<div style="color:#8a7d55;font-size:12px;margin-bottom:14px;font-family:\'Oswald\',sans-serif;'
+        'letter-spacing:1.5px;text-transform:uppercase;">Recent form, current props, and game log by player</div>',
+        unsafe_allow_html=True,
+    )
+
+    pc1, pc2 = st.columns([1, 2])
+    with pc1:
+        profile_sport = st.selectbox("Sport", options=["wnba", "mlb", "nba", "nfl"], index=0, key="pp_sport")
+    with pc2:
+        profile_player = st.text_input("Player name", "", placeholder="e.g. Caitlin Clark", key="pp_player")
+
+    if not profile_player:
+        st.info("Enter a player name above to pull their profile.")
+    else:
+        try:
+            profile = player_profile.get_player_profile(profile_player, profile_sport, n_games=10)
+        except Exception as e:
+            st.error("player_profile.get_player_profile failed")
+            st.exception(e)
+            profile = None
+
+        if profile:
+            bio = profile["bio"]
+            header_sub = (
+                f"{bio.get('position', '?')} &middot; {bio.get('team_name', '?')} &middot; "
+                f"{bio.get('height', '')} {bio.get('weight', '')}"
+                if bio else "No bio on file for this sport yet"
+            )
+            st.markdown(f"""
+<div class="cp-overall">
+<div class="label">{profile['sport'].upper()}</div>
+<div class="value" style="font-size:24px;">{profile['player_name']}</div>
+<div style="color:#8a7d55;font-size:13px;margin-top:4px;">{header_sub}</div>
+</div>
+""", unsafe_allow_html=True)
+
+            st.markdown(
+                f'<div style="color:#fff;background:linear-gradient(180deg,rgba(24,22,12,0.65),rgba(12,11,6,0.75));'
+                f'border:1px solid rgba(212,175,55,0.14);border-radius:14px;padding:16px 19px;margin-bottom:18px;">'
+                f'{profile["notes"]}</div>',
+                unsafe_allow_html=True,
+            )
+
+            if profile["current_props"]:
+                st.markdown("**Current Props**")
+                props_display = pd.DataFrame(profile["current_props"])[
+                    ["stat", "line", "hit_rate_overall", "games_overall", "confidence_tier", "date"]
+                ]
+                props_display.columns = ["Stat", "Line", "Hit Rate %", "Games", "Tier", "As Of"]
+                st.dataframe(props_display, hide_index=True, width="stretch")
+            else:
+                st.caption("No current props on file for this player.")
+
+            if profile["game_log"]:
+                st.markdown("**Recent Game Log**")
+                stat_options = list(profile["game_log"].keys())
+                chart_stat = st.selectbox("Stat", options=stat_options, key="pp_chart_stat")
+                values = profile["game_log"].get(chart_stat, [])
+                if values:
+                    chart_df = pd.DataFrame({"Game": list(range(1, len(values) + 1)), chart_stat.upper(): values})
+                    st.line_chart(chart_df.set_index("Game"))
+            else:
+                st.caption("No recent game log found for this player/sport.")
+
 with tab_rankings:
     AVAILABLE_SPORTS = ["wnba", "nba", "nfl", "mlb"]
     rank_sport = st.selectbox("Sport", AVAILABLE_SPORTS, key="rank_sport")
