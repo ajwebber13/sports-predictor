@@ -40,6 +40,7 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from edge_finder import get_edge_finder, log_edge_finder_picks, _defense_rank, SUPPORTED_SPORTS, \
     MIN_HIT_RATE, MIN_EDGE_PCT, MIN_SAMPLE_SIZE
+from ai_prop_analyzer import generate_prop_analysis
 
 CENTRAL_OFFSET = -5
 
@@ -54,7 +55,7 @@ def get_today_ct() -> str:
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).strftime("%Y-%m-%d")
 
 
-def build_message(date: str, sport: str, picks: list) -> str:
+def build_message(date: str, sport: str, picks: list, brief: bool = False) -> str:
     lines = [f"<b>\U0001F525 EDGE FINDER \u2014 {sport.upper()} TOP {len(picks)}</b>", ""]
 
     for i, p in enumerate(picks, 1):
@@ -75,6 +76,11 @@ def build_message(date: str, sport: str, picks: list) -> str:
             f"\U0001F4C8 {p['projection_edge_pct']:+.1f}%  "
             f"\U0001F6E1 {matchup}"
         )
+        if not brief:
+            # Templated, deterministic — same numbers always produce the
+            # same sentence. Not an LLM call. See ai_prop_analyzer.py.
+            analysis = generate_prop_analysis(p, sport)
+            lines.append(f"   <i>{analysis}</i>")
         lines.append("")
 
     lines.append(DIVIDER)
@@ -97,7 +103,7 @@ def send_message(text: str):
         print(f"Failed: {r.status_code} {r.text}")
 
 
-def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, top_n: int = 5):
+def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, top_n: int = 5, brief: bool = False):
     if sport not in SUPPORTED_SPORTS:
         print(f"ERROR: unsupported sport '{sport}'. Use one of {SUPPORTED_SPORTS}.")
         sys.exit(1)
@@ -123,7 +129,7 @@ def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, t
         )
         return
 
-    message = build_message(date_str, sport, picks)
+    message = build_message(date_str, sport, picks, brief=brief)
     print("\n" + "\u2500" * 40)
     print(message)
     print("\u2500" * 40 + "\n")
@@ -156,5 +162,6 @@ if __name__ == "__main__":
     parser.add_argument("--dry-run", action="store_true", help="Print message without sending to Telegram")
     parser.add_argument("--date", metavar="YYYY-MM-DD", help="Preview alert for a specific date instead of today")
     parser.add_argument("--top", type=int, default=5, help="How many picks to include (default 5)")
+    parser.add_argument("--brief", action="store_true", help="Skip the AI Prop Analyzer sentence, just the stat line")
     args = parser.parse_args()
-    run(sport=args.sport, dry_run=args.dry_run, date_override=args.date, top_n=args.top)
+    run(sport=args.sport, dry_run=args.dry_run, date_override=args.date, top_n=args.top, brief=args.brief)
