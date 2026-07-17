@@ -4,6 +4,7 @@ Live MLB data pipeline — mirrors cfb_data.py / nfl_data.py pattern.
 """
 
 import requests
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 
 ESPN_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard"
@@ -67,12 +68,23 @@ def get_mlb_events(days_window=1):
     return games
     
 
+@lru_cache(maxsize=64)
 def get_team_stats(team_name, season=None):
     """
     Fetch team stats, gated on whether stat categories exist —
     NOT on win/loss record (ESPN's record endpoint is unreliable,
     confirmed during the CFB build).
-    """
+
+    Cached per (team_name, season) for the life of the process — a
+    team's season stats don't meaningfully change within a single
+    render_job.py run, and doubleheaders (or /mlb/predictions and
+    /mlb/edges both running the same day) would otherwise refetch the
+    exact same team 2-4x for no reason. This is the main real
+    contributor to the per-game external-call count that was timing
+    out mlb_edges() at 60s — see render_job.py's timeout comment for
+    the fuller picture (the other calls, get_starting_pitcher()/
+    get_pitcher_stats(), turned out to be pure data-parsing with no
+    network call at all, not part of the bottleneck)."""
     team_id = MLB_TEAM_IDS.get(team_name)
     if team_id is None:
         return _flat_defaults()
