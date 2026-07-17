@@ -45,8 +45,7 @@ from edge_finder_parlay import build_parlay
 
 CENTRAL_OFFSET = -5
 
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHANNEL = "@cultureandpulsepicks"
+DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 
 CONFIDENCE_EMOJI = {"HIGH": "\U0001F525", "MEDIUM": "\u2705"}  # fire / check
 DIVIDER = "\u2500" * 28
@@ -116,13 +115,8 @@ def build_message(date: str, sport: str, picks: list, brief: bool = False, parla
 
 
 def send_message(text: str):
-    url     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHANNEL, "text": text, "parse_mode": "HTML"}
-    r       = requests.post(url, json=payload, timeout=10)
-    if r.status_code == 200:
-        print("Sent successfully")
-    else:
-        print(f"Failed: {r.status_code} {r.text}")
+    from discord_alerts import send_discord_message, html_to_discord_markdown
+    send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_PROPS)
 
 
 def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, top_n: int = 5,
@@ -161,8 +155,8 @@ def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, t
         print("DRY RUN \u2014 not sent.")
         return
 
-    if not TELEGRAM_TOKEN:
-        print("ERROR: TELEGRAM_TOKEN not set in environment.")
+    if not DISCORD_WEBHOOK_PROPS:
+        print("ERROR: DISCORD_WEBHOOK_PROPS not set in environment.")
         sys.exit(1)
 
     send_message(message)

@@ -18,7 +18,7 @@ jobs:
       - name: Send Edge Finder alert
         run: python edge_finder_alert.py --sport wnba --top 5 --parlay-legs 3
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          DISCORD_WEBHOOK_PROPS: ${{ secrets.DISCORD_WEBHOOK_PROPS }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

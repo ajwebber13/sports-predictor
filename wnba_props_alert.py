@@ -71,6 +71,12 @@ import time
 import requests
 from datetime import datetime, timezone, timedelta
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 from prop_hit_rates import setup_props_table
@@ -78,8 +84,7 @@ from prop_hit_rates import setup_props_table
 # ── Config ────────────────────────────────────────────────────────────────────
 CENTRAL_OFFSET = -5
 
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHANNEL = "@cultureandpulsepicks"
+DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 
 STRONG_THRESHOLD = 80  # hit_rate_overall >= this -> shown as a strong 'over' play
 FADE_THRESHOLD = 20    # hit_rate_overall <= this -> under_rate >= 80 -> fade candidate
@@ -292,13 +297,8 @@ def build_message(date_str: str, props: list, fades: list = None) -> str:
 
 
 def send_message(text: str):
-    url     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHANNEL, "text": text, "parse_mode": "HTML"}
-    r       = requests.post(url, json=payload, timeout=10)
-    if r.status_code == 200:
-        print("Sent successfully")
-    else:
-        print(f"Failed: {r.status_code} {r.text}")
+    from discord_alerts import send_discord_message, html_to_discord_markdown
+    send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_PROPS)
 
 
 def run(dry_run: bool = False, date_override: str = None):
@@ -330,8 +330,8 @@ def run(dry_run: bool = False, date_override: str = None):
         print("DRY RUN — not sent.")
         return
 
-    if not TELEGRAM_TOKEN:
-        print("ERROR: TELEGRAM_TOKEN not set in environment.")
+    if not DISCORD_WEBHOOK_PROPS:
+        print("ERROR: DISCORD_WEBHOOK_PROPS not set in environment.")
         sys.exit(1)
 
     send_message(message)
