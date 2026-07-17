@@ -29,8 +29,7 @@ try:
 except ImportError:
     LOGGING_ENABLED = False
 
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHANNEL = "@cultureandpulsepicks"
+DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 CENTRAL_OFFSET   = -5  # CDT
 
@@ -141,13 +140,8 @@ def get_game_times(sport: str) -> tuple:
 
 
 def send_message(text: str):
-    url     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHANNEL, "text": text, "parse_mode": "HTML"}
-    r       = requests.post(url, json=payload, timeout=10)
-    if r.status_code == 200:
-        print("Sent successfully")
-    else:
-        print(f"Failed: {r.status_code} {r.text}")
+    from discord_alerts import send_discord_message, html_to_discord_markdown
+    send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_GAME_PICKS)
 
 def sport_emoji(sport: str) -> str:
     return "🏈" if sport in ["ncaaf", "nfl"] else "⚾" if sport == "mlb" else "🏀"
@@ -482,7 +476,7 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         send_message(msg)
         time.sleep(1)
 
-    print(f"Sent {len(clean_bets)} alerts for {label} on {today_label} to {TELEGRAM_CHANNEL}")
+    print(f"Sent {len(clean_bets)} alerts for {label} on {today_label} to Discord (Game Day Picks)")
 
 
 if __name__ == "__main__":

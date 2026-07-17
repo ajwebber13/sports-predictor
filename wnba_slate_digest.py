@@ -12,6 +12,12 @@ import time
 from datetime import datetime, timezone, timedelta
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
     from wnba_news_feed import fetch_all_headlines, get_game_news, get_general_news
     NEWS_ENABLED = True
 except ImportError:
@@ -29,8 +35,7 @@ try:
 except ImportError:
     ESPN_PROB_ENABLED = False
 
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHANNEL = "@cultureandpulsepicks"
+DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 CENTRAL_OFFSET   = -5  # CDT
 
@@ -976,18 +981,12 @@ def format_digest(
 
 
 def send_message(text: str):
-    url     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id":                  TELEGRAM_CHANNEL,
-        "text":                     text,
-        "parse_mode":               "HTML",
-        "disable_web_page_preview": True,
-    }
-    r = requests.post(url, json=payload, timeout=10)
-    if r.status_code == 200:
+    from discord_alerts import send_discord_message, html_to_discord_markdown
+    ok = send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_GAME_PICKS)
+    if ok:
         print("Digest sent successfully.")
     else:
-        print(f"Telegram error: {r.status_code} {r.text}")
+        print("Digest send failed — see error above.")
 
 
 def run_digest(dry_run: bool = False):
