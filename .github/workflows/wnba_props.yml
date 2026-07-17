@@ -61,3 +61,22 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+
+  mlb_props_alert:
+    needs: fetch_mlb_props
+    if: always() && (github.event.schedule == '22 15 * * *' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send MLB props alert
+        run: python mlb_props_alert.py
+        env:
+          DISCORD_WEBHOOK_PROPS: ${{ secrets.DISCORD_WEBHOOK_PROPS }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
