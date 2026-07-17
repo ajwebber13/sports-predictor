@@ -17,11 +17,16 @@ import time
 import argparse
 from datetime import datetime
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHANNEL = "@cultureandpulsepicks"
+DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 
 ALL_SPORTS = ["nba", "wnba", "nfl", "cfb", "ncaab", "mlb"]
 
@@ -55,20 +60,17 @@ def wake_api():
         log(f"Wake ping failed: {e}")
 
 
-def send_telegram(text: str):
-    if not TELEGRAM_TOKEN:
-        log("No Telegram token — skipping.")
+def send_discord_alert(text: str):
+    if not DISCORD_WEBHOOK_GAME_PICKS:
+        log("No Discord webhook — skipping.")
         return
     try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHANNEL, "text": text, "parse_mode": "HTML"},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            log(f"Telegram error: {r.status_code} {r.text}")
+        from discord_alerts import send_discord_message, html_to_discord_markdown
+        ok = send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_GAME_PICKS)
+        if not ok:
+            log("Discord send failed — see error above.")
     except Exception as e:
-        log(f"Telegram exception: {e}")
+        log(f"Discord exception: {e}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -214,7 +216,7 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
                 if len(parts) == 2:
                     game_time = game_times.get(parts[0], game_times.get(parts[1], "Time TBD"))
 
-            send_telegram(format_game_card(bet, sport, game_time))
+            send_discord_alert(format_game_card(bet, sport, game_time))
             time.sleep(1)
 
         log(f"Sent {len(clean_bets)} {sport.upper()} alerts.")
@@ -320,7 +322,7 @@ def run(sports: list, retry: bool = False):
             lines.append(f"   {hit['detail']}")
         lines.append("")
         lines.append("Culture & Pulse Analytics | Line movement, not a pick.")
-        send_telegram("\n".join(lines))
+        send_discord_alert("\n".join(lines))
         log(f"Sent consolidated steam alert covering {len(all_sharp_hits)} game(s) across "
             f"{len(set(h['sport'] for h in all_sharp_hits))} sport(s)")
 

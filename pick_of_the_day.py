@@ -29,12 +29,17 @@ import argparse
 import requests
 from datetime import datetime, timezone, timedelta
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 
 CENTRAL_OFFSET = -5
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHANNEL = "@cultureandpulsepicks"
+DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 
 GAME_CONFIDENCE_FLOOR = 80.0   # model_prob must clear this
 PROP_CONFIDENCE_FLOOR = 85.0   # hit_rate_overall >= this (over) or <= 100-this (fade) — raised from 80% so only the strongest signal shows, not just whatever cleared a low bar
@@ -349,13 +354,8 @@ def build_message(date_str: str, game_picks: dict, prop_pick: dict, model_projec
 
 
 def send_message(text: str):
-    url     = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHANNEL, "text": text, "parse_mode": "HTML"}
-    r       = requests.post(url, json=payload, timeout=10)
-    if r.status_code == 200:
-        print("Sent successfully")
-    else:
-        print(f"Failed: {r.status_code} {r.text}")
+    from discord_alerts import send_discord_message, html_to_discord_markdown
+    send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_GAME_PICKS)
 
 
 def run(dry_run: bool = False):
@@ -403,8 +403,8 @@ def run(dry_run: bool = False):
         print("DRY RUN — not sent.")
         return
 
-    if not TELEGRAM_TOKEN:
-        print("ERROR: TELEGRAM_TOKEN not set.")
+    if not DISCORD_WEBHOOK_GAME_PICKS:
+        print("ERROR: DISCORD_WEBHOOK_GAME_PICKS not set.")
         sys.exit(1)
 
     send_message(message)

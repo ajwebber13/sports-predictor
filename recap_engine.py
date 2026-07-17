@@ -28,8 +28,7 @@ try:
 except ImportError:
     pass
 
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHANNEL = "@cultureandpulsepicks"
+DISCORD_WEBHOOK_RECAPS = os.getenv("DISCORD_WEBHOOK_RECAPS", "")
 CENTRAL_OFFSET   = -5
 
 # Add a sport here and every recap (daily + weekly) picks it up automatically.
@@ -62,18 +61,12 @@ def get_today_ct():
 
 
 def send_message(text: str):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHANNEL,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
-    }
-    r = requests.post(url, json=payload, timeout=10)
-    if r.status_code == 200:
+    from discord_alerts import send_discord_message, html_to_discord_markdown
+    ok = send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_RECAPS)
+    if ok:
         print("Sent successfully.")
     else:
-        print(f"Telegram error: {r.status_code} {r.text}")
+        print("Recap send failed — see error above.")
 
 
 def get_results(sport: str, start_date: str, end_date: str) -> list:

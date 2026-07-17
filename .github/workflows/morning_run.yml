@@ -20,7 +20,7 @@ jobs:
       - name: Run morning alerts
         run: python render_job.py --exclude wnba
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
