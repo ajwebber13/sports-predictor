@@ -2,9 +2,12 @@
 recap_engine.py — Culture & Pulse Analytics
 =============================================
 Unified daily/weekly Telegram recap across ALL sports.
-Replaces wnba_recap.py. Reads only from Turso via database.get_conn() —
-results_tracker.py's separate results_log.json file is retired, this
-is now the single source of truth for recaps.
+Replaces wnba_recap.py. Reads via database.get_conn() — this comment
+used to say "Turso only," written before the Supabase migration
+existed; get_conn() itself decides the real backend based on which env
+vars are present (SUPABASE_DB_URL first, Turso fallback), same as
+every other file. results_tracker.py's separate results_log.json file
+is retired, this is now the single source of truth for recaps.
 
 Usage:
   python recap_engine.py --daily                 # all sports, yesterday
@@ -18,6 +21,12 @@ import os
 import requests
 import argparse
 from datetime import datetime, timezone, timedelta
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHANNEL = "@cultureandpulsepicks"

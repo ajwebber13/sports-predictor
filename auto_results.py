@@ -16,6 +16,12 @@ import sys
 import requests
 from datetime import datetime, timezone, timedelta
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 from elo_ratings import update_elo, is_exhibition_team

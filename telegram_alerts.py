@@ -18,6 +18,12 @@ import time
 from datetime import datetime, timezone, timedelta
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+try:
     from database import log_prediction
     LOGGING_ENABLED = True
 except ImportError:
