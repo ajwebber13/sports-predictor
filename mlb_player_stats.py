@@ -170,13 +170,13 @@ def build_player_averages():
     c.execute("""
         SELECT player_name, team_name,
                COUNT(*) as games,
-               ROUND(AVG(at_bats), 1) as avg_ab,
-               ROUND(AVG(hits), 1) as avg_hits,
-               ROUND(AVG(runs), 1) as avg_runs,
-               ROUND(AVG(rbis), 1) as avg_rbis,
-               ROUND(AVG(hrs), 2) as avg_hrs,
-               ROUND(AVG(walks), 1) as avg_walks,
-               ROUND(AVG(avg), 3) as season_avg
+               ROUND(AVG(at_bats)::numeric, 1) as avg_ab,
+               ROUND(AVG(hits)::numeric, 1) as avg_hits,
+               ROUND(AVG(runs)::numeric, 1) as avg_runs,
+               ROUND(AVG(rbis)::numeric, 1) as avg_rbis,
+               ROUND(AVG(hrs)::numeric, 2) as avg_hrs,
+               ROUND(AVG(walks)::numeric, 1) as avg_walks,
+               ROUND(AVG(avg)::numeric, 3) as season_avg
         FROM mlb_game_log
         WHERE at_bats > 0
         GROUP BY player_name, team_name

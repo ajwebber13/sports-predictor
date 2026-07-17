@@ -229,15 +229,15 @@ def build_player_averages():
     c.execute("""
         SELECT player_name, team_name,
                COUNT(*) as games,
-               ROUND(AVG(minutes), 1) as avg_min,
-               ROUND(AVG(pts), 1) as avg_pts,
-               ROUND(AVG(reb), 1) as avg_reb,
-               ROUND(AVG(ast), 1) as avg_ast,
-               ROUND(AVG(stl), 1) as avg_stl,
-               ROUND(AVG(blk), 1) as avg_blk,
-               ROUND(AVG(fg_pct), 3) as avg_fg,
-               ROUND(AVG(three_pct), 3) as avg_3pt,
-               ROUND(AVG(ft_pct), 3) as avg_ft
+               ROUND(AVG(minutes)::numeric, 1) as avg_min,
+               ROUND(AVG(pts)::numeric, 1) as avg_pts,
+               ROUND(AVG(reb)::numeric, 1) as avg_reb,
+               ROUND(AVG(ast)::numeric, 1) as avg_ast,
+               ROUND(AVG(stl)::numeric, 1) as avg_stl,
+               ROUND(AVG(blk)::numeric, 1) as avg_blk,
+               ROUND(AVG(fg_pct)::numeric, 3) as avg_fg,
+               ROUND(AVG(three_pct)::numeric, 3) as avg_3pt,
+               ROUND(AVG(ft_pct)::numeric, 3) as avg_ft
         FROM wnba_game_log
         WHERE minutes > 0
         GROUP BY player_name, team_name
