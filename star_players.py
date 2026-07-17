@@ -91,7 +91,7 @@ def get_star_players(sport: str, top_n: int = 3, season: str = "2026", use_cache
             FROM {table}
             WHERE {date_filter}
             GROUP BY player_name, team_name
-            HAVING games >= ?
+            HAVING COUNT(*) >= ?
             ORDER BY team_name, avg_volume DESC
         """, (*params, min_games))
         rows = _rows_to_dicts(c, c.fetchall())

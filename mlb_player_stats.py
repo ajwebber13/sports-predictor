@@ -180,7 +180,7 @@ def build_player_averages():
         FROM mlb_game_log
         WHERE at_bats > 0
         GROUP BY player_name, team_name
-        HAVING games >= 3
+        HAVING COUNT(*) >= 3
     """)
 
     rows  = c.fetchall()

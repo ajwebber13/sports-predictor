@@ -241,7 +241,7 @@ def build_player_averages():
         FROM wnba_game_log
         WHERE minutes > 0
         GROUP BY player_name, team_name
-        HAVING games >= 3
+        HAVING COUNT(*) >= 3
     """)
 
     rows  = c.fetchall()
