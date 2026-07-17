@@ -510,11 +510,48 @@ def format_game_card(bet: dict, sport: str, game_time: str) -> str:
     away_team = parts[0] if len(parts) == 2 else ""
     home_team = parts[1] if len(parts) == 2 else ""
 
-    model_prob  = bet.get("model_prob", 50)
-    home_prob   = round(float(model_prob), 1)
-    away_prob   = round(100 - home_prob, 1)
+    # home_win_prob/away_win_prob are explicit, unambiguous fields the
+    # API now provides directly. model_prob (still present for backward
+    # compat) is NOT always the home team's probability — it's
+    # whichever team the model's edge favors, home or away, which
+    # caused a real mislabeling bug when the recommended team was the
+    # away team: this code used to assume model_prob == home_prob
+    # unconditionally, silently corrupting the win-probability split
+    # (and the "Pick" line, in some cases) whenever the away team was
+    # actually the one being recommended. Falls back to the old
+    # (buggy but functional) derivation only if the API response is
+    # from before this fix and doesn't have the new fields yet.
+    if "home_win_prob" in bet and "away_win_prob" in bet:
+        home_prob = round(float(bet["home_win_prob"]), 1)
+        away_prob = round(float(bet["away_win_prob"]), 1)
+    else:
+        model_prob = bet.get("model_prob", 50)
+        home_prob  = round(float(model_prob), 1)
+        away_prob  = round(100 - home_prob, 1)
+
     winner      = home_team if home_prob > away_prob else away_team
     winner_prob = max(home_prob, away_prob)
+
+    # When there IS an edge pick, bet_label already unambiguously names
+    # the recommended team (it's how the API decided which team to
+    # recommend in the first place) — trust it directly instead of
+    # re-deriving "winner" from a probability comparison, which can
+    # legitimately disagree with bet_label. A value bet on an underdog
+    # (model favors Team A outright, but Team B is undervalued by the
+    # market) is exactly the case where "highest win probability" and
+    # "the actual recommended bet" are different teams — re-deriving
+    # winner from probability alone would then show the WRONG team
+    # next to a real edge pick.
+    has_edge = bool(bet_label)
+    if has_edge:
+        pick_team = bet_label.rsplit(" ML", 1)[0].rsplit(" +", 1)[0].rsplit(" -", 1)[0].strip()
+        if pick_team == home_team:
+            winner, winner_prob = home_team, home_prob
+        elif pick_team == away_team:
+            winner, winner_prob = away_team, away_prob
+        # else: unrecognized label format (e.g. a spread pick, not ML) —
+        # fall back to the probability-derived winner above rather than
+        # showing a blank/wrong team.
 
     lines = [f"{emoji} <b>{game}</b>", f"🕐 {game_time}"]
 
@@ -539,7 +576,6 @@ def format_game_card(bet: dict, sport: str, game_time: str) -> str:
     lines.append("───────────────────")
     lines.append(f"📊 {away_team.split()[-1]} {away_prob}% · {home_team.split()[-1]} {home_prob}%")
 
-    has_edge = bool(bet_label)
     if has_edge:
         odds_str = f" ({fmt_odds(odds)})" if odds else ""
         lines.append(f"✅ <b>Pick: {winner} ({winner_prob}%)</b>{odds_str}")
