@@ -76,11 +76,28 @@ st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_si
 # Set DASHBOARD_PASSWORD in Render's env vars. Anyone with the URL otherwise
 # sees your model's edge %, picks, and full performance — lock it before
 # sharing this link with anyone outside yourself.
+#
+# FIXED 2026-07-20: pure st.session_state["authenticated"] lives only in
+# memory tied to the active WebSocket session. Mobile browsers aggressively
+# kill backgrounded Streamlit tabs (locking the screen, switching apps,
+# even just idling) — reconnecting after that starts a BRAND NEW session,
+# wiping session_state and forcing a re-login every time. Fix: also accept
+# a token in the URL query string. On successful password entry, redirect
+# to a URL with ?auth=<token> appended — bookmark THAT link (or add it to
+# your phone's home screen) and future visits skip the password entirely,
+# since the token travels in the URL itself, not in session memory.
 def check_password():
+    auth_token = os.environ.get("DASHBOARD_PASSWORD", "")
+
+    # already-valid token in the URL — no session_state needed at all
+    if auth_token and st.query_params.get("auth") == auth_token:
+        st.session_state["authenticated"] = True
+        return True
 
     def password_entered():
-        if st.session_state.get("pw_input") == os.environ.get("DASHBOARD_PASSWORD", ""):
+        if st.session_state.get("pw_input") == auth_token:
             st.session_state["authenticated"] = True
+            st.query_params["auth"] = auth_token
             del st.session_state["pw_input"]
         else:
             st.session_state["authenticated"] = False
@@ -100,12 +117,18 @@ def check_password():
         st.text_input("Password", type="password", key="pw_input", on_change=password_entered, label_visibility="collapsed")
         if st.session_state.get("authenticated") is False:
             st.error("Incorrect password")
+        if st.session_state.get("authenticated"):
+            st.caption("📱 On mobile: bookmark this page now (or add to Home Screen) — the URL now has your login baked in, so you won't be asked again.")
     return False
 
-if not os.environ.get("DASHBOARD_PASSWORD"):
-    st.warning("DASHBOARD_PASSWORD not set — dashboard is unprotected. Add it in Render's environment variables.")
-elif not check_password():
-    st.stop()
+# ---------- PASSWORD GATE: DISABLED 2026-07-20 per Drew's request ----------
+# Not needed right now. check_password() above is left intact (unused) —
+# to turn it back on later, uncomment the 4 lines below.
+#
+# if not os.environ.get("DASHBOARD_PASSWORD"):
+#     st.warning("DASHBOARD_PASSWORD not set — dashboard is unprotected. Add it in Render's environment variables.")
+# elif not check_password():
+#     st.stop()
 
 # ---------- TEAM LOGO LOOKUP ----------
 # ESPN team IDs, copied from mlb_data.py / advanced_metrics.py so this file
@@ -335,10 +358,21 @@ def build_props_html(rows: list) -> str:
   .cp-glass-wrap {{
     background: linear-gradient(180deg, rgba(19,18,9,0.75), rgba(10,10,10,0.9));
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(212,175,55,0.14); border-radius: 16px; overflow: hidden;
+    border: 1px solid rgba(212,175,55,0.14); border-radius: 16px;
     box-shadow: 0 12px 32px rgba(0,0,0,0.45);
   }}
-  table {{ width:100%; border-collapse:collapse; font-size:13px; }}
+  /* FIXED 2026-07-20: this used to be overflow:hidden on the same
+     element as the table, which CLIPPED any column past the visible
+     edge instead of letting you scroll to it — "can't slide over to
+     see the rest of the table" was this, not a missing swipe gesture.
+     Scroll now lives on its own inner wrapper (rounded corners stay
+     on the outer .cp-glass-wrap since that one still clips cleanly at
+     its own edges); -webkit-overflow-scrolling gives iOS Safari
+     native momentum scrolling instead of the janky default. */
+  .cp-scroll-wrap {{
+    overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 16px;
+  }}
+  table {{ width:100%; min-width:900px; border-collapse:collapse; font-size:13px; }}
   thead th {{
     background: rgba(19,18,9,0.9); color:#a8905c; font-family:'Oswald',sans-serif; font-weight:600;
     font-size:11px; letter-spacing:1px; text-transform:uppercase; text-align:left;
@@ -352,10 +386,12 @@ def build_props_html(rows: list) -> str:
 </style></head>
 <body>
 <div class="cp-glass-wrap">
+<div class="cp-scroll-wrap">
 <table id="cpPropsTable">
   <thead><tr>{header_html}</tr></thead>
   <tbody>{"".join(body_rows)}</tbody>
 </table>
+</div>
 </div>
 <script>
 function cpSort(colIndex, type) {{
@@ -814,11 +850,11 @@ with tab_props:
         hits = int((settled_props["status"] == "HIT").sum())
         total = len(settled_props)
         hit_pct = round(hits / total * 100, 1) if total else 0
-        grade, grade_color = grade_from_pct(hit_pct)
+        _, grade_color = grade_from_pct(hit_pct)  # keep color-coding, swap the letter for the real number
         st.markdown(
             f'<div class="cp-overall"><div class="label">Props Record</div>'
             f'<div class="value">{hits}-{total - hits} '
-            f'<span class="pct" style="color:{grade_color};font-weight:800;">· {grade}</span></div></div>',
+            f'<span class="pct" style="color:{grade_color};font-weight:800;">· {hit_pct}%</span></div></div>',
             unsafe_allow_html=True,
         )
     else:
@@ -921,13 +957,30 @@ with tab_props:
                 "odds": row["Odds"], "status": row["status"],
             })
 
+        with st.expander("ℹ️ What each column means"):
+            st.markdown("""
+- **Date** — game date
+- **Game** — matchup (away @ home)
+- **Player** — the player this prop is on, with their team below the name
+- **Opp** — the opponent for this specific prop (who the player is facing)
+- **Sport** — WNBA / MLB / etc.
+- **Stat / Line** — the stat being bet (PTS, RBIS, HITS, etc.) and the posted line to hit
+- **Play** — 🟢 Over or 🔴 Under, our model's actual recommendation
+- **Last 10** — sparkline of the player's last 10 games vs. this line; green dot = beat it, red = missed it, dashed line = the line itself
+- **Proj** — our model's projected value for this stat tonight
+- **Edge %** — how far our projection sits from the posted line, as a percent (bigger = stronger signal either direction)
+- **Hit Rate** — how often this exact play (over/under this stat) has actually hit historically
+- **Matchup** — opponent's defensive strength vs. this stat: **above 1.0** = opponent allows more than league average (favorable for Over), **below 1.0** = tougher than average (favorable for Under)
+- **Odds** — the over/under odds on this line
+- **Result** — HIT / MISS / PENDING / NO BET once the game plays out
+""")
+        st.caption("👉 Swipe left/right to see all columns")
         table_height = min(72 + len(table_rows) * 42, 900)
         components.html(
             build_props_html(table_rows),
             height=table_height,
             scrolling=True
         )
-        st.caption("Last 10: green dot = beat the line that game, red = missed · dashed line = the prop line · Matchup: >1.0 means that opponent allows more than league average for this stat, <1.0 means tougher than average")
 
 # =========================================================
 # TAB: EDGE FINDER
