@@ -10,7 +10,12 @@ SETUP:
 3. Deploy on Render or any platform — no longer tied to Linux-only wheels
 
 Schemas used:
-- predictions / results: game picks, joined on prediction_id (see earlier notes)
+- predictions / results: game picks, joined on prediction_id (see earlier notes).
+  As of Prediction Engine v2 (2026-07-20), predictions can hold up to 3 rows
+  per game — one per market (moneyline / spread / total) — keyed on
+  (date, sport, game, market). load_picks() below pulls the new market,
+  pick, line, projected_home, projected_away, projected_margin,
+  projected_total, and confidence columns.
 - player_props: date, sport, player_name, team_name, opponent, home_away, stat,
   line, over_odds, under_odds, hit_rate_overall, hit_rate_vs_opp,
   hit_rate_home_away, hit_rate_b2b, games_overall, games_vs_opp,
@@ -207,6 +212,25 @@ def grade_from_pct(pct: float) -> tuple:
         return "D", "#ff9d4d"
     return "F", "#ff5c5c"
 
+# ---------- MARKET DISPLAY HELPERS (Prediction Engine v2) ----------
+MARKET_LABELS = {"moneyline": "ML", "spread": "Spread", "total": "Total"}
+
+def market_label(market: str) -> str:
+    return MARKET_LABELS.get((market or "moneyline").lower(), (market or "ML").upper())
+
+def pick_display(row) -> str:
+    """Builds a clean 'Yankees -1.5' / 'Over 8.5' / 'Yankees' string from
+    the pick + line columns, falling back to the old 'bet' text field for
+    rows logged before Prediction Engine v2 added pick/line."""
+    pick = row.get("pick") if hasattr(row, "get") else row["pick"]
+    line = row.get("line") if hasattr(row, "get") else row["line"]
+    if not pick:
+        return row.get("bet", "") if hasattr(row, "get") else row["bet"]
+    if pd.notna(line) and line not in (None, ""):
+        sign = "+" if float(line) > 0 else ""
+        return f"{pick} {sign}{line}"
+    return pick
+
 # ---------- SPARKLINE PROPS TABLE (custom HTML/JS component) ----------
 # Streamlit's native st.dataframe renders to canvas internally, so it can't
 # show an inline recent-form sparkline per row — the thing that makes
@@ -331,7 +355,7 @@ def build_props_html(rows: list) -> str:
   <td data-val="{esc(r['play'])}">{r['play']}</td>
   <td data-val="{r.get('edge_pct') or 0}">{r['sparkline_svg']}</td>
   <td data-val="{r.get('projected') or 0}">{r['projected'] if r.get('projected') is not None else '—'}</td>
-  <td data-val="{r.get('edge_pct') or 0}" style="color:{'#3ecf8e' if (r.get('edge_pct') or 0) >= 0 else '#ff5c5c'};font-weight:700;">{f"{r['edge_pct']:+.1f}%" if r.get('edge_pct') is not None else '—'}</td>
+  <td data-val="{r.get('edge_pct') or 0}" style="color:#D4AF37;font-weight:700;">{f"{abs(r['edge_pct']):.1f}%" if r.get('edge_pct') is not None else '—'}</td>
   <td data-val="{r.get('hit_rate') or 0}">{f"{r['hit_rate']:.0f}%" if r.get('hit_rate') is not None else '—'}</td>
   <td data-val="{r.get('matchup') or 0}">{f"{r['matchup']:.2f}" if r.get('matchup') is not None else '—'}</td>
   <td data-val="{esc(r['odds'])}">{esc(r['odds'])}</td>
@@ -514,13 +538,21 @@ div[data-testid="stVerticalBlock"] > div[style*="flex-direction: column"] { gap:
 
 @st.cache_data(ttl=300)
 def load_picks():
+    """Prediction Engine v2 (2026-07-20): predictions can now hold up
+    to 3 rows per game (moneyline/spread/total), so this now pulls
+    market, pick, line, and the projected-score columns alongside the
+    existing fields. Rows logged before v2 will have market defaulted
+    to 'moneyline' and pick/line/projected_* as NULL — the UI below
+    falls back to the old `bet` text field for those."""
     conn = get_conn()
 
     query = """
         SELECT p.date, p.sport, p.game, p.bet, p.odds, p.edge,
                p.model_prob, p.implied_prob, p.home_record, p.away_record,
                p.home_rest, p.away_rest, p.home_injuries, p.away_injuries,
-               r.home_team, r.away_team, r.home_score, r.away_score, r.correct
+               p.market, p.pick, p.line, p.projected_home, p.projected_away,
+               p.projected_margin, p.projected_total, p.confidence,
+               r.home_team, r.away_team, r.home_score, r.away_score, r.correct, r.push
         FROM predictions p
         LEFT JOIN results r ON r.prediction_id = p.id
         ORDER BY p.date DESC
@@ -530,8 +562,16 @@ def load_picks():
     cols = ["date", "sport", "game", "bet", "odds", "edge",
             "model_prob", "implied_prob", "home_record", "away_record",
             "home_rest", "away_rest", "home_injuries", "away_injuries",
-            "result_home_team", "result_away_team", "home_score", "away_score", "correct"]
-    return pd.DataFrame(rows, columns=cols)
+            "market", "pick", "line", "projected_home", "projected_away",
+            "projected_margin", "projected_total", "confidence",
+            "result_home_team", "result_away_team", "home_score", "away_score", "correct", "push"]
+    df = pd.DataFrame(rows, columns=cols)
+    # Old rows logged before v2 have market=NULL in the DB only if they
+    # predate the DEFAULT 'moneyline' on the column — normalize here too
+    # so filters/grouping never see a blank market.
+    if not df.empty:
+        df["market"] = df["market"].fillna("moneyline")
+    return df
 
 
 @st.cache_data(ttl=300)
@@ -614,8 +654,17 @@ with tab_games:
         df["home_score"] = pd.to_numeric(df["home_score"], errors="coerce")
         df["away_score"] = pd.to_numeric(df["away_score"], errors="coerce")
         df["correct"] = pd.to_numeric(df["correct"], errors="coerce")
+        # push column only exists once results.push has been added
+        # (Prediction Engine v2 grading) — older rows/deployments
+        # without it just show pd.NA here, which reads as "not a push"
+        # everywhere below.
+        if "push" not in df.columns:
+            df["push"] = False
+        df["push"] = df["push"].fillna(False).astype(bool)
 
         def status(row):
+            if row["push"]:
+                return "PUSH"
             if pd.isna(row["correct"]):
                 return "PENDING"
             return "WIN" if row["correct"] == 1 else "LOSS"
@@ -712,7 +761,7 @@ with tab_games:
                     st.markdown(f"""
 <div class="cp-card" style="border-left:3px solid #3ecf8e;">
 <div class="sport-name">Best pick &middot; {best['sport']}</div>
-<div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{best['bet']}</div>
+<div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{pick_display(best)}</div>
 <div style="color:#8a7d55;font-size:12px;margin-top:4px;">{best['game']} &middot; {best['date']}</div>
 <div style="color:#3ecf8e;font-weight:800;font-size:14px;margin-top:8px;">+{best['edge']}% edge &middot; WIN</div>
 </div>
@@ -722,7 +771,7 @@ with tab_games:
                     st.markdown(f"""
 <div class="cp-card" style="border-left:3px solid #ff5c5c;">
 <div class="sport-name">Worst pick &middot; {worst['sport']}</div>
-<div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{worst['bet']}</div>
+<div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{pick_display(worst)}</div>
 <div style="color:#8a7d55;font-size:12px;margin-top:4px;">{worst['game']} &middot; {worst['date']}</div>
 <div style="color:#ff5c5c;font-weight:800;font-size:14px;margin-top:8px;">+{worst['edge']}% edge &middot; LOSS</div>
 </div>
@@ -735,22 +784,35 @@ with tab_games:
         detail_slot = st.empty()
 
         st.markdown("---")
-        fc1, fc2, fc3, fc4 = st.columns([1, 1, 1, 1.5])
+        fc1, fc2, fc3, fc4, fc5 = st.columns([1, 1, 1, 1, 1.3])
         with fc1:
             sport_filter = st.multiselect("Sport", options=df["sport"].unique(), default=list(df["sport"].unique()), key="g_sport")
         with fc2:
-            status_filter = st.multiselect("Result", options=["WIN", "LOSS", "PENDING"], default=["WIN", "LOSS", "PENDING"], key="g_status")
+            market_filter = st.multiselect(
+                "Market",
+                options=sorted(df["market"].unique()),
+                default=sorted(df["market"].unique()),
+                format_func=market_label,
+                key="g_market",
+            )
         with fc3:
-            min_edge_g = st.slider("Min Edge %", 0.0, 50.0, 0.0, 1.0, key="g_edge")
+            status_filter = st.multiselect("Result", options=["WIN", "LOSS", "PUSH", "PENDING"], default=["WIN", "LOSS", "PUSH", "PENDING"], key="g_status")
         with fc4:
+            min_edge_g = st.slider("Min Edge %", 0.0, 50.0, 0.0, 1.0, key="g_edge")
+        with fc5:
             search_g = st.text_input("Search team/game", "", key="g_search")
 
-        filtered = df[df["sport"].isin(sport_filter) & df["status"].isin(status_filter)].copy()
+        filtered = df[
+            df["sport"].isin(sport_filter)
+            & df["market"].isin(market_filter)
+            & df["status"].isin(status_filter)
+        ].copy()
         filtered["edge"] = pd.to_numeric(filtered["edge"], errors="coerce")
         filtered = filtered[(filtered["edge"].abs() >= min_edge_g) | filtered["edge"].isna()]
         if search_g:
             filtered = filtered[filtered["game"].str.contains(search_g, case=False, na=False)
-                                 | filtered["bet"].str.contains(search_g, case=False, na=False)]
+                                 | filtered["bet"].str.contains(search_g, case=False, na=False)
+                                 | filtered["pick"].fillna("").str.contains(search_g, case=False, na=False)]
 
         # Same 15% / 7% edge thresholds used by the projection engine's
         # confidence tiers elsewhere in the app, applied here to game picks
@@ -766,22 +828,32 @@ with tab_games:
             return "🔴"
         filtered["Tier"] = filtered["edge"].apply(edge_tier)
 
-        # Pull the team name being bet on out of the "bet" field (e.g. "Miami Marlins ML")
-        # to look up its logo — matches the sport's team ID map when available.
+        filtered["Market"] = filtered["market"].apply(market_label)
+        filtered["Pick"] = filtered.apply(pick_display, axis=1)
+
+        # Pull the team name being bet on out of the pick (falls back to
+        # the old "bet" field for pre-v2 rows) to look up its logo — only
+        # meaningful for moneyline/spread picks, not Over/Under totals.
         def pick_logo(row):
-            team_guess = row["bet"].replace(" ML", "").strip()
-            return team_logo_url(row["sport"], team_guess)
+            team_guess = (row["Pick"] or "").split(" ")[0:2]
+            team_guess = " ".join(team_guess) if team_guess else ""
+            if row["market"] == "total":
+                return ""
+            team_guess = row["pick"] or row["bet"].replace(" ML", "")
+            return team_logo_url(row["sport"], team_guess.strip())
         filtered["pick_logo"] = filtered.apply(pick_logo, axis=1)
 
         sorted_full = filtered.sort_values("date", ascending=False).reset_index(drop=True)
         st.write(f"**{len(sorted_full)} picks**")
-        display_cols = ["pick_logo", "date", "sport", "game", "bet", "Tier", "odds", "edge", "final_score", "status"]
+        display_cols = ["pick_logo", "date", "sport", "game", "Market", "Pick", "Tier", "odds", "edge", "final_score", "status"]
 
         event = st.dataframe(
             sorted_full[display_cols],
             width="stretch", hide_index=True,
             column_config={
                 "pick_logo": st.column_config.ImageColumn(""),
+                "Market": st.column_config.TextColumn("Market", width="small"),
+                "Pick": st.column_config.TextColumn("Pick"),
                 "Tier": st.column_config.TextColumn("Tier", width="small"),
                 "status": st.column_config.TextColumn("Result"),
                 "final_score": st.column_config.TextColumn("Score"),
@@ -794,10 +866,46 @@ with tab_games:
 
         if event and event.selection and event.selection.rows:
             g = sorted_full.iloc[event.selection.rows[0]]
-            model_prob = f"{g['model_prob']:.1f}%" if pd.notna(g["model_prob"]) else "—"
-            implied_prob = f"{g['implied_prob']:.1f}%" if pd.notna(g["implied_prob"]) else "—"
             score_line = g["final_score"] if g["final_score"] else "Not yet played"
-            status_color = {"WIN": "#3ecf8e", "LOSS": "#ff5c5c", "PENDING": "#8a7d55"}[g["status"]]
+            status_color = {"WIN": "#3ecf8e", "LOSS": "#ff5c5c", "PUSH": "#D4AF37", "PENDING": "#8a7d55"}.get(g["status"], "#8a7d55")
+
+            # All markets logged for this same game/date — lets the detail
+            # card show ML + Spread + Total together like a sportsbook
+            # matchup card, instead of only the one row that was clicked.
+            game_markets = df[(df["date"] == g["date"]) & (df["game"] == g["game"])].copy()
+
+            market_cards = []
+            for _, m in game_markets.sort_values("market").iterrows():
+                m_status = m["status"] if "status" in m else (
+                    "WIN" if m["correct"] == 1 else "LOSS" if m["correct"] == 0 else "PENDING"
+                )
+                m_color = {"WIN": "#3ecf8e", "LOSS": "#ff5c5c", "PUSH": "#D4AF37", "PENDING": "#8a7d55"}.get(m_status, "#8a7d55")
+                m_prob = f"{m['model_prob']:.1f}%" if pd.notna(m["model_prob"]) else "—"
+                market_cards.append(f"""
+<div style="background:rgba(19,18,9,0.5);border:1px solid rgba(212,175,55,0.12);border-radius:10px;padding:12px 16px;min-width:150px;">
+<div class="label" style="margin-bottom:4px;">{market_label(m['market'])}</div>
+<div style="color:#fff;font-weight:700;font-size:14px;">{pick_display(m)}</div>
+<div style="color:#8a7d55;font-size:11px;margin-top:4px;">{m['odds']} &middot; {m_prob} model &middot; <span style="color:{m_color};font-weight:700;">{m_status}</span></div>
+</div>""")
+
+            # Projected score block — only shows if at least one market row
+            # for this game has projected_home/away populated.
+            proj_row = game_markets[game_markets["projected_home"].notna()]
+            proj_html = ""
+            if not proj_row.empty:
+                pr = proj_row.iloc[0]
+                home_nm = g["result_home_team"] or g["game"].split(" @ ")[-1]
+                away_nm = g["result_away_team"] or g["game"].split(" @ ")[0]
+                proj_html = f"""
+<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(212,175,55,0.14);">
+<div class="label" style="margin-bottom:8px;">Model Projection</div>
+<div style="display:flex;gap:24px;flex-wrap:wrap;">
+<div><div style="color:#8a7d55;font-size:11px;">{away_nm}</div><div style="color:#fff;font-size:18px;font-weight:800;">{pr['projected_away']:.1f}</div></div>
+<div><div style="color:#8a7d55;font-size:11px;">{home_nm}</div><div style="color:#fff;font-size:18px;font-weight:800;">{pr['projected_home']:.1f}</div></div>
+<div><div style="color:#8a7d55;font-size:11px;">Margin</div><div style="color:#D4AF37;font-size:18px;font-weight:800;">{pr['projected_margin']:+.1f}</div></div>
+<div><div style="color:#8a7d55;font-size:11px;">Total</div><div style="color:#D4AF37;font-size:18px;font-weight:800;">{pr['projected_total']:.1f}</div></div>
+</div>
+</div>"""
 
             detail_slot.markdown(f"""
 <div class="cp-overall" style="border-left-color:{status_color};">
@@ -805,18 +913,17 @@ with tab_games:
 <div>
 <div class="label">{g['date']} &middot; {g['sport'].upper()}</div>
 <div class="value" style="font-size:20px;">{g['game']}</div>
-<div style="color:#8a7d55;font-size:13px;margin-top:6px;">Pick: <span style="color:#fff;font-weight:700;">{g['bet']}</span> ({g['odds']})</div>
 </div>
 <div style="text-align:right;">
-<div class="label">Result</div>
-<div style="color:{status_color};font-size:20px;font-weight:800;">{g['status']}</div>
-<div style="color:#8a7d55;font-size:12px;margin-top:4px;">{score_line}</div>
+<div class="label">Score</div>
+<div style="color:#8a7d55;font-size:13px;">{score_line}</div>
 </div>
 </div>
+<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid rgba(212,175,55,0.14);">
+{"".join(market_cards)}
+</div>
+{proj_html}
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(212,175,55,0.14);">
-<div><div class="label">Model prob</div><div style="color:#D4AF37;font-weight:700;">{model_prob}</div></div>
-<div><div class="label">Market implied</div><div style="color:#fff;font-weight:700;">{implied_prob}</div></div>
-<div><div class="label">Edge</div><div style="color:#fff;font-weight:700;">{g['edge']}%</div></div>
 <div><div class="label">Home record</div><div style="color:#fff;font-weight:700;">{g['home_record'] or '—'}</div></div>
 <div><div class="label">Away record</div><div style="color:#fff;font-weight:700;">{g['away_record'] or '—'}</div></div>
 <div><div class="label">Rest (H/A)</div><div style="color:#fff;font-weight:700;">{g['home_rest'] if pd.notna(g['home_rest']) else '—'}d / {g['away_rest'] if pd.notna(g['away_rest']) else '—'}d</div></div>
@@ -1053,7 +1160,7 @@ with tab_edge:
 </div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(212,175,55,0.14);">
 <div><div class="label">Hit Rate</div><div style="color:#fff;font-weight:700;">{p['hit_rate_overall']}% ({p['games_overall']}G)</div></div>
-<div><div class="label">Projection Edge</div><div style="color:#fff;font-weight:700;">{p['projection_edge_pct']:+.1f}%</div></div>
+<div><div class="label">Projection Edge</div><div style="color:#fff;font-weight:700;">{abs(p['projection_edge_pct']):.1f}%</div></div>
 <div><div class="label">Matchup</div><div style="color:#fff;font-weight:700;">{matchup_label}</div></div>
 </div>
 </div>
@@ -1261,7 +1368,7 @@ with tab_betting:
             with hl_cols[1]:
                 st.markdown(f"""
 <div class="cp-card" style="border-left:3px solid #ff5c5c;">
-<div class="sport-name">Worst beat &middot; {w['sport'].upper()}</div>
+<div class="sport-name">Worst pick &middot; {w['sport'].upper()}</div>
 <div style="color:#fff;font-weight:700;font-size:15px;margin-top:4px;">{w['game']}</div>
 <div style="color:#ff5c5c;font-weight:800;font-size:14px;margin-top:8px;">+{w['edge_at_pick']}% edge &middot; LOSS</div>
 </div>
