@@ -45,7 +45,22 @@ STAR_CONFIG = {
     # and CFB ~12-13 — waiting for 5 games burns a quarter of the schedule.
     "nfl":  {"table": "nfl_game_log", "volume_col": "(COALESCE(passing_attempts,0) + COALESCE(rushing_attempts,0) + COALESCE(receptions,0))", "min_games": 3, "spans_calendar_years": False},
     "cfb":  {"table": "cfb_game_log", "volume_col": "(COALESCE(passing_attempts,0) + COALESCE(rushing_attempts,0) + COALESCE(receptions,0))", "min_games": 3, "spans_calendar_years": False},
+    # MLB pitchers live in a separate table from batters (confirmed via
+    # schema pull 2026-07-20) and need their own volume stat — at_bats
+    # (the "mlb" entry above) doesn't apply to pitchers. innings_pitched
+    # is the pitcher equivalent of at_bats/minutes: real playing time,
+    # not just an appearance. min_games=3 (not 5, like batters) since a
+    # starter only gets a start every ~5 days — waiting for 5 starts
+    # burns most of a month.
+    "mlb_pitchers": {"table": "mlb_pitcher_game_log", "volume_col": "innings_pitched", "min_games": 3, "spans_calendar_years": False},
 }
+
+# Stats that come from the pitcher side of MLB props, not the batter
+# side — used by filter_to_stars() to route each prop to the right
+# star list. Currently just strikeouts (the only pitcher market
+# fetch_prizepicks_props.py pulls today); add here if more pitcher
+# markets (e.g. earned_runs, hits_allowed) get wired in later.
+MLB_PITCHER_STATS = {"strikeouts"}
 
 _cache = {}  # {(sport, top_n, season): {team_name: [player_name, ...]}}
 
@@ -137,7 +152,37 @@ def filter_to_stars(sport: str, props: list, top_n: int = 3, season: str = "2026
 
     If the sport has no star config yet, everything is kept — caller's
     responsibility to note that filtering wasn't actually applied.
+
+    MLB is special-cased: pitcher props (stat in MLB_PITCHER_STATS)
+    check against the mlb_pitchers list, everything else checks
+    against the batter mlb list. Without this split, pitcher props
+    always fail the batter-only list and get dropped wholesale — see
+    2026-07-20 finding (30 props, 0 kept, all pitcher strikeouts).
     """
+    if sport == "mlb":
+        batter_stars  = get_star_players("mlb", top_n=top_n, season=season)
+        pitcher_stars = get_star_players("mlb_pitchers", top_n=top_n, season=season)
+
+        if not batter_stars and not pitcher_stars:
+            return props, []
+
+        batter_names = set()
+        for roster in batter_stars.values():
+            batter_names.update(roster)
+        pitcher_names = set()
+        for roster in pitcher_stars.values():
+            pitcher_names.update(roster)
+
+        kept, dropped = [], []
+        for p in props:
+            is_pitcher_prop = p.get("stat") in MLB_PITCHER_STATS
+            names = pitcher_names if is_pitcher_prop else batter_names
+            if p.get("player_name") in names:
+                kept.append(p)
+            else:
+                dropped.append(p)
+        return kept, dropped
+
     stars = get_star_players(sport, top_n=top_n, season=season)
     if not stars:
         return props, []

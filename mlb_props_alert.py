@@ -14,6 +14,13 @@ Run order (same pattern as WNBA):
 Usage:
     py mlb_props_alert.py            # send today's alert
     py mlb_props_alert.py --dry-run  # print instead of sending
+
+2026-07-20: STRONG_THRESHOLD/FADE_THRESHOLD updated from 80/20 to 70/30
+after a picks-only threshold sweep against real graded MLB props showed
+70/30 outperforming 80/20 (62.6% vs 61.1%) on a much larger sample (401
+vs 90 picks), with 65/35 flattening out (62.2%) rather than improving
+further — confirming 70/30 as the sweet spot. See prop_tracker.py's
+--picks-only flag for the report used to validate this.
 """
 
 import os
@@ -37,8 +44,8 @@ CENTRAL_OFFSET = -5
 
 DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 
-STRONG_THRESHOLD = 80  # hit_rate_overall >= this -> shown as a strong 'over' play
-FADE_THRESHOLD = 20    # hit_rate_overall <= this -> under_rate >= 80 -> fade candidate
+STRONG_THRESHOLD = 70  # hit_rate_overall >= this -> shown as a strong 'over' play
+FADE_THRESHOLD = 30    # hit_rate_overall <= this -> under_rate >= 70 -> fade candidate
 MIN_GAMES = 5
 MIN_GAMES_COLUMN = "games_overall"
 

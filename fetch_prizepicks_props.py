@@ -70,6 +70,7 @@ MARKET_MAP = {
     "batter_rbis":                     "rbis",
     "batter_runs_scored":              "runs",
     "batter_home_runs":                "hr",
+    "pitcher_strikeouts":              "strikeouts",
     # Football (NFL)
     "player_pass_yds":                 "passing_yards",
     "player_pass_tds":                 "passing_tds",
@@ -88,7 +89,7 @@ SPORT_MARKETS = {
             "player_points_rebounds_assists,player_points_rebounds,player_points_assists,player_rebounds_assists",
     "nba":  "player_points,player_rebounds,player_assists,player_steals,player_blocks,"
             "player_points_rebounds_assists,player_points_rebounds,player_points_assists,player_rebounds_assists",
-    "mlb":  "batter_hits,batter_rbis,batter_runs_scored,batter_home_runs",
+    "mlb":  "batter_hits,batter_rbis,batter_runs_scored,batter_home_runs,pitcher_strikeouts",
     "nfl":  "player_pass_yds,player_pass_tds,player_pass_completions,player_pass_attempts,"
             "player_pass_interceptions,player_rush_yds,player_rush_attempts,"
             "player_receptions,player_reception_yds,player_reception_tds",
@@ -166,7 +167,10 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
         home_team = event.get("home_team", "")
         away_team = event.get("away_team", "")
 
-        data = propline_get(f"/sports/{sport_key}/events/{event_id}/odds", {"markets": markets})
+        data = propline_get(
+            f"/sports/{sport_key}/events/{event_id}/odds",
+            {"markets": markets, "bookmakers": "fanduel"},
+        )
         if not data:
             continue
 
@@ -174,7 +178,11 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
 
         for bookmaker in data.get("bookmakers", []):
             bm_key = bookmaker.get("key", "")
-            if bm_key not in ("draftkings", "fanduel", "bovada"):
+            # Safety check, not the filtering method — PropLine's
+            # bookmakers=fanduel param above already did the real
+            # filtering server-side. This just guards against PropLine
+            # ever returning something unexpected.
+            if bm_key != "fanduel":
                 continue
 
             for market in bookmaker.get("markets", []):
@@ -218,9 +226,6 @@ def fetch_props_for_sport(sport: str, target_date: str = None) -> list:
                         "under_odds":  prop_data.get("under_odds"),
                         "bookmaker":   bm_key,
                     })
-
-            if bm_key == "draftkings":
-                break
 
     seen    = {}
     deduped = []
@@ -320,8 +325,13 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
                       f"({projection['direction']} {projection['edge_pct']}%){df_str} "
                       f"{ {'green': '✅', 'yellow': '⚠️', 'red': '❌'}.get(projection['confidence_tier'], '') }")
         elif sport == "mlb":
-            from mlb_projections import project_prop, get_player_team
-            player_team = get_player_team(player)
+            from mlb_projections import project_prop, get_player_team, get_pitcher_team
+            # Pitchers live in a separate table (mlb_pitcher_game_log) —
+            # batters use get_player_team(), strikeouts uses get_pitcher_team().
+            if stat == "strikeouts":
+                player_team = get_pitcher_team(player)
+            else:
+                player_team = get_player_team(player)
             home_team   = prop.get("home_team", "")
             away_team   = prop.get("away_team", "")
             opponent_team = None
@@ -333,6 +343,12 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
             projection = project_prop(player, stat, line, opponent_team=opponent_team)
             if projection.get("error"):
                 print(f"      projection: insufficient recent data")
+            elif stat == "strikeouts":
+                # pitcher path has no defense_factor/AB math — its own print
+                print(f"      projection: {projection['rate_sample']} starts avg -> "
+                      f"{projection['projected_stat']} K "
+                      f"({projection['direction']} {projection['edge_pct']}%) "
+                      f"{ {'green': '✅', 'yellow': '⚠️', 'red': '❌'}.get(projection['confidence_tier'], '') }")
             else:
                 df = projection["defense_factor"]
                 df_str = f" | vs {opponent_team} D-factor {df}" if opponent_team else " | opponent unknown, no D adj"

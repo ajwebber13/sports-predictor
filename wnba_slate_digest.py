@@ -594,8 +594,20 @@ def fetch_model_predictions(expected_games: int = 0) -> dict:
             parts      = game.split(" @ ")
             home_team  = parts[1] if len(parts) == 2 else ""
             away_team  = parts[0] if len(parts) == 2 else ""
-            home_prob  = round(float(model_prob), 1)
-            away_prob  = round(100 - home_prob, 1)
+            # FIXED 2026-07-19: model_prob is NOT always the home team's
+            # probability — per routes_wnba.py it's whichever side (home
+            # or away) has the bigger edge. The API returns explicit
+            # home_win_prob/away_win_prob fields for exactly this reason;
+            # use those directly instead of assuming model_prob==home.
+            # (This function is dead code as of the leaner digest rewrite
+            # — build_leaner_digest_message() never calls it — but fixed
+            # anyway so it can't reintroduce this bug if reused later.)
+            if "home_win_prob" in bet and "away_win_prob" in bet:
+                home_prob = round(float(bet["home_win_prob"]), 1)
+                away_prob = round(float(bet["away_win_prob"]), 1)
+            else:
+                home_prob  = round(float(model_prob), 1)
+                away_prob  = round(100 - home_prob, 1)
             predicted_winner = home_team if home_prob > away_prob else away_team
             winner_prob      = max(home_prob, away_prob)
             has_edge   = edge >= 8
@@ -875,13 +887,22 @@ def format_digest(
             except Exception as e:
                 print(f"  Prediction log error: {e}")
 
-            # Confidence tier
+            # Confidence tier — keyed off EDGE, not win probability.
+            # Win probability only says who the model thinks wins the
+            # game outright; edge says whether the price is actually
+            # worth betting. A 51% underdog with a 30% edge is a
+            # BETTER bet than a 74% favorite with a 5% edge, so the
+            # color has to track edge, not w_prob. Thresholds below
+            # are conservative placeholders (matched to the existing
+            # has_edge>=8 bar elsewhere in this file) — see 2026-07-20
+            # note in calibration-and-mlb-gap: 80-pick WNBA sample was
+            # too small/noisy to tune exact cutoffs, revisit later.
             w_prob_val = pred.get("winner_prob", 0)
             edge_val   = pred.get("edge", 0)
-            if w_prob_val >= 60 and edge_val >= 10:
+            if edge_val >= 15:
                 conf_tier  = "green"
                 tier_emoji = "🟢"
-            elif w_prob_val >= 55 or (edge_val >= 8 and edge_val < 10):
+            elif edge_val >= 8:
                 conf_tier  = "yellow"
                 tier_emoji = "🟡"
             else:
