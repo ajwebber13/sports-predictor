@@ -393,14 +393,22 @@ def build_props_html(rows: list) -> str:
      on the outer .cp-glass-wrap since that one still clips cleanly at
      its own edges); -webkit-overflow-scrolling gives iOS Safari
      native momentum scrolling instead of the janky default. */
+  /* FIXED 2026-07-20 (round 2): thead th's position:sticky below was
+     declared but INERT — .cp-scroll-wrap had no bounded height, so it
+     just grew to fit the whole table and the OUTER iframe/page ended
+     up doing the scrolling instead. Sticky only works relative to its
+     nearest actual scrolling ancestor — giving this wrapper a real
+     max-height + overflow-y makes IT that ancestor, so the header now
+     genuinely stays put while the rows scroll underneath it. */
   .cp-scroll-wrap {{
-    overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 16px;
+    overflow-x: auto; overflow-y: auto; max-height: 560px;
+    -webkit-overflow-scrolling: touch; border-radius: 16px;
   }}
   table {{ width:100%; min-width:900px; border-collapse:collapse; font-size:13px; }}
   thead th {{
-    background: rgba(19,18,9,0.9); color:#a8905c; font-family:'Oswald',sans-serif; font-weight:600;
+    background: rgba(19,18,9,0.98); color:#a8905c; font-family:'Oswald',sans-serif; font-weight:600;
     font-size:11px; letter-spacing:1px; text-transform:uppercase; text-align:left;
-    padding:12px 14px; border-bottom:1px solid rgba(212,175,55,0.14); position:sticky; top:0;
+    padding:12px 14px; border-bottom:1px solid rgba(212,175,55,0.14); position:sticky; top:0; z-index:2;
     transition: color 0.15s ease;
   }}
   thead th:hover {{ color:#D4AF37; }}
@@ -849,7 +857,7 @@ with tab_games:
 
         event = st.dataframe(
             sorted_full[display_cols],
-            width="stretch", hide_index=True,
+            width="stretch", hide_index=True, height=600,
             column_config={
                 "pick_logo": st.column_config.ImageColumn(""),
                 "Market": st.column_config.TextColumn("Market", width="small"),
@@ -1082,11 +1090,17 @@ with tab_props:
 - **Result** — HIT / MISS / PENDING / NO BET once the game plays out
 """)
         st.caption("👉 Swipe left/right to see all columns")
-        table_height = min(72 + len(table_rows) * 42, 900)
+        # FIXED 2026-07-20: iframe height now matches .cp-scroll-wrap's
+        # own 560px max-height + header/padding room — the inner wrapper
+        # is what scrolls now (that's what makes the sticky header work),
+        # so the outer iframe just needs to be tall enough to show it
+        # without ALSO needing to scroll itself (that would mean two
+        # nested scrollbars, which is worse than the original bug).
+        table_height = min(72 + len(table_rows) * 42, 600)
         components.html(
             build_props_html(table_rows),
             height=table_height,
-            scrolling=True
+            scrolling=False
         )
 
 # =========================================================
