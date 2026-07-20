@@ -331,7 +331,7 @@ def build_props_html(rows: list) -> str:
   <td data-val="{esc(r['play'])}">{r['play']}</td>
   <td data-val="{r.get('edge_pct') or 0}">{r['sparkline_svg']}</td>
   <td data-val="{r.get('projected') or 0}">{r['projected'] if r.get('projected') is not None else '—'}</td>
-  <td data-val="{r.get('edge_pct') or 0}" style="color:{'#3ecf8e' if (r.get('edge_pct') or 0) >= 0 else '#ff5c5c'};font-weight:700;">{f"{r['edge_pct']:+.1f}%" if r.get('edge_pct') is not None else '—'}</td>
+  <td data-val="{r.get('edge_pct') or 0}" style="color:#D4AF37;font-weight:700;">{f"{abs(r['edge_pct']):.1f}%" if r.get('edge_pct') is not None else '—'}</td>
   <td data-val="{r.get('hit_rate') or 0}">{f"{r['hit_rate']:.0f}%" if r.get('hit_rate') is not None else '—'}</td>
   <td data-val="{r.get('matchup') or 0}">{f"{r['matchup']:.2f}" if r.get('matchup') is not None else '—'}</td>
   <td data-val="{esc(r['odds'])}">{esc(r['odds'])}</td>
@@ -1053,7 +1053,7 @@ with tab_edge:
 </div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(212,175,55,0.14);">
 <div><div class="label">Hit Rate</div><div style="color:#fff;font-weight:700;">{p['hit_rate_overall']}% ({p['games_overall']}G)</div></div>
-<div><div class="label">Projection Edge</div><div style="color:#fff;font-weight:700;">{p['projection_edge_pct']:+.1f}%</div></div>
+<div><div class="label">Projection Edge</div><div style="color:#fff;font-weight:700;">{abs(p['projection_edge_pct']):.1f}%</div></div>
 <div><div class="label">Matchup</div><div style="color:#fff;font-weight:700;">{matchup_label}</div></div>
 </div>
 </div>
