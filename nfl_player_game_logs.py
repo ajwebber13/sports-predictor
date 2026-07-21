@@ -35,6 +35,13 @@ Usage:
 import requests
 import time
 from datetime import datetime, timedelta
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from database import get_conn
 
 HEADERS = {

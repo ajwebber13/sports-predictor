@@ -11,22 +11,48 @@ from wnba_player_categories import is_off_role
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# FIXED 2026-07-20: same missing-load_dotenv() gap as mlb_projections.py
+# and mlb_player_stats.py — added defensively, no import chain here is
+# guaranteed to have already loaded .env.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from database import get_conn as _get_conn, rows_to_dicts as _rows_to_dicts
 
 MIN_GAMES_OVERALL    = 5
 MIN_GAMES_SITUATIONAL = 3
 
 SUPPORTED_STATS = ["pts", "reb", "ast", "stl", "blk", "pra", "pr", "pa", "ra",
-                    "hits", "runs", "rbis", "hr"]
+                    "hits", "runs", "rbis", "hr", "strikeouts", "hits_allowed"]
 
-# Per-sport table + column mapping. MLB only has 4 verified stats right now —
-# total_bases/stolen_bases/pitcher props are NOT supported since
-# mlb_player_stats.py doesn't capture doubles/triples/steals/pitching data.
+# Per-sport table + column mapping. MLB batting stats only right now —
+# total_bases/stolen_bases NOT supported since mlb_player_stats.py
+# doesn't capture doubles/triples/steals. Pitcher props (strikeouts)
+# live in a SEPARATE table (mlb_pitcher_game_log, different shape —
+# see STAT_TABLE_OVERRIDE below) since pitchers don't show up in every
+# game the way batters do.
 SPORT_TABLES = {
     "wnba": "wnba_game_log",
     "mlb":  "mlb_game_log",
     "nba":  "nba_game_log",
     "nfl":  "nfl_game_log",
+}
+
+# Stat-level override — checked before SPORT_TABLES. Only MLB
+# strikeouts needs this today; add more (sport, stat) pairs here if
+# other stats ever need a table other than their sport's default.
+STAT_TABLE_OVERRIDE = {
+    "mlb": {"strikeouts": "mlb_pitcher_game_log", "hits_allowed": "mlb_pitcher_game_log"},
+}
+
+# Matching override for the eligibility row_filter — "at_bats > 0"
+# (MIN_GAMES_FILTER below) means nothing for a pitcher row.
+STAT_ROW_FILTER_OVERRIDE = {
+    "mlb": {"strikeouts": "innings_pitched > 0", "hits_allowed": "innings_pitched > 0"},
 }
 
 STAT_EXPR = {
@@ -40,6 +66,8 @@ STAT_EXPR = {
     },
     "mlb": {
         "hits": "hits", "runs": "runs", "rbis": "rbis", "hr": "hrs",
+        "strikeouts": "strikeouts",
+        "hits_allowed": "hits_allowed",
     },
     "nfl": {
         "passing_completions": "passing_completions",
@@ -116,8 +144,8 @@ def get_hit_rate(
     if stat not in stat_map:
         return {"error": f"Unsupported stat '{stat}' for {sport}. Use one of {list(stat_map.keys())}"}
 
-    table      = SPORT_TABLES[sport]
-    row_filter = MIN_GAMES_FILTER.get(sport, "1=1")
+    table      = STAT_TABLE_OVERRIDE.get(sport, {}).get(stat) or SPORT_TABLES[sport]
+    row_filter = STAT_ROW_FILTER_OVERRIDE.get(sport, {}).get(stat) or MIN_GAMES_FILTER.get(sport, "1=1")
     stat_sql   = stat_map[stat]
 
     conn = _get_conn()
