@@ -109,20 +109,56 @@ def init_elo_tables():
             PRIMARY KEY (sport, team_name)
         )
     """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS elo_history (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
-            sport            TEXT NOT NULL,
-            date             TEXT NOT NULL,
-            home_team        TEXT NOT NULL,
-            away_team        TEXT NOT NULL,
-            home_elo_before  REAL,
-            away_elo_before  REAL,
-            home_elo_after   REAL,
-            away_elo_after   REAL,
-            winner           TEXT
-        )
-    """)
+    # FIXED 2026-07-20: AUTOINCREMENT is SQLite-only syntax — Postgres
+    # doesn't recognize it at all, so this CREATE TABLE failed to even
+    # PARSE on every call since the Supabase migration (not just when
+    # the table didn't exist yet — "IF NOT EXISTS" doesn't help because
+    # the statement can't parse in the first place). Since update_elo(),
+    # recalibrate_season(), and backfill_elo() all call this function
+    # defensively before every write, EVERY Elo update has been failing
+    # since the migration — Power Rankings/team_form/SOS have all been
+    # running on frozen mid-July ratings as a result. Same bug class as
+    # the earlier ROUND()/HAVING Postgres fixes elsewhere in this repo.
+    # Postgres needs SERIAL instead of INTEGER PRIMARY KEY AUTOINCREMENT.
+    #
+    # RE-FIXED 2026-07-21: the first fix detected Postgres by re-importing
+    # a SUPABASE_DB_URL constant from database.py — that import silently
+    # failed (name not exported that way), is_postgres defaulted to False,
+    # and the AUTOINCREMENT error kept happening even with this branch in
+    # place. Detecting from the actual connection object instead, since
+    # that can't be wrong about what backend it's really talking to.
+    is_postgres = "psycopg2" in type(conn).__module__
+
+    if is_postgres:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS elo_history (
+                id               SERIAL PRIMARY KEY,
+                sport            TEXT NOT NULL,
+                date             TEXT NOT NULL,
+                home_team        TEXT NOT NULL,
+                away_team        TEXT NOT NULL,
+                home_elo_before  REAL,
+                away_elo_before  REAL,
+                home_elo_after   REAL,
+                away_elo_after   REAL,
+                winner           TEXT
+            )
+        """)
+    else:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS elo_history (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                sport            TEXT NOT NULL,
+                date             TEXT NOT NULL,
+                home_team        TEXT NOT NULL,
+                away_team        TEXT NOT NULL,
+                home_elo_before  REAL,
+                away_elo_before  REAL,
+                home_elo_after   REAL,
+                away_elo_after   REAL,
+                winner           TEXT
+            )
+        """)
     conn.commit()
     conn.close()
 
