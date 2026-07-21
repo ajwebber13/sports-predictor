@@ -348,9 +348,23 @@ def build_player_averages():
     saved = 0
     season = "2026"
 
+    # Same Decimal/float fix as wnba_player_stats.py's build_player_averages()
+    # — Postgres returns ::numeric columns as Decimal, calculate_impact_score()
+    # does float math against them. Cast once here, use everywhere downstream.
+    def _f(v):
+        return float(v) if v is not None else 0.0
+
     for row in rows:
+        avg_ab     = _f(row["avg_ab"])
+        avg_hits   = _f(row["avg_hits"])
+        avg_runs   = _f(row["avg_runs"])
+        avg_rbis   = _f(row["avg_rbis"])
+        avg_hrs    = _f(row["avg_hrs"])
+        avg_walks  = _f(row["avg_walks"])
+        season_avg = _f(row["season_avg"])
+
         impact = calculate_impact_score(
-            row["avg_rbis"], row["avg_hits"], row["avg_runs"], 0, 0, row["avg_hrs"], 0
+            avg_rbis, avg_hits, avg_runs, 0, 0, avg_hrs, 0
         )
 
         try:
@@ -374,8 +388,8 @@ def build_player_averages():
                     impact_score     = EXCLUDED.impact_score
             """, (
                 "mlb", row["team_name"], row["player_name"],
-                row["avg_rbis"], row["avg_hits"], row["avg_runs"],
-                0, row["avg_hrs"], row["season_avg"],
+                avg_rbis, avg_hits, avg_runs,
+                0, avg_hrs, season_avg,
                 0, 0, 0,
                 impact, season
             ))
@@ -390,8 +404,8 @@ def build_player_averages():
                 ON CONFLICT (sport, season, team_name, player_name) DO NOTHING
             """, (
                 "mlb", season, row["team_name"], row["player_name"],
-                row["games"], row["avg_rbis"], row["avg_hits"], row["avg_runs"],
-                0, row["avg_hrs"], row["season_avg"],
+                row["games"], avg_rbis, avg_hits, avg_runs,
+                0, avg_hrs, season_avg,
                 0, 0, 0,
                 impact, "espn_boxscore"
             ))
