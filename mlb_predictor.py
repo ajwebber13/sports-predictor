@@ -10,6 +10,7 @@ from datetime import datetime
 from mlb_data import (
     get_mlb_events, get_team_stats, get_starting_pitcher, get_pitcher_stats,
     get_team_record, get_team_injuries, get_team_rest_days,
+    get_run_line_odds, get_total_odds,
 )
 from mlb_weather import get_stadium_weather, get_weather_adj
 from database import get_conn, get_situational_row as _get_situational_row, get_line_movement_adj
@@ -82,7 +83,21 @@ def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situationa
     return final, factors
 
 
-def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS):
+def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS, run_line=None, total_line=None):
+    """
+    run_line: the HOME team's posted run line (e.g. -1.5 if home is
+    favored by 1.5, +1.5 if home is the underdog) — same sign
+    convention as get_run_line_odds()'s "home_line". None if no real
+    line is available (moneyline-only game, same as today's behavior).
+
+    total_line: the posted over/under total. None if unavailable.
+
+    Cover/O-U probabilities are computed from the SAME simulated
+    home_scores/away_scores arrays as the win probability — one
+    Monte Carlo pass, not a second simulation — mirroring
+    wnba_predictor.py's approach (home_cov/away_cov/over_p/under_p
+    all derived from one set of simulated scores).
+    """
     home_scores = np.random.poisson(lam=home_runs_proj, size=sims)
     away_scores = np.random.poisson(lam=away_runs_proj, size=sims)
 
@@ -99,12 +114,41 @@ def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS):
     avg_home_score = np.mean(home_scores)
     avg_away_score = np.mean(away_scores)
 
-    return {
+    result = {
         "home_win_prob": float(round(win_prob, 4)),
         "away_win_prob": float(round(1 - win_prob, 4)),
         "proj_home_runs": float(round(avg_home_score, 1)),
         "proj_away_runs": float(round(avg_away_score, 1)),
     }
+
+    # Run line (spread): margin = home - away. Home covers a -1.5 line
+    # if margin > 1.5 (i.e. margin + home_line > 0, since home_line is
+    # negative when favored — same sign convention as WNBA's spread
+    # math: margin > -home_line). Skipped entirely if no real line —
+    # never fabricates a number, same principle as the rest of this
+    # engine (ranking_engine.py, edge_finder.py, etc.).
+    if run_line is not None:
+        margin = home_scores - away_scores
+        home_cover = np.sum(margin > -run_line) / sims
+        away_cover = np.sum(margin < -run_line) / sims
+        result["home_cover_prob"] = float(round(home_cover * 100, 1))
+        result["away_cover_prob"] = float(round(away_cover * 100, 1))
+    else:
+        result["home_cover_prob"] = None
+        result["away_cover_prob"] = None
+
+    # Total (over/under) — same single simulation pass.
+    if total_line is not None:
+        totals = home_scores + away_scores
+        over_prob = np.sum(totals > total_line) / sims
+        under_prob = np.sum(totals < total_line) / sims
+        result["over_prob"] = float(round(over_prob * 100, 1))
+        result["under_prob"] = float(round(under_prob * 100, 1))
+    else:
+        result["over_prob"] = None
+        result["under_prob"] = None
+
+    return result
 
 
 def predict_game(event):
@@ -168,7 +212,14 @@ def predict_game(event):
     except Exception as e:
         print(f"  [MLB] factor logging failed (non-fatal): {e}")
 
-    result = simulate_game(home_runs_proj, away_runs_proj)
+    run_line_odds = get_run_line_odds(event)
+    total_odds = get_total_odds(event)
+
+    result = simulate_game(
+        home_runs_proj, away_runs_proj,
+        run_line=run_line_odds["home_line"] if run_line_odds else None,
+        total_line=total_odds["line"] if total_odds else None,
+    )
     result["home_team"] = home_team
     result["away_team"] = away_team
     result["weather"] = weather.get("conditions", "unknown")
@@ -179,6 +230,15 @@ def predict_game(event):
     result["away_injuries"] = get_team_injuries(away_comp)
     result["home_rest"] = home_rest
     result["away_rest"] = away_rest
+
+    # Posted lines/odds passed through so routes_mlb.py can compute
+    # spread_pick/spread_edge and the total pick without re-fetching.
+    result["posted_run_line"] = run_line_odds["home_line"] if run_line_odds else None
+    result["run_line_home_odds"] = run_line_odds["home_odds"] if run_line_odds else None
+    result["run_line_away_odds"] = run_line_odds["away_odds"] if run_line_odds else None
+    result["posted_total"] = total_odds["line"] if total_odds else None
+    result["total_over_odds"] = total_odds["over_odds"] if total_odds else None
+    result["total_under_odds"] = total_odds["under_odds"] if total_odds else None
 
     return result
 

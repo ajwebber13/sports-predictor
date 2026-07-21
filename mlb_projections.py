@@ -18,6 +18,22 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# FIXED 2026-07-20: this file never called load_dotenv() — fine when
+# imported by another script that already loaded the environment
+# (fetch_prizepicks_props.py, render_job.py, etc.), but running this
+# file directly (python mlb_projections.py --player ...) meant
+# SUPABASE_DB_URL was never read from .env, so get_conn() silently
+# fell back to a local SQLite file that doesn't have
+# mlb_pitcher_game_log — "no such table" even though the real table
+# exists in Supabase. Same bug class as several other standalone
+# scripts in this repo before this fix.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from database import get_conn as _get_conn, rows_to_dicts as _rows_to_dicts
 
 TABLE = "mlb_game_log"
@@ -114,6 +130,118 @@ def _tier(edge: float, line: float) -> str:
     return "red"
 
 
+PITCHER_TABLE = "mlb_pitcher_game_log"
+PITCHER_SUPPORTED_STATS = ["strikeouts", "hits_allowed"]
+PITCHER_STAT_COL = {"strikeouts": "strikeouts", "hits_allowed": "hits_allowed"}
+
+# Pitchers only appear in the log on days they actually started/pitched
+# (unlike batters, who show up most games) — a lower lookback/minimum
+# than the batting AB_LOOKBACK/MIN_AB_GAMES makes sense since starts
+# come roughly every 5 days, not daily.
+PITCHER_LOOKBACK    = 5   # last 5 starts
+MIN_PITCHER_STARTS  = 3   # need at least 3 real starts logged to trust a trend
+
+
+def get_pitcher_team(player_name: str, season: str = SEASON_DEFAULT):
+    """Most recent team_name on record for this PITCHER — separate
+    from get_player_team() since pitchers live in a different table
+    (mlb_pitcher_game_log, not mlb_game_log)."""
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute(f"""
+        SELECT team_name FROM {PITCHER_TABLE}
+        WHERE player_name = ? AND date LIKE ?
+        ORDER BY date DESC LIMIT 1
+    """, (player_name, f"{season}%"))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def project_pitcher_stat(player_name: str, stat: str, lookback: int = PITCHER_LOOKBACK, season: str = SEASON_DEFAULT):
+    """
+    Self-referential projection — directly rolls the pitcher's own last
+    N starts' totals for `stat` into an average, rather than decomposing
+    into a volume-driver x rate the way batting props do (there's no
+    reliable batters-faced/pitch-count volume metric captured yet).
+    Same "self-referential volume driver" pattern already established
+    for CFB receiving props when no separate volume stat exists.
+    Works for any stat in PITCHER_STAT_COL — strikeouts, hits_allowed,
+    and whatever gets added next, all share this identical math.
+
+    Returns (projected_value, starts_used). None if fewer than
+    MIN_PITCHER_STARTS real starts are on record — never guesses off
+    an insufficient sample.
+
+    NOT opponent-adjusted (no defense_factor) in this v1 — that would
+    need an opponent-side batter-strikeout-rate (or contact-rate, for
+    hits_allowed) signal that doesn't exist yet (mlb_defense_ratings.py
+    only covers batting stats). Flagged as a real v2 enhancement, not
+    silently faked as 1.0 here vs. honestly having no adjustment at all.
+    """
+    col = PITCHER_STAT_COL.get(stat)
+    if not col:
+        return None, 0
+
+    conn = _get_conn()
+    c = conn.cursor()
+    c.execute(f"""
+        SELECT {col} FROM {PITCHER_TABLE}
+        WHERE player_name = ? AND date LIKE ? AND innings_pitched > 0
+        ORDER BY date DESC LIMIT ?
+    """, (player_name, f"{season}%", lookback))
+    rows = [r[0] for r in c.fetchall() if r[0] is not None]
+    conn.close()
+
+    if len(rows) < MIN_PITCHER_STARTS:
+        return None, len(rows)
+
+    return round(sum(rows) / len(rows), 2), len(rows)
+
+
+# Backward-compatible alias — project_pitcher_strikeouts() was the
+# original strikeouts-only name before this generalized to any stat.
+def project_pitcher_strikeouts(player_name: str, lookback: int = PITCHER_LOOKBACK, season: str = SEASON_DEFAULT):
+    return project_pitcher_stat(player_name, "strikeouts", lookback=lookback, season=season)
+
+
+def project_pitcher_prop(player_name: str, stat: str, line: float, season: str = SEASON_DEFAULT) -> dict:
+    """Pitcher-side counterpart to project_prop() — same output shape
+    (reuses the same dict keys so save_projection()/fetch_prizepicks_props.py
+    don't need stat-type-specific handling downstream), but built from
+    project_pitcher_stat()'s self-referential average instead of
+    the batting AB x rate decomposition. projected_at_bats/per_ab_rate
+    fields are repurposed here as starts_used/projected value directly
+    — same columns, different meaning, since the player_props table is
+    stat-agnostic by design (see _ensure_projection_columns())."""
+    if stat not in PITCHER_SUPPORTED_STATS:
+        return {"player_name": player_name, "stat": stat, "line": line,
+                "error": f"Unsupported pitcher stat '{stat}'"}
+
+    projected, starts_used = project_pitcher_stat(player_name, stat, season=season)
+    if projected is None:
+        return {
+            "player_name": player_name, "stat": stat, "line": line,
+            "error": "insufficient recent data",
+            "ab_sample": starts_used, "rate_sample": starts_used,
+        }
+
+    edge = round(projected - line, 2)
+    edge_pct = round((edge / line) * 100, 1) if line else None
+    direction = "over" if edge > 0 else ("under" if edge < 0 else "push")
+
+    return {
+        "player_name": player_name, "stat": stat, "line": line,
+        "projected_at_bats": starts_used, "ab_sample": starts_used,
+        "raw_per_ab_rate": None, "rate_sample": starts_used,
+        "opponent_team": None, "defense_factor": 1.0,  # no matchup adj yet — see docstring
+        "per_ab_rate": projected,  # repurposed: holds the projected value directly
+        "projected_stat": projected,
+        "edge": edge, "edge_pct": edge_pct, "direction": direction,
+        "confidence_tier": _tier(edge, line),
+    }
+
+
 def project_prop(player_name: str, stat: str, line: float, opponent_team: str = None, season: str = SEASON_DEFAULT) -> dict:
     """
     Core function. Same shape as wnba_projections.project_prop:
@@ -125,6 +253,9 @@ def project_prop(player_name: str, stat: str, line: float, opponent_team: str = 
     raw per-AB rate is scaled by that team's defense factor for this
     stat (from mlb_defense_ratings) before projecting.
     """
+    if stat in PITCHER_SUPPORTED_STATS:
+        return project_pitcher_prop(player_name, stat, line, season=season)
+
     proj_ab, ab_games = project_at_bats(player_name, season=season)
     raw_rate, rate_games = per_ab_rate(player_name, stat, season=season)
 
@@ -222,7 +353,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Project an MLB player's stat vs a line")
     parser.add_argument("--player", required=True)
-    parser.add_argument("--stat", required=True, choices=SUPPORTED_STATS)
+    parser.add_argument("--stat", required=True, choices=SUPPORTED_STATS + PITCHER_SUPPORTED_STATS)
     parser.add_argument("--line", required=True, type=float)
     parser.add_argument("--opponent", default=None)
     parser.add_argument("--season", default=SEASON_DEFAULT)
