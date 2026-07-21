@@ -355,7 +355,7 @@ def build_props_html(rows: list) -> str:
   <td data-val="{esc(r['play'])}">{r['play']}</td>
   <td data-val="{r.get('edge_pct') or 0}">{r['sparkline_svg']}</td>
   <td data-val="{r.get('projected') or 0}">{r['projected'] if r.get('projected') is not None else '—'}</td>
-  <td data-val="{r.get('edge_pct') or 0}" style="color:#D4AF37;font-weight:700;">{f"{abs(r['edge_pct']):.1f}%" if r.get('edge_pct') is not None else '—'}</td>
+  <td data-val="{r.get('edge_pct') or 0}" style="color:#E3A339;font-weight:600;font-family:'IBM Plex Mono',monospace;">{f"{abs(r['edge_pct']):.1f}%" if r.get('edge_pct') is not None else '—'}</td>
   <td data-val="{r.get('hit_rate') or 0}">{f"{r['hit_rate']:.0f}%" if r.get('hit_rate') is not None else '—'}</td>
   <td data-val="{r.get('matchup') or 0}">{f"{r['matchup']:.2f}" if r.get('matchup') is not None else '—'}</td>
   <td data-val="{esc(r['odds'])}">{esc(r['odds'])}</td>
@@ -451,7 +451,42 @@ function cpSort(colIndex, type) {{
 # ---------- STYLE: Culture & Pulse Boardroom/ESPN brand — glass-card sportsbook aesthetic ----------
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@500;600;700&family=DM+Sans:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --cp-ink: #0A0C0F;
+    --cp-panel: #171B20;
+    --cp-line: #2A2F36;
+    --cp-ember: #E3A339;
+    --cp-win: #4CAF7D;
+    --cp-loss: #E1615A;
+    --cp-text: #ECECE6;
+    --cp-mute: #8B8F94;
+}
+
+div[data-testid="stExpander"] {
+    background: var(--cp-panel) !important;
+    border: 1px solid var(--cp-line) !important;
+    border-radius: 6px !important;
+    margin-bottom: 8px !important;
+    overflow: hidden;
+}
+div[data-testid="stExpander"]:hover {
+    border-color: var(--cp-ember) !important;
+}
+div[data-testid="stExpander"] summary {
+    font-family: 'Oswald', sans-serif !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: var(--cp-text) !important;
+    padding: 12px 14px !important;
+}
+div[data-testid="stExpander"] summary:hover {
+    color: var(--cp-ember) !important;
+}
+div[data-testid="stExpander"] > div:nth-child(2) {
+    border-top: 1px solid var(--cp-line) !important;
+}
 
 .stApp {
     background: var(--cp-ink);
@@ -465,10 +500,10 @@ st.markdown("""
 .cp-header { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 22px 0; margin-bottom: 10px; border-bottom: 1px solid rgba(212,175,55,0.14); position: relative; }
 .cp-header::after { content: ""; position: absolute; bottom: -1px; left: 0; width: 140px; height: 1px; background: linear-gradient(90deg, #D4AF37, transparent); }
 .cp-header .brand { display: flex; align-items: center; gap: 10px; }
-.cp-header .dot { width: 9px; height: 9px; border-radius: 50%; background: #feb400; box-shadow: 0 0 10px #feb400, 0 0 20px rgba(254,180,0,0.4); animation: cp-pulse 2s ease-in-out infinite; }
-@keyframes cp-pulse { 0%, 100% { opacity: 1; box-shadow: 0 0 10px #feb400, 0 0 20px rgba(254,180,0,0.4); } 50% { opacity: 0.55; box-shadow: 0 0 4px #feb400; } }
-.cp-header h1 { font-family: 'Bebas Neue', sans-serif; font-size: 36px; font-weight: 400; color: #ffffff; margin: 0; letter-spacing: 1.5px; }
-.cp-header .sub { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; }
+.cp-header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cp-ember); animation: cp-pulse 2s ease-in-out infinite; }
+@keyframes cp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.cp-header h1 { font-family: 'Oswald', sans-serif; font-size: 28px; font-weight: 600; color: var(--cp-text); margin: 0; letter-spacing: 0.3px; }
+.cp-header .sub { font-family: 'Inter', sans-serif; color: var(--cp-mute); font-size: 11px; font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase; }
 
 .cp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 22px; }
 .cp-card {
@@ -541,8 +576,10 @@ section[data-testid="stDataFrame"] {
     border-color: rgba(212,175,55,0.6) !important;
 }
 .stTextInput input { color: #ffffff !important; }
-.stSlider [data-baseweb="slider"] > div > div { background: #D4AF37 !important; }
-.stSlider [role="slider"] { background-color: #D4AF37 !important; border-color: #D4AF37 !important; box-shadow: 0 0 10px rgba(212,175,55,0.5) !important; }
+.stSlider [data-baseweb="slider"] { background: var(--cp-line) !important; }
+.stSlider [data-baseweb="slider"] > div { background: var(--cp-line) !important; }
+.stSlider [data-baseweb="slider"] > div > div { background: var(--cp-ember) !important; }
+.stSlider [role="slider"] { background-color: var(--cp-ember) !important; border-color: var(--cp-ember) !important; box-shadow: none !important; }
 
 hr { border-color: rgba(212,175,55,0.14) !important; margin: 22px 0 !important; }
 
