@@ -1,10 +1,14 @@
 name: WNBA Morning Alert
 
 on:
-  schedule:
-    - cron: '30 13 * * *'   # 8:30 AM CT daily — before Morning Run at 9:07 AM
+  # Schedule disabled — WNBA now runs through the combined 9:07 AM
+  # render_job.py alert instead of this separate digest, to avoid
+  # sending two different-looking WNBA messages for the same games.
+  # workflow_dispatch below still works for manually running the
+  # digest on its own if needed.
+  # schedule:
+  #   - cron: '30 13 * * *'
   workflow_dispatch:
-
 jobs:
   wnba_alert:
     runs-on: ubuntu-latest
