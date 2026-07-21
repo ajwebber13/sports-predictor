@@ -248,10 +248,29 @@ def build_player_averages():
     saved = 0
     season = "2026"
 
+    # Postgres returns ::numeric columns as Decimal, not float —
+    # calculate_impact_score() (and the INSERTs below) do float math
+    # against these values, which raises "unsupported operand type(s)
+    # for *: 'decimal.Decimal' and 'float'" the moment it tries. Casting
+    # here once protects everything downstream regardless of what
+    # calculate_impact_score() does internally.
+    def _f(v):
+        return float(v) if v is not None else 0.0
+
     for row in rows:
+        avg_min = _f(row["avg_min"])
+        avg_pts = _f(row["avg_pts"])
+        avg_reb = _f(row["avg_reb"])
+        avg_ast = _f(row["avg_ast"])
+        avg_stl = _f(row["avg_stl"])
+        avg_blk = _f(row["avg_blk"])
+        avg_fg  = _f(row["avg_fg"])
+        avg_3pt = _f(row["avg_3pt"])
+        avg_ft  = _f(row["avg_ft"])
+
         impact = calculate_impact_score(
-            row["avg_pts"], row["avg_reb"], row["avg_ast"],
-            row["avg_stl"], row["avg_blk"], 0, row["avg_min"]
+            avg_pts, avg_reb, avg_ast,
+            avg_stl, avg_blk, 0, avg_min
         )
 
         try:
@@ -275,9 +294,9 @@ def build_player_averages():
                     impact_score     = EXCLUDED.impact_score
             """, (
                 "wnba", row["team_name"], row["player_name"],
-                row["avg_pts"], row["avg_reb"], row["avg_ast"],
-                row["avg_stl"], row["avg_blk"], row["avg_fg"],
-                row["avg_3pt"], row["avg_ft"], row["avg_min"],
+                avg_pts, avg_reb, avg_ast,
+                avg_stl, avg_blk, avg_fg,
+                avg_3pt, avg_ft, avg_min,
                 impact, season
             ))
 
@@ -291,9 +310,9 @@ def build_player_averages():
                 ON CONFLICT (sport, season, team_name, player_name) DO NOTHING
             """, (
                 "wnba", season, row["team_name"], row["player_name"],
-                row["games"], row["avg_pts"], row["avg_reb"], row["avg_ast"],
-                row["avg_stl"], row["avg_blk"], row["avg_fg"],
-                row["avg_3pt"], row["avg_ft"], row["avg_min"],
+                row["games"], avg_pts, avg_reb, avg_ast,
+                avg_stl, avg_blk, avg_fg,
+                avg_3pt, avg_ft, avg_min,
                 impact, "espn_boxscore"
             ))
             saved += 1
