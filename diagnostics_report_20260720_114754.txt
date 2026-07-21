@@ -1,0 +1,20 @@
+Diagnostics run 20260720_114754
+
+[ERROR] THRESHOLD SWEEP failed: column pr.prop_id does not exist
+LINE 8:             JOIN prop_results pr ON pr.prop_id = pp.id
+                                            ^
+
+
+
+confidence_tier vs hit_rate_overall range check:
+tier              n   min_hr   max_hr   avg_hr
+----------------------------------------------
+
+Red flag: any 'green' row with min_hr well under 80, or a non-green tier with max_hr well over 80 — means the label and the number disagree.
+
+[skip] created_at/updated_at not both present — can't check staleness directly. If your schema has different timestamp columns, point this query at those instead.
+
+[ERROR] TIER / HIT-RATE DISCREPANCY CHECK failed: column pr.prop_id does not exist
+LINE 12:             JOIN prop_results pr ON pr.prop_id = pp.id
+                                             ^
+

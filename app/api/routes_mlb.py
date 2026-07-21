@@ -99,18 +99,26 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
         rl_pick = pred["home_team"] if home_favored_to_cover else pred["away_team"]
         rl_line = posted_run_line if home_favored_to_cover else -posted_run_line
         rl_prob = home_cover_prob if home_favored_to_cover else away_cover_prob
-        rl_edge_pct = rl_prob - BREAKEVEN_PCT
+        # FIXED 2026-07-21: edge was measured against a flat 52.4%
+        # (BREAKEVEN_PCT, the -110 baseline) instead of the real fetched
+        # odds' actual implied probability — inflating edge whenever the
+        # real run-line price wasn't standard -110 juice (e.g. -191
+        # implies ~65.6%, not 52.4%). Now computes implied_prob from the
+        # real odds, same as moneyline already does via
+        # american_to_implied().
+        if run_line_odds:
+            rl_odds = run_line_odds["home_odds"] if home_favored_to_cover else run_line_odds["away_odds"]
+        else:
+            rl_odds = -110  # get_run_line_odds() returned None for this game — fallback
+        rl_implied_pct = round(american_to_implied(rl_odds) * 100, 1)
+        rl_edge_pct = round(rl_prob - rl_implied_pct, 2)
         if rl_edge_pct >= min_edge:
             sign = "+" if rl_line > 0 else ""
-            if run_line_odds:
-                rl_odds = run_line_odds["home_odds"] if home_favored_to_cover else run_line_odds["away_odds"]
-            else:
-                rl_odds = -110  # get_run_line_odds() returned None for this game — fallback
             bets.append({
                 **common, "market": "spread",
                 "bet": f"{rl_pick} {sign}{rl_line}", "pick": rl_pick, "line": rl_line,
                 "odds": rl_odds,
-                "model_prob": rl_prob, "implied_prob": BREAKEVEN_PCT,
+                "model_prob": rl_prob, "implied_prob": rl_implied_pct,
                 "edge": round(rl_edge_pct / 100, 4),
             })
 
@@ -119,21 +127,31 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
     over_prob = pred.get("over_prob")
     under_prob = pred.get("under_prob")
     if posted_total is not None and over_prob is not None:
-        over_edge_pct = over_prob - BREAKEVEN_PCT
-        under_edge_pct = (under_prob if under_prob is not None else 0) - BREAKEVEN_PCT
+        # FIXED 2026-07-21: same BREAKEVEN_PCT bug as run line above —
+        # over/under carry different real odds (and therefore different
+        # true implied probabilities), so each needs its own implied_prob
+        # computed from the actual fetched price, not a shared flat 52.4%.
+        if total_odds:
+            over_odds = total_odds["over_odds"]
+            under_odds = total_odds["under_odds"]
+        else:
+            over_odds = -110  # get_total_odds() returned None for this game — fallback
+            under_odds = -110
+        over_implied_pct = round(american_to_implied(over_odds) * 100, 1)
+        under_implied_pct = round(american_to_implied(under_odds) * 100, 1)
+        over_edge_pct = round(over_prob - over_implied_pct, 2)
+        under_edge_pct = round((under_prob if under_prob is not None else 0) - under_implied_pct, 2)
         if max(over_edge_pct, under_edge_pct) >= min_edge:
             total_pick = "Over" if over_edge_pct >= under_edge_pct else "Under"
             total_prob = over_prob if total_pick == "Over" else under_prob
             total_edge_pct = max(over_edge_pct, under_edge_pct)
-            if total_odds:
-                t_odds = total_odds["over_odds"] if total_pick == "Over" else total_odds["under_odds"]
-            else:
-                t_odds = -110  # get_total_odds() returned None for this game — fallback
+            t_odds = over_odds if total_pick == "Over" else under_odds
+            t_implied_pct = over_implied_pct if total_pick == "Over" else under_implied_pct
             bets.append({
                 **common, "market": "total",
                 "bet": f"{total_pick} {posted_total}", "pick": total_pick, "line": posted_total,
                 "odds": t_odds,
-                "model_prob": total_prob, "implied_prob": BREAKEVEN_PCT,
+                "model_prob": total_prob, "implied_prob": t_implied_pct,
                 "edge": round(total_edge_pct / 100, 4),
             })
 

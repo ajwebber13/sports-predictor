@@ -21,6 +21,7 @@ Usage:
 """
 
 import math
+import os
 from datetime import datetime
 from database import get_conn
 
@@ -127,7 +128,13 @@ def init_elo_tables():
     # and the AUTOINCREMENT error kept happening even with this branch in
     # place. Detecting from the actual connection object instead, since
     # that can't be wrong about what backend it's really talking to.
-    is_postgres = "psycopg2" in type(conn).__module__
+    # FIXED 2026-07-21 (round 3): checking type(conn).__module__ never
+    # worked because get_conn() returns a wrapped connection object
+    # (_DictConnWrapper), not a raw psycopg2 connection — that string
+    # is never present, so is_postgres was always False. Detect the
+    # backend the same way database.py itself does: SUPABASE_DB_URL
+    # being set means Postgres is the active connection.
+    is_postgres = bool(os.getenv("SUPABASE_DB_URL"))
 
     if is_postgres:
         c.execute("""
@@ -285,12 +292,16 @@ def update_elo(sport: str, home_team: str, away_team: str,
     c    = conn.cursor()
 
     for team, new_elo in [(home_team, new_home_elo), (away_team, new_away_elo)]:
+        # FIXED 2026-07-21: Postgres treats bare "games_played" on the
+        # right side of DO UPDATE SET as ambiguous (could mean the
+        # existing row or the incoming insert row). Aliasing the table
+        # as "er" and qualifying the self-reference resolves it.
         c.execute("""
-            INSERT INTO elo_ratings (sport, team_name, elo, games_played, last_updated)
+            INSERT INTO elo_ratings AS er (sport, team_name, elo, games_played, last_updated)
             VALUES (?, ?, ?, 1, ?)
             ON CONFLICT(sport, team_name) DO UPDATE SET
                 elo          = ?,
-                games_played = games_played + 1,
+                games_played = er.games_played + 1,
                 last_updated = ?
         """, (sport, team, new_elo, date, new_elo, date))
 
