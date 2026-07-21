@@ -292,12 +292,16 @@ def update_elo(sport: str, home_team: str, away_team: str,
     c    = conn.cursor()
 
     for team, new_elo in [(home_team, new_home_elo), (away_team, new_away_elo)]:
+        # FIXED 2026-07-21: Postgres treats bare "games_played" on the
+        # right side of DO UPDATE SET as ambiguous (could mean the
+        # existing row or the incoming insert row). Aliasing the table
+        # as "er" and qualifying the self-reference resolves it.
         c.execute("""
-            INSERT INTO elo_ratings (sport, team_name, elo, games_played, last_updated)
+            INSERT INTO elo_ratings AS er (sport, team_name, elo, games_played, last_updated)
             VALUES (?, ?, ?, 1, ?)
             ON CONFLICT(sport, team_name) DO UPDATE SET
                 elo          = ?,
-                games_played = games_played + 1,
+                games_played = er.games_played + 1,
                 last_updated = ?
         """, (sport, team, new_elo, date, new_elo, date))
 
