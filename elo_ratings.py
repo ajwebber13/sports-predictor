@@ -21,6 +21,7 @@ Usage:
 """
 
 import math
+import os
 from datetime import datetime
 from database import get_conn
 
@@ -127,7 +128,13 @@ def init_elo_tables():
     # and the AUTOINCREMENT error kept happening even with this branch in
     # place. Detecting from the actual connection object instead, since
     # that can't be wrong about what backend it's really talking to.
-    is_postgres = "psycopg2" in type(conn).__module__
+    # FIXED 2026-07-21 (round 3): checking type(conn).__module__ never
+    # worked because get_conn() returns a wrapped connection object
+    # (_DictConnWrapper), not a raw psycopg2 connection — that string
+    # is never present, so is_postgres was always False. Detect the
+    # backend the same way database.py itself does: SUPABASE_DB_URL
+    # being set means Postgres is the active connection.
+    is_postgres = bool(os.getenv("SUPABASE_DB_URL"))
 
     if is_postgres:
         c.execute("""
