@@ -502,6 +502,12 @@ st.markdown("""
 .tier-green { background: rgba(62,207,142,0.14); color: #3ecf8e; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; border: 1px solid rgba(62,207,142,0.25); }
 .tier-yellow { background: rgba(232,197,71,0.14); color: #e8c547; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; border: 1px solid rgba(232,197,71,0.25); }
 
+.cp-ticker { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(19,18,9,0.9); border: 1px solid rgba(212,175,55,0.18); border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+.cp-ticker .stat-lbl { font-family: 'Oswald', sans-serif; color: #8a7d55; font-size: 9px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; }
+.cp-ticker .stat-val { color: #fff; font-weight: 700; font-size: 13px; margin-left: 6px; }
+.cp-ticker .stat-group { display: flex; gap: 18px; flex-wrap: wrap; }
+.cp-pill { background: rgba(212,175,55,0.1); border: 1px solid rgba(212,175,55,0.25); color: #D4AF37; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 4px; }
+
 h3 { font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; font-weight: 600 !important; font-size: 14px !important; text-transform: uppercase; letter-spacing: 1.5px; }
 
 .stMultiSelect label p, .stSlider label p, .stTextInput label p, .stDateInput label p {
@@ -591,6 +597,31 @@ def load_rankings(sport: str):
         return ranking_engine.get_rankings(sport)
     except Exception:
         return []
+
+
+@st.cache_data(ttl=600)
+def load_player_list(sport: str) -> list:
+    """Distinct player names with recent data for this sport, for the
+    Player Profiles browse dropdown. Pulls from BOTH the game log table
+    (real box-score history) and player_props (current lines) since a
+    player can have one without the other early/late in a slate — union
+    catches anyone with either. Sorted alphabetically. 10-minute cache
+    since rosters don't change minute to minute."""
+    table = GAME_LOG_TABLES.get(sport)
+    names = set()
+    try:
+        conn = get_conn()
+        if table:
+            cur = conn.execute(f"SELECT DISTINCT player_name FROM {table}")
+            names.update(r[0] for r in cur.fetchall() if r[0])
+        cur = conn.execute(
+            "SELECT DISTINCT player_name FROM player_props WHERE sport = ?",
+            (sport,),
+        )
+        names.update(r[0] for r in cur.fetchall() if r[0])
+    except Exception:
+        return []
+    return sorted(names)
 
 
 @st.cache_data(ttl=300)
@@ -731,31 +762,58 @@ with tab_games:
             overall_total = overall_wins + overall_losses
             overall_pct = round(overall_wins / overall_total * 100, 1) if overall_total else 0
 
+            # Today's edge count — how many picks are dated today,
+            # regardless of settled/pending status.
+            today_ct = pd.Timestamp.now().strftime("%Y-%m-%d")
+            todays_edge_count = int((df["date"] == today_ct).sum())
+
+            # Season ROI — reuses performance_tracker the same way the
+            # Betting Analytics tab already does. Wrapped defensively so
+            # a ticker render never breaks if ROI can't be computed
+            # (e.g. no odds on record yet).
+            roi_str = "—"
+            try:
+                roi_data = performance_tracker.calculate_roi()
+                if roi_data.get("roi_pct") is not None:
+                    sign = "+" if roi_data["roi_pct"] >= 0 else ""
+                    roi_str = f"{sign}{roi_data['roi_pct']}%"
+            except Exception:
+                pass
+
             st.markdown(
-                f'<div class="cp-overall"><div class="label">Overall Record</div>'
-                f'<div class="value">{overall_wins}-{overall_losses} <span class="pct">· {overall_pct}%</span></div></div>',
+                f'<div class="cp-ticker">'
+                f'<div class="stat-group">'
+                f'<span><span class="stat-lbl">Season</span>'
+                f'<span class="stat-val">{overall_wins}-{overall_losses} '
+                f'<span style="color:#D4AF37;">{overall_pct}%</span></span></span>'
+                f'<span><span class="stat-lbl">Today</span>'
+                f'<span class="stat-val">{todays_edge_count} edges</span></span>'
+                f'<span><span class="stat-lbl">ROI</span>'
+                f'<span class="stat-val" style="color:#3ecf8e;">{roi_str}</span></span>'
+                f'</div></div>',
                 unsafe_allow_html=True,
             )
 
-            cards = ['<div class="cp-grid">']
-            for sport, row in summary.iterrows():
-                pct = row["win_pct"]
-                pct_class = "pct-up" if pct >= 50 else "pct-down"
-                streak = streaks.get(sport)
+            pill_cols = st.columns(len(summary.index))
+            for i, s in enumerate(summary.index):
+                with pill_cols[i]:
+                    if st.button(s.upper(), key=f"streak_pill_{s}", use_container_width=True):
+                        st.session_state["g_streak_sport"] = s
+
+            clicked_sport = st.session_state.get("g_streak_sport")
+            if clicked_sport and clicked_sport in streaks:
+                streak = streaks[clicked_sport]
                 if streak:
                     s_type, s_count = streak
                     s_color = "#3ecf8e" if s_type == "WIN" else "#ff5c5c"
                     s_letter = "W" if s_type == "WIN" else "L"
-                    streak_html = f'<span style="color:{s_color};font-size:11px;font-weight:700;margin-left:8px;">{s_letter}{s_count} streak</span>'
+                    st.markdown(
+                        f'<div style="color:{s_color};font-size:13px;font-weight:700;margin:-6px 0 12px 4px;">'
+                        f'{clicked_sport.upper()}: {s_letter}{s_count} current streak</div>',
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    streak_html = ""
-                cards.append(
-                    f'<div class="cp-card"><div class="sport-name">{sport}</div>'
-                    f'<div class="record">{int(row.get("WIN", 0))}-{int(row.get("LOSS", 0))}</div>'
-                    f'<div class="pct-row"><span class="{pct_class}">{pct}%</span>{streak_html}</div></div>'
-                )
-            cards.append('</div>')
-            st.markdown(''.join(cards), unsafe_allow_html=True)
+                    st.caption(f"{clicked_sport.upper()}: no active streak")
 
             # ---------- BEST / WORST PICK HIGHLIGHT ----------
             wins = settled[settled["status"] == "WIN"]
@@ -1202,10 +1260,25 @@ with tab_players:
     with pc1:
         profile_sport = st.selectbox("Sport", options=["wnba", "mlb", "nba", "nfl"], index=0, key="pp_sport")
     with pc2:
-        profile_player = st.text_input("Player name", "", placeholder="e.g. Caitlin Clark", key="pp_player")
+        player_options = load_player_list(profile_sport)
+        if player_options:
+            profile_player = st.selectbox(
+                "Player",
+                options=[""] + player_options,
+                format_func=lambda x: x if x else "Select a player...",
+                key="pp_player_select",
+            )
+        else:
+            profile_player = ""
+            st.caption(f"No players with recent data found for {profile_sport.upper()} yet.")
+
+    with st.expander("Can't find them? Search by name instead"):
+        manual_player = st.text_input("Player name", "", placeholder="e.g. Caitlin Clark", key="pp_player_manual")
+        if manual_player:
+            profile_player = manual_player
 
     if not profile_player:
-        st.info("Enter a player name above to pull their profile.")
+        st.info("Pick a player above, or search by name, to pull their profile.")
     else:
         try:
             profile = player_profile.get_player_profile(profile_player, profile_sport, n_games=10)
