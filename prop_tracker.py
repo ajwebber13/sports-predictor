@@ -460,32 +460,64 @@ def _write_no_bet(conn, date_str, sport, prop, opponent, home_away, team_won=Non
 
 
 # ── Report: player prop records ───────────────────────────────────────────────
-def report_player(player_name: str = None, sport: str = "wnba"):
+def report_player(player_name: str = None, sport: str = "wnba",
+                   picks_only: bool = False,
+                   strong_threshold: float = 80, fade_threshold: float = 20):
+    """
+    picks_only=True restricts the report to props that actually cleared a
+    real send threshold at pick time (green tier + hit_rate_overall >=
+    strong_threshold for overs, or hit_rate_overall <= fade_threshold for
+    fades) — matching the same gates mlb_props_alert.py / wnba_props_alert.py
+    use to decide what actually gets sent. This is your REAL record.
+    Without this flag, the report includes every prop the fetch pipeline
+    ever captured, whether or not it was ever recommended.
+    """
     conn = get_conn()
     ensure_table(conn)
     c    = conn.cursor()
 
+    picks_filter = ""
+    extra_params = ()
+    if picks_only:
+        picks_filter = """
+            AND EXISTS (
+                SELECT 1 FROM player_props pp
+                WHERE pp.date = prop_results.date
+                  AND pp.player_name = prop_results.player_name
+                  AND pp.stat = prop_results.stat
+                  AND pp.line = prop_results.line
+                  AND pp.sport = prop_results.sport
+                  AND (
+                        (pp.confidence_tier = 'green' AND pp.hit_rate_overall >= ?)
+                     OR (pp.hit_rate_overall <= ?)
+                  )
+            )
+        """
+        extra_params = (strong_threshold, fade_threshold)
+
     if player_name:
-        c.execute("""
-            SELECT player_name, stat, line, opponent, home_away,
+        c.execute(f"""
+            SELECT player_name, stat, line, MAX(opponent) as opponent, MAX(home_away) as home_away,
                    SUM(hit) as hits, COUNT(*) as total,
                    SUM(CASE WHEN hit=1 AND team_won=1 THEN 1 ELSE 0 END) as hit_and_won
             FROM prop_results
             WHERE sport = ? AND hit IS NOT NULL
             AND player_name LIKE ?
+            {picks_filter}
             GROUP BY player_name, stat, line
             ORDER BY player_name, stat, total DESC
-        """, (sport, f"%{player_name}%",))
+        """, (sport, f"%{player_name}%") + extra_params)
     else:
-        c.execute("""
-            SELECT player_name, stat, line, opponent, home_away,
+        c.execute(f"""
+            SELECT player_name, stat, line, MAX(opponent) as opponent, MAX(home_away) as home_away,
                    SUM(hit) as hits, COUNT(*) as total,
                    SUM(CASE WHEN hit=1 AND team_won=1 THEN 1 ELSE 0 END) as hit_and_won
             FROM prop_results
             WHERE sport = ? AND hit IS NOT NULL
+            {picks_filter}
             GROUP BY player_name, stat, line
             ORDER BY player_name, stat, total DESC
-        """, (sport,))
+        """, (sport,) + extra_params)
 
     rows = c.fetchall()
     conn.close()
@@ -494,7 +526,13 @@ def report_player(player_name: str = None, sport: str = "wnba"):
         print("No prop results recorded yet.")
         return
 
-    print("\n📊 PROP RECORDS\n" + "─" * 40)
+    label = "REAL PICKS" if picks_only else "ALL PROPS TRACKED"
+    total_hits  = sum(r["hits"] or 0 for r in rows)
+    total_props = sum(r["total"] for r in rows)
+    overall_pct = round(total_hits / total_props * 100, 1) if total_props else 0
+
+    print(f"\n📊 PROP RECORDS — {label}\n" + "─" * 40)
+    print(f"Overall: {total_hits}-{total_props - total_hits} ({overall_pct}%) — {total_props} tracked\n")
     current_player = None
     for row in rows:
         if row["player_name"] != current_player:
@@ -548,6 +586,9 @@ if __name__ == "__main__":
     parser.add_argument("--score",       metavar="DATE", help="Score props for a date (yesterday or YYYY-MM-DD)")
     parser.add_argument("--sport",       default=None, help="Sport to score/report. Omit to run --score against every sport in PROP_SPORT_CONFIG (default for --report is wnba only)")
     parser.add_argument("--report",      nargs="?", const="", metavar="PLAYER", help="Print prop records (optional: player name)")
+    parser.add_argument("--picks-only",  action="store_true", help="With --report: only show props that cleared a real send threshold (your actual picks, not every prop captured)")
+    parser.add_argument("--strong-threshold", type=float, default=80, help="Over-pick hit_rate_overall cutoff for --picks-only (default 80)")
+    parser.add_argument("--fade-threshold",   type=float, default=20, help="Fade/under-pick hit_rate_overall cutoff for --picks-only (default 20)")
     parser.add_argument("--team-record", nargs=3,  metavar=("TEAM", "STAT", "THRESHOLD"), help="Team record when player hits stat")
     parser.add_argument("--dry-run",     action="store_true")
     args = parser.parse_args()
@@ -559,7 +600,10 @@ if __name__ == "__main__":
             score_props(date, sport=s, dry_run=args.dry_run)
 
     elif args.report is not None:
-        report_player(args.report if args.report else None, sport=args.sport or "wnba")
+        report_player(args.report if args.report else None, sport=args.sport or "wnba",
+                       picks_only=args.picks_only,
+                       strong_threshold=args.strong_threshold,
+                       fade_threshold=args.fade_threshold)
 
     elif args.team_record:
         team, stat, threshold = args.team_record

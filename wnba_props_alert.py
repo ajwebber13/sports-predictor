@@ -216,7 +216,9 @@ def format_line(prop: dict, team: str, emoji: str, seen_players: set) -> str:
         flag = f" \u26a0\ufe0f {INJURY_FLAG.get(status, status)}"
 
     seen_players.add(prop["player_name"])
-    return f"{emoji} {name}{team_str} \u2014 {stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
+    # "o" prefix matches format_fade_line()'s existing "u" prefix — every
+    # line now shows its direction instead of only unders being labeled.
+    return f"{emoji} {name}{team_str}\u2014 o{stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
 
 
 def format_fade_line(prop: dict, team: str, seen_players: set) -> str:

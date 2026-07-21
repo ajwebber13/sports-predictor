@@ -138,7 +138,9 @@ def format_line(prop: dict, team: str, emoji: str) -> str:
     pct_str    = f"{pct:.1f}".rstrip("0").rstrip(".") if pct % 1 else f"{int(pct)}"
     name       = prop["player_name"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     team_str   = f" ({abbr(team)})" if team else ""
-    return f"{emoji} {name}{team_str} \u2014 {stat_label} {prop['line']:g} \u2014 {pct_str}%"
+    # "o" prefix matches format_fade_line()'s existing "u" prefix — every
+    # line now shows its direction instead of only unders being labeled.
+    return f"{emoji} {name}{team_str}\u2014 o{stat_label} {prop['line']:g} \u2014 {pct_str}%"
 
 
 def format_fade_line(prop: dict, team: str) -> str:
