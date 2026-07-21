@@ -71,7 +71,7 @@ def get_bio(player_name: str, sport: str) -> dict:
         SELECT team_name, position, height, weight, college, jersey_number,
                pts_per_game, reb_per_game, ast_per_game, stl_per_game, blk_per_game
         FROM player_profiles
-        WHERE sport = ? AND player_name = ?
+        WHERE sport = ? AND LOWER(player_name) = LOWER(?)
         ORDER BY season DESC
         LIMIT 1
     """, (sport, player_name))
@@ -99,7 +99,7 @@ def get_recent_game_log(player_name: str, sport: str, n: int = 10) -> dict:
         select_expr = " + ".join(col_def) if isinstance(col_def, tuple) else col_def
         c.execute(
             f"SELECT {select_expr} as val FROM {table} "
-            f"WHERE player_name = ? ORDER BY date DESC LIMIT ?",
+            f"WHERE LOWER(player_name) = LOWER(?) ORDER BY date DESC LIMIT ?",
             (player_name, n),
         )
         vals = [r[0] if not isinstance(r, dict) else r.get("val") for r in c.fetchall()]
@@ -120,7 +120,7 @@ def get_current_props(player_name: str, sport: str) -> list:
         SELECT stat, line, hit_rate_overall, games_overall, confidence_tier,
                projection_edge_pct, projection_direction, date
         FROM player_props
-        WHERE sport = ? AND player_name = ?
+        WHERE sport = ? AND LOWER(player_name) = LOWER(?)
         ORDER BY date DESC
     """, (sport, player_name))
     rows = rows_to_dicts(c, c.fetchall())
