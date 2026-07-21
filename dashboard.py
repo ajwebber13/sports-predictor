@@ -378,12 +378,13 @@ def build_props_html(rows: list) -> str:
 <!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=DM+Sans:wght@400;500;700&display=swap');
-  body {{ margin:0; background:transparent; font-family:'DM Sans',sans-serif; }}
+  html, body {{ height:100%; margin:0; background:transparent; font-family:'DM Sans',sans-serif; }}
   .cp-glass-wrap {{
     background: linear-gradient(180deg, rgba(19,18,9,0.75), rgba(10,10,10,0.9));
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     border: 1px solid rgba(212,175,55,0.14); border-radius: 16px;
     box-shadow: 0 12px 32px rgba(0,0,0,0.45);
+    height: 100%;
   }}
   /* FIXED 2026-07-20: this used to be overflow:hidden on the same
      element as the table, which CLIPPED any column past the visible
@@ -401,7 +402,7 @@ def build_props_html(rows: list) -> str:
      max-height + overflow-y makes IT that ancestor, so the header now
      genuinely stays put while the rows scroll underneath it. */
   .cp-scroll-wrap {{
-    overflow-x: auto; overflow-y: auto; max-height: 560px;
+    overflow-x: auto; overflow-y: auto; height: 100%;
     -webkit-overflow-scrolling: touch; border-radius: 16px;
   }}
   table {{ width:100%; min-width:900px; border-collapse:collapse; font-size:13px; }}
@@ -1180,11 +1181,11 @@ with tab_props:
                 group_order.append(g)
             groups[g].append(row)
 
-        st.caption("👉 Swipe left/right within a game to see all columns")
+        st.caption("👉 Swipe left/right, up/down within a game to see everything")
         for g in group_order:
             rows = groups[g]
             with st.expander(f"{g}  ·  {len(rows)} prop{'s' if len(rows) != 1 else ''}", expanded=False):
-                table_height = min(72 + len(rows) * 42, 500)
+                table_height = min(72 + len(rows) * 42, 420)
                 components.html(
                     build_props_html(rows),
                     height=table_height,
