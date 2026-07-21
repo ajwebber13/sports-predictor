@@ -507,6 +507,23 @@ st.markdown("""
 .cp-ticker .stat-val { color: #fff; font-weight: 700; font-size: 13px; margin-left: 6px; }
 .cp-ticker .stat-group { display: flex; gap: 18px; flex-wrap: wrap; }
 .cp-pill { background: rgba(212,175,55,0.1); border: 1px solid rgba(212,175,55,0.25); color: #D4AF37; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 4px; }
+.cp-ticker .stat-group { gap: 28px; }
+div[data-testid="column"] .stButton button {
+    background: rgba(19,18,9,0.7) !important;
+    border: 1px solid rgba(212,175,55,0.2) !important;
+    color: #D4AF37 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    padding: 4px 14px !important;
+    border-radius: 20px !important;
+    width: auto !important;
+    min-height: 0 !important;
+}
+div[data-testid="column"] .stButton button:hover {
+    background: rgba(212,175,55,0.15) !important;
+    border-color: #D4AF37 !important;
+    color: #fff !important;
+}
 
 h3 { font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; font-weight: 600 !important; font-size: 14px !important; text-transform: uppercase; letter-spacing: 1.5px; }
 
@@ -794,26 +811,24 @@ with tab_games:
                 unsafe_allow_html=True,
             )
 
-            pill_cols = st.columns(len(summary.index))
+            # Natural-width columns sized to content instead of one
+            # column per sport stretched full-width — spacer column
+            # absorbs leftover width so pills stay compact and
+            # left-clustered rather than spread across the page.
+            n_sports = len(summary.index)
+            pill_cols = st.columns([1] * n_sports + [6])
             for i, s in enumerate(summary.index):
                 with pill_cols[i]:
-                    if st.button(s.upper(), key=f"streak_pill_{s}", use_container_width=True):
-                        st.session_state["g_streak_sport"] = s
-
-            clicked_sport = st.session_state.get("g_streak_sport")
-            if clicked_sport and clicked_sport in streaks:
-                streak = streaks[clicked_sport]
-                if streak:
-                    s_type, s_count = streak
-                    s_color = "#3ecf8e" if s_type == "WIN" else "#ff5c5c"
-                    s_letter = "W" if s_type == "WIN" else "L"
-                    st.markdown(
-                        f'<div style="color:{s_color};font-size:13px;font-weight:700;margin:-6px 0 12px 4px;">'
-                        f'{clicked_sport.upper()}: {s_letter}{s_count} current streak</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.caption(f"{clicked_sport.upper()}: no active streak")
+                    label = s.upper()
+                    streak = streaks.get(s)
+                    if streak and st.session_state.get("g_streak_sport") == s:
+                        s_type, s_count = streak
+                        s_letter = "W" if s_type == "WIN" else "L"
+                        label = f"{s.upper()} {s_letter}{s_count}"
+                    if st.button(label, key=f"streak_pill_{s}"):
+                        st.session_state["g_streak_sport"] = (
+                            None if st.session_state.get("g_streak_sport") == s else s
+                        )
 
             # ---------- BEST / WORST PICK HIGHLIGHT ----------
             wins = settled[settled["status"] == "WIN"]
@@ -1042,7 +1057,7 @@ with tab_props:
     with fc2:
         status_f = st.multiselect("Result", options=["HIT", "MISS", "PENDING", "NO BET"], default=["HIT", "MISS", "PENDING"], key="p_status")
     with fc3:
-        min_edge = st.slider("Min Edge %", 0.0, 50.0, 0.0, 1.0, key="p_edge")
+        min_edge = st.slider("Min Edge %", 0.0, 50.0, 8.0, 1.0, key="p_edge")
     with fc4:
         search = st.text_input("Search player", "", key="p_search")
 
@@ -1147,19 +1162,34 @@ with tab_props:
 - **Odds** — the over/under odds on this line
 - **Result** — HIT / MISS / PENDING / NO BET once the game plays out
 """)
-        st.caption("👉 Swipe left/right to see all columns")
-        # FIXED 2026-07-20: iframe height now matches .cp-scroll-wrap's
-        # own 560px max-height + header/padding room — the inner wrapper
-        # is what scrolls now (that's what makes the sticky header work),
-        # so the outer iframe just needs to be tall enough to show it
-        # without ALSO needing to scroll itself (that would mean two
-        # nested scrollbars, which is worse than the original bug).
-        table_height = min(72 + len(table_rows) * 42, 600)
-        components.html(
-            build_props_html(table_rows),
-            height=table_height,
-            scrolling=False
-        )
+
+        # Group rows by game so each matchup gets its own collapsible
+        # section instead of one flat table with the game name repeated
+        # on every row. Groups sorted by highest edge_pct within the
+        # group, so the most interesting game-groups float visually
+        # once expanded (row order inside each group, not group order,
+        # since Streamlit expanders don't reorder by content easily —
+        # group order stays as encountered, matching the existing
+        # date/team/opponent sort).
+        groups = {}
+        group_order = []
+        for row in table_rows:
+            g = row["game"]
+            if g not in groups:
+                groups[g] = []
+                group_order.append(g)
+            groups[g].append(row)
+
+        st.caption("👉 Swipe left/right within a game to see all columns")
+        for g in group_order:
+            rows = groups[g]
+            with st.expander(f"{g}  ·  {len(rows)} prop{'s' if len(rows) != 1 else ''}", expanded=False):
+                table_height = min(72 + len(rows) * 42, 500)
+                components.html(
+                    build_props_html(rows),
+                    height=table_height,
+                    scrolling=False
+                )
 
 # =========================================================
 # TAB: EDGE FINDER
