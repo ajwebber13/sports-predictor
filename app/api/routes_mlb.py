@@ -20,8 +20,15 @@ MLB is in season.
 
 from fastapi import APIRouter, Query
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from mlb_data import get_mlb_events, get_moneyline_odds, get_run_line_odds, get_total_odds, american_to_implied
 from mlb_predictor import predict_game
+
+# Games processed concurrently in mlb_edges() — bounded so we don't
+# hammer ESPN/odds APIs with 15+ simultaneous requests on a big slate.
+# 6 is a starting point; raise if games stay well under rate limits,
+# lower if 429s start showing up in the logs.
+MLB_EDGES_MAX_WORKERS = 6
 
 router = APIRouter(prefix="/mlb", tags=["MLB"])
 
@@ -150,6 +157,27 @@ def mlb_predictions():
     return {"count": len(results), "games": results}
 
 
+def _process_one_game(event: dict, dh_game_number: int, matchup_is_dh: bool, min_edge: float) -> list:
+    """All network-bound work for ONE game — predict + 3 odds calls.
+    Pure function of its inputs (no shared mutable state), safe to run
+    concurrently across games in a thread pool. Returns [] if no
+    moneyline odds are available (same skip behavior as before)."""
+    pred = predict_game(event)
+    odds = get_moneyline_odds(event)
+
+    if not odds:
+        return []
+
+    game_label = f"{pred['away_team']} @ {pred['home_team']}"
+    if matchup_is_dh:
+        game_label += f" (DH Game {dh_game_number})"
+
+    run_line_odds = get_run_line_odds(event)
+    total_odds = get_total_odds(event)
+    return _build_bets_for_pred(pred, game_label, odds, min_edge,
+                                 run_line_odds=run_line_odds, total_odds=total_odds)
+
+
 @router.get("/edges")
 def mlb_edges(min_edge: float = Query(default=3.0)):
     events = get_mlb_events()
@@ -163,27 +191,43 @@ def mlb_edges(min_edge: float = Query(default=3.0)):
         away = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "away")
         matchup_counts[(home, away)] += 1
 
-    game_number = Counter()  # tracks which game # we're on per matchup as we loop
+    # DH game numbers precomputed from list order BEFORE any network
+    # calls or parallelization — pure, no shared mutable state touched
+    # once the thread pool starts. Doubleheader Game 1/Game 2 labeling
+    # stays correct regardless of which thread finishes first.
+    dh_game_number_by_index = {}
+    seen_counts = Counter()
+    for i, event in enumerate(events):
+        competitors = event["competitions"][0]["competitors"]
+        home = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "home")
+        away = next(c["team"]["displayName"] for c in competitors if c["homeAway"] == "away")
+        matchup_key = (home, away)
+        seen_counts[matchup_key] += 1
+        dh_game_number_by_index[i] = seen_counts[matchup_key]
 
-    for event in events:
-        pred = predict_game(event)
-        odds = get_moneyline_odds(event)
-
-        if not odds:
-            continue
-
-        matchup_key = (pred["home_team"], pred["away_team"])
-        game_number[matchup_key] += 1
-
-        game_label = f"{pred['away_team']} @ {pred['home_team']}"
-        if matchup_counts[matchup_key] > 1:
-            game_label += f" (DH Game {game_number[matchup_key]})"
-
-        run_line_odds = get_run_line_odds(event)
-        total_odds = get_total_odds(event)
-        bets = _build_bets_for_pred(pred, game_label, odds, min_edge,
-                                     run_line_odds=run_line_odds, total_odds=total_odds)
-        best_bets.extend(bets)
+    with ThreadPoolExecutor(max_workers=MLB_EDGES_MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(
+                _process_one_game,
+                event,
+                dh_game_number_by_index[i],
+                matchup_counts[(
+                    next(c["team"]["displayName"] for c in event["competitions"][0]["competitors"] if c["homeAway"] == "home"),
+                    next(c["team"]["displayName"] for c in event["competitions"][0]["competitors"] if c["homeAway"] == "away"),
+                )] > 1,
+                min_edge,
+            ): i
+            for i, event in enumerate(events)
+        }
+        for future in as_completed(futures):
+            try:
+                best_bets.extend(future.result())
+            except Exception as e:
+                # One game's failure (bad ESPN payload, odds API hiccup,
+                # etc.) no longer takes down the whole slate — matches
+                # the existing "if not odds: continue" skip philosophy,
+                # just extended to any per-game exception.
+                print(f"mlb_edges: game processing error: {e}")
 
     best_bets.sort(key=lambda x: x["edge"], reverse=True)
     return {"count": len(best_bets), "best_bets": best_bets}
