@@ -26,7 +26,7 @@ def root():
 
 
 @app.get("/nba/edges")
-def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
+def nba_edges(simulations: int = Query(default=30000), min_edge: float = Query(default=3.0)):
     import sys, os, math
     sys.path.insert(0, os.path.abspath("."))
     from services.odds_parser import get_live_odds, american_to_implied
@@ -86,7 +86,7 @@ def nba_edges(simulations: int = Query(default=10000), min_edge: float = Query(d
 
 
 @app.get("/ncaab/edges")
-def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query(default=3.0)):
+def ncaab_edges(simulations: int = Query(default=30000), min_edge: float = Query(default=3.0)):
     import sys, os
     sys.path.insert(0, os.path.abspath("."))
     from ncaab_data import get_team_stats, get_ncaab_events
@@ -124,7 +124,7 @@ def ncaab_edges(simulations: int = Query(default=10000), min_edge: float = Query
 
 
 @app.get("/ncaab/preview")
-def ncaab_preview(home: str, away: str, simulations: int = Query(default=10000)):
+def ncaab_preview(home: str, away: str, simulations: int = Query(default=30000)):
     import sys, os
     sys.path.insert(0, os.path.abspath("."))
     from ncaab_data import get_team_stats, get_roster

@@ -168,19 +168,29 @@ def edge_label(edge_pct: float) -> str:
 
 def get_recommended_prob(bet: dict) -> float:
     """
-    Returns the model's confidence in the PICKED team winning.
-    model_prob is always the HOME team win probability.
-    If we're betting the away team, confidence = 100 - model_prob.
+    Returns the model's confidence in the PICKED side actually hitting
+    — the picked team winning (moneyline), covering (spread), or the
+    total landing the right direction (Over/Under).
+
+    FIXED (2026-07-20): this used to assume model_prob was always the
+    HOME team's win probability, and flipped it (100 - model_prob)
+    whenever the picked team's name wasn't found in bet_label. That
+    was already wrong for moneyline the moment routes_wnba.py (and
+    since then routes_mlb.py/routes_cfb.py/routes_nfl.py) started
+    setting model_prob to whichever side the model actually
+    recommends — home OR away, not home-only. An away-team pick with
+    real 64% confidence was being read as 36% here, which could wrongly
+    filter out strong picks (or let weak ones through) at the
+    confidence gate in render_job.py. It's also flatly wrong for
+    spread/total bets, which don't have a home/away team to match
+    against at all (bet_label is "Team +1.5" or "Over 8.5" — cover/
+    total probability, not a win probability to flip).
+
+    Every route this now reads from already computes model_prob as
+    the confidence in the actual recommended pick, for every market —
+    no home/away logic needed here anymore. Trust it directly.
     """
-    model_prob = bet.get("model_prob", 50)
-    game       = bet.get("game", "")
-    bet_label  = bet.get("bet", "")
-    parts      = game.split(" @ ")
-    home_team  = parts[1] if len(parts) == 2 else ""
-    if home_team.lower() in bet_label.lower():
-        return round(float(model_prob), 1)
-    else:
-        return round(100 - float(model_prob), 1)
+    return round(float(bet.get("model_prob", 50)), 1)
 
 
 def fmt_odds(odds) -> str:
@@ -421,7 +431,7 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
     if LOGGING_ENABLED:
         for bet in bets:
             try:
-                log_prediction(bet, sport)
+                log_prediction(bet, sport, market=bet.get("market", "moneyline"))
             except Exception as e:
                 print(f"DB prediction save failed: {e}")
 
@@ -486,12 +496,34 @@ if __name__ == "__main__":
     args = parser.parse_args()
     run_alerts(sport=args.sport, simulations=args.sims)
 
+
 def format_game_card(bet: dict, sport: str, game_time: str) -> str:
+    """
+    PREDICTION ENGINE v2 (2026-07-20): now market-aware. Previously this
+    always tried to derive a "winner" team + win% from home_win_prob/
+    away_win_prob (or model_prob as a fallback), then showed that as the
+    Pick line — that only makes sense for moneyline. Spread bets kinda
+    worked by accident (bet_label starts with a team name, so the old
+    team-matching logic still found the right team), but Total bets
+    (bet_label like "Over 8.5") never matched either team name and fell
+    through to showing a team name + win% on the Pick line where "Over
+    8.5 (-105)" should have been — completely wrong content on screen.
+    Spread/total bets also don't carry home_win_prob/away_win_prob at
+    all (only moneyline bets do — see routes_wnba.py/routes_mlb.py/
+    routes_cfb.py/routes_nfl.py), so model_prob there is the cover/total
+    probability itself, not a value to run through home/away logic.
+
+    Moneyline formatting below is UNCHANGED from before this fix.
+    Spread/total now use their own simpler branch: show the pick and
+    its real probability directly, skip the home/away win-prob
+    breakdown line (it doesn't describe a spread/total pick).
+    """
     emoji     = sport_emoji(sport)
     game      = bet.get("game", "")
     bet_label = bet.get("bet", "")
     odds      = bet.get("odds")
     projected = bet.get("projected")
+    market    = bet.get("market", "moneyline")
 
     home_record   = bet.get("home_record", "")
     away_record   = bet.get("away_record", "")
@@ -504,6 +536,47 @@ def format_game_card(bet: dict, sport: str, game_time: str) -> str:
     away_team = parts[0] if len(parts) == 2 else ""
     home_team = parts[1] if len(parts) == 2 else ""
 
+    lines = [f"{emoji} <b>{game}</b>", f"🕐 {game_time}"]
+
+    context_lines = []
+    rec = []
+    if away_record: rec.append(f"{away_team.split()[-1]} {away_record}")
+    if home_record: rec.append(f"{home_team.split()[-1]} {home_record}")
+    if rec: context_lines.append("📋 " + " | ".join(rec))
+
+    rest = []
+    if away_rest is not None: rest.append(f"{away_team.split()[-1]}: {away_rest}d rest")
+    if home_rest is not None: rest.append(f"{home_team.split()[-1]}: {home_rest}d rest")
+    if rest: context_lines.append("🔥 " + " | ".join(rest))
+
+    if away_injuries: context_lines.append(f"🚑 {away_team.split()[-1]}: {away_injuries}")
+    if home_injuries: context_lines.append(f"🚑 {home_team.split()[-1]}: {home_injuries}")
+
+    if context_lines:
+        lines.append("───────────────────")
+        lines.extend(context_lines)
+
+    has_edge = bool(bet_label)
+    odds_str = f" ({fmt_odds(odds)})" if odds else ""
+
+    if market in ("spread", "total"):
+        # Spread/total: bet_label already fully describes the pick
+        # ("Las Vegas Aces -6.5" / "Over 158.5") and model_prob IS the
+        # real probability of that exact outcome — no team/win-prob
+        # derivation needed or wanted here.
+        pick_prob = round(float(bet.get("model_prob", 0)), 1)
+        lines.append("───────────────────")
+        if has_edge:
+            lines.append(f"✅ <b>Pick: {bet_label} ({pick_prob}%)</b>{odds_str}")
+        else:
+            lines.append("🔴 No edge pick")
+        if projected:
+            lines.append(f"📐 Projected: {projected}")
+        lines.append("")
+        lines.append("<i>Culture &amp; Pulse Analytics | For entertainment only.</i>")
+        return "\n".join(lines)
+
+    # ── Moneyline — unchanged from before this fix ──
     # home_win_prob/away_win_prob are explicit, unambiguous fields the
     # API now provides directly. model_prob (still present for backward
     # compat) is NOT always the home team's probability — it's
@@ -536,42 +609,20 @@ def format_game_card(bet: dict, sport: str, game_time: str) -> str:
     # "the actual recommended bet" are different teams — re-deriving
     # winner from probability alone would then show the WRONG team
     # next to a real edge pick.
-    has_edge = bool(bet_label)
     if has_edge:
-        pick_team = bet_label.rsplit(" ML", 1)[0].rsplit(" +", 1)[0].rsplit(" -", 1)[0].strip()
+        pick_team = bet_label.rsplit(" ML", 1)[0].strip()
         if pick_team == home_team:
             winner, winner_prob = home_team, home_prob
         elif pick_team == away_team:
             winner, winner_prob = away_team, away_prob
-        # else: unrecognized label format (e.g. a spread pick, not ML) —
-        # fall back to the probability-derived winner above rather than
-        # showing a blank/wrong team.
-
-    lines = [f"{emoji} <b>{game}</b>", f"🕐 {game_time}"]
-
-    context_lines = []
-    rec = []
-    if away_record: rec.append(f"{away_team.split()[-1]} {away_record}")
-    if home_record: rec.append(f"{home_team.split()[-1]} {home_record}")
-    if rec: context_lines.append("📋 " + " | ".join(rec))
-
-    rest = []
-    if away_rest is not None: rest.append(f"{away_team.split()[-1]}: {away_rest}d rest")
-    if home_rest is not None: rest.append(f"{home_team.split()[-1]}: {home_rest}d rest")
-    if rest: context_lines.append("🔥 " + " | ".join(rest))
-
-    if away_injuries: context_lines.append(f"🚑 {away_team.split()[-1]}: {away_injuries}")
-    if home_injuries: context_lines.append(f"🚑 {home_team.split()[-1]}: {home_injuries}")
-
-    if context_lines:
-        lines.append("───────────────────")
-        lines.extend(context_lines)
+        # else: unrecognized label format — fall back to the
+        # probability-derived winner above rather than showing a
+        # blank/wrong team.
 
     lines.append("───────────────────")
     lines.append(f"📊 {away_team.split()[-1]} {away_prob}% · {home_team.split()[-1]} {home_prob}%")
 
     if has_edge:
-        odds_str = f" ({fmt_odds(odds)})" if odds else ""
         lines.append(f"✅ <b>Pick: {winner} ({winner_prob}%)</b>{odds_str}")
     else:
         lines.append(f"🤖 Model: {winner} ({winner_prob}%)")

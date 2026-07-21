@@ -81,7 +81,7 @@ def run_cfb(week: int):
         year        = CFB_SCHEDULE_YEAR,
         week        = week,
         stats_year  = CFB_STATS_YEAR,
-        simulations = 10000,
+        simulations = 50000,
     )
 
     if not matchups:
@@ -117,7 +117,7 @@ def run_nfl(week: int, use_pbp: bool = False):
         week          = week,
         stats_year    = NFL_STATS_YEAR,
         use_pbp       = use_pbp,
-        simulations   = 10000,
+        simulations   = 50000,
     )
 
     if not matchups:

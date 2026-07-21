@@ -74,27 +74,43 @@ def send_discord_alert(text: str):
 
 
 # ─────────────────────────────────────────────────────────────
-# NEW: DEDUP CHECK — prevents noon retry from re-alerting a game
+# DEDUP CHECK — prevents noon retry from re-alerting a game
 # already covered by the morning alert.
 #
 # Matches database.py's actual schema: get_conn(), table
-# "predictions", columns date / sport / game.
+# "predictions", columns date / sport / game / market.
+#
+# PREDICTION ENGINE v2 (2026-07-20): now checks per (sport, game,
+# market) instead of per (sport, game). Before this fix, a game that
+# already had a moneyline pick logged this morning would read as
+# "already alerted" even if the noon retry found a brand-new spread
+# or total edge for that same game that was never sent — the retry
+# would skip it entirely, silently. market is optional (defaults to
+# None -> checks ALL markets for the game, old behavior) so any
+# caller not yet passing a market keeps working unchanged.
 # ─────────────────────────────────────────────────────────────
 
-def already_alerted_today(sport: str, game: str) -> bool:
+def already_alerted_today(sport: str, game: str, market: str = None) -> bool:
     """
-    Returns True if a pick for this game was already logged today
-    (e.g. by the morning wnba_morning_alert.yml run).
+    Returns True if a pick for this game (and, if given, this specific
+    market) was already logged today (e.g. by the morning alert run).
     """
     try:
         from database import get_conn
         today = datetime.now().strftime("%Y-%m-%d")
         conn  = get_conn()
-        cur   = conn.execute(
-            "SELECT COUNT(*) as cnt FROM predictions "
-            "WHERE sport = ? AND game = ? AND date = ?",
-            (sport, game, today),
-        )
+        if market:
+            cur = conn.execute(
+                "SELECT COUNT(*) as cnt FROM predictions "
+                "WHERE sport = ? AND game = ? AND date = ? AND market = ?",
+                (sport, game, today, market),
+            )
+        else:
+            cur = conn.execute(
+                "SELECT COUNT(*) as cnt FROM predictions "
+                "WHERE sport = ? AND game = ? AND date = ?",
+                (sport, game, today),
+            )
         row = cur.fetchone()
         conn.close()
         return (row["cnt"] if row else 0) > 0
@@ -173,6 +189,146 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
         log(f"No {sport.upper()} edges found today.")
         return False
 
+    # ── LEANER CONSOLIDATED ALERT (WNBA/MLB per Drew's 2026-07-19 spec) ──
+    # Groups by game, evaluates ML/spread/total, shows up to 2 qualifying
+    # markets per game ranked by edge, adds AI reasoning, sends ONE
+    # message instead of one-per-bet.
+    #
+    # NOTE (2026-07-20): MLB's /mlb/edges route now returns real
+    # spread/total bets (Prediction Engine v2 — see routes_mlb.py), but
+    # game_pick_selector.py's get_daily_game_picks() was documented as
+    # treating MLB as moneyline-only. Until that file is updated to
+    # match, MLB spread/total bets may be silently dropped or ignored by
+    # this path even though they're present in `bets` below and get
+    # logged to the database correctly either way (the log_prediction
+    # loop right below runs on every bet in a qualifying game, not just
+    # what game_pick_selector chose to display).
+    if sport in ("wnba", "mlb"):
+        try:
+            from game_pick_selector import get_daily_game_picks
+            from ai_game_analyzer import build_game_context, generate_game_reasoning
+            from telegram_alerts import get_game_times, get_raw_time_for_bet, is_today_ct
+
+            game_times, game_times_raw = get_game_times(sport)
+
+            # date filter still applies before grouping
+            todays_bets = []
+            for bet in bets:
+                raw_time = get_raw_time_for_bet(bet, game_times_raw)
+                if raw_time and not is_today_ct(raw_time):
+                    log(f"Skipping stale game: {bet.get('game')} — {raw_time}")
+                    continue
+                todays_bets.append(bet)
+
+            if not todays_bets:
+                log(f"No {sport.upper()} games today after date filter.")
+                return False
+
+            daily_games = get_daily_game_picks(sport, todays_bets)
+
+            if skip_if_already_alerted:
+                # NOTE: this still checks per-game only (no market arg),
+                # since daily_games is grouped by game, not by market —
+                # matches this function's existing granularity. The fix
+                # below (per-bet, in the log_prediction loop) is what
+                # actually prevents a specific market from being silently
+                # skipped on retry; this game-level filter only decides
+                # whether to re-render the Discord message for a game
+                # that's already fully covered.
+                daily_games = [
+                    g for g in daily_games
+                    if not already_alerted_today(sport, g["game"])
+                ]
+
+            if not daily_games:
+                log(f"No {sport.upper()} games cleared today's edge threshold.")
+                return False
+
+            # log predictions for every underlying bet row that fed a
+            # qualifying game (preserves existing prediction-logging
+            # behavior). Each bet is checked individually against the
+            # dedup table by its OWN market now, not just by game — so a
+            # game that already has a moneyline row logged this morning
+            # can still pick up a brand-new spread/total row on retry
+            # instead of being skipped wholesale.
+            qualifying_game_labels = {g["game"] for g in daily_games}
+            for bet in todays_bets:
+                if bet.get("game") not in qualifying_game_labels:
+                    continue
+                bet_market = bet.get("market", "moneyline")
+                if skip_if_already_alerted and already_alerted_today(sport, bet.get("game", ""), market=bet_market):
+                    log(f"Already alerted today, skipping duplicate: {bet.get('game')} [{bet_market}]")
+                    continue
+                try:
+                    from database import log_prediction
+                    log_prediction(bet, sport, market=bet_market)
+                except Exception as e:
+                    log(f"Prediction log error: {e}")
+
+            rankings_by_team = {}
+            try:
+                from ranking_engine import get_rankings
+                rankings_by_team = {r["team"]: r for r in get_rankings(sport)}
+            except Exception as e:
+                log(f"Rankings fetch failed (reasoning will degrade): {e}")
+
+            emoji = "⚾" if sport == "mlb" else "🏀"
+            label = sport.upper()
+            today_label = datetime.now().strftime("%B %d, %Y")
+            lines = [f"{emoji} <b>C&amp;P Picks — {label} Best Bets</b>", f"📅 {today_label}", ""]
+
+            market_emoji = {"moneyline": "🎯", "spread": "📏", "total": "🔢"}
+            for g in daily_games:
+                parts = g["game"].split(" @ ")
+                away, home = (parts[0], parts[1]) if len(parts) == 2 else ("", "")
+                ctx = build_game_context(sport, home, away, rankings_by_team) if home and away else None
+
+                lines.append(f"📌 <b>{g['game']}</b>")
+                for pick in g["picks"]:
+                    if ctx:
+                        pick.ai_reasoning = generate_game_reasoning(ctx, pick)
+                    pemoji = market_emoji.get(pick.market, "•")
+                    odds_str = f" ({pick.odds})" if pick.odds else ""
+                    lines.append(f"{pemoji} {pick.market.title()}: {pick.team_or_side}{odds_str} — {pick.edge_display}")
+                    if pick.ai_reasoning:
+                        lines.append(f"   💡 {pick.ai_reasoning}")
+                lines.append("")
+
+            # best-guaranteed prop spotlight
+            try:
+                from edge_finder import get_edge_finder
+                from ai_prop_analyzer import generate_prop_analysis
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                all_edges = get_edge_finder(date=today_str, sport=sport, top_n=20)
+                best_props = [p for p in all_edges if p.get("edge_score", 0) >= 85]
+                best_props.sort(key=lambda p: p.get("edge_score", 0), reverse=True)
+                best_props = best_props[:2]
+                if best_props:
+                    lines.append("🔒 <b>BEST GUARANTEED PROP" + ("S" if len(best_props) > 1 else "") + "</b>")
+                    for p in best_props:
+                        direction = "Over" if p.get("projection_direction") == "over" else "Under"
+                        lines.append(f"⭐ {p.get('player_name', 'Unknown')} — {p.get('stat', '').upper()} {direction} {p.get('line', '')}")
+                        try:
+                            reasoning = generate_prop_analysis(p, sport)
+                            if reasoning:
+                                lines.append(f"   💡 {reasoning}")
+                        except Exception:
+                            pass
+                    lines.append("")
+            except Exception as e:
+                log(f"Edge Finder prop spotlight failed (non-fatal): {e}")
+
+            lines.append("<i>Culture &amp; Pulse Analytics | For entertainment only.</i>")
+            send_discord_alert("\n".join(lines))
+
+            log(f"Sent leaner {label} alert covering {len(daily_games)} game(s).")
+            return True
+
+        except Exception as e:
+            log(f"Leaner alert error: {e}")
+            return False
+
+    # ── ORIGINAL per-bet flow (all other sports, unchanged) ──
     try:
         from telegram_alerts import format_game_card, get_game_times, get_recommended_prob
 
@@ -191,8 +347,16 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
                 log(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}%")
                 continue
 
-            if skip_if_already_alerted and already_alerted_today(sport, bet.get("game", "")):
-                log(f"Already alerted today, skipping duplicate: {bet.get('game')}")
+            # PREDICTION ENGINE v2: this path already treats each bet
+            # dict independently (one alert per bet, not grouped by
+            # game), so multiple markets for the same game were never
+            # collapsed into one here the way the WNBA/MLB leaner path
+            # was. Still switched to the market-aware dedup check for
+            # consistency — a game with a moneyline pick already sent
+            # this morning can now still pick up a new spread/total
+            # pick on retry instead of the whole game being skipped.
+            if skip_if_already_alerted and already_alerted_today(sport, bet.get("game", ""), market=bet.get("market", "moneyline")):
+                log(f"Already alerted today, skipping duplicate: {bet.get('game')} [{bet.get('market', 'moneyline')}]")
                 continue
 
             clean_bets.append(bet)
@@ -204,7 +368,7 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
         for bet in clean_bets:
             try:
                 from database import log_prediction
-                log_prediction(bet, sport)
+                log_prediction(bet, sport, market=bet.get("market", "moneyline"))
             except Exception as e:
                 log(f"Prediction log error: {e}")
 

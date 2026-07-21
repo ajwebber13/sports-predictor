@@ -21,6 +21,11 @@ longer creates tables itself — init_db() and _ensure_extended_tables()
 statements) have been removed for that reason. See init_db()'s
 docstring below for why that old code was actually dangerous to keep,
 not just outdated.
+
+PREDICTION ENGINE v2 (2026-07-20): predictions table now supports
+multiple betting markets per game (moneyline, spread, total) instead
+of one row per game. See log_prediction()'s docstring below for the
+schema change and how to call it for each market.
 """
 
 import sqlite3
@@ -809,7 +814,7 @@ def log_situational_factors(sport: str, games: list):
         "UNLV Runnin Rebels":      (36.11, -115.14),
     }
 
-    
+
 
     def haversine(lat1, lon1, lat2, lon2):
         import math
@@ -938,7 +943,7 @@ def model_report(sport: str = None):
     print("-" * 45)
 
 
-def log_prediction(bet: dict, sport: str):
+def log_prediction(bet: dict, sport: str, market: str = "moneyline"):
     """Recovered from pre-regression database.py (commit b13a88a) —
     render_job.py imports this directly. Column names (bet, model_prob,
     home_record, predicted_winner, etc.) confirmed matching PRODUCTION's
@@ -952,7 +957,28 @@ def log_prediction(bet: dict, sport: str):
     doing. The ON CONFLICT clause added below is defense-in-depth on
     top of that guard, not a replacement for it — kept both since the
     guard already proved itself against the exact failure mode that
-    caused the July 13 incident."""
+    caused the July 13 incident.
+
+    2026-07-20 (Prediction Engine v2): predictions can now hold up to
+    3 rows per game — one per market (moneyline / spread / total) —
+    instead of one row overwriting the last. The dedupe/conflict key
+    is now (date, sport, game, market), matching the new UNIQUE
+    constraint on the predictions table. Call this once per market
+    your predictor generates for a game:
+
+        log_prediction(ml_bet, sport, market="moneyline")
+        log_prediction(spread_bet, sport, market="spread")
+        log_prediction(total_bet, sport, market="total")
+
+    Existing callers that don't pass market at all keep working
+    unchanged (defaults to "moneyline", same behavior as before this
+    change).
+
+    bet dict now also accepts these optional keys, used by the new
+    columns: pick, line, projected_home, projected_away,
+    projected_margin, projected_total, confidence. All default to
+    None/"" if not provided, so old-style bet dicts (moneyline-only,
+    pre-v2 callers) still insert cleanly."""
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -961,11 +987,13 @@ def log_prediction(bet: dict, sport: str):
 
     try:
         # Dedupe guard — delete any existing row for this exact
-        # date/sport/game before inserting, so a flipped pick on a
-        # rerun replaces the old one instead of creating a duplicate.
+        # date/sport/game/market before inserting, so a flipped pick on
+        # a rerun replaces the old one instead of creating a duplicate.
+        # market is now part of the key so ML/Spread/Total rows for the
+        # same game no longer overwrite each other.
         c.execute(
-            "SELECT id FROM predictions WHERE date=? AND sport=? AND game=?",
-            (today, sport, game)
+            "SELECT id FROM predictions WHERE date=? AND sport=? AND game=? AND market=?",
+            (today, sport, game, market)
         )
         existing = c.fetchone()
         if existing:
@@ -975,9 +1003,11 @@ def log_prediction(bet: dict, sport: str):
             INSERT INTO predictions
             (date, sport, game, home_team, away_team, bet, odds,
              model_prob, implied_prob, edge, home_record, away_record,
-             home_rest, away_rest, home_injuries, away_injuries, predicted_winner)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (date, sport, game) DO UPDATE SET
+             home_rest, away_rest, home_injuries, away_injuries, predicted_winner,
+             market, pick, line, projected_home, projected_away,
+             projected_margin, projected_total, confidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (date, sport, game, market) DO UPDATE SET
                 home_team        = EXCLUDED.home_team,
                 away_team        = EXCLUDED.away_team,
                 bet              = EXCLUDED.bet,
@@ -991,7 +1021,14 @@ def log_prediction(bet: dict, sport: str):
                 away_rest        = EXCLUDED.away_rest,
                 home_injuries    = EXCLUDED.home_injuries,
                 away_injuries    = EXCLUDED.away_injuries,
-                predicted_winner = EXCLUDED.predicted_winner
+                predicted_winner = EXCLUDED.predicted_winner,
+                pick             = EXCLUDED.pick,
+                line             = EXCLUDED.line,
+                projected_home   = EXCLUDED.projected_home,
+                projected_away   = EXCLUDED.projected_away,
+                projected_margin = EXCLUDED.projected_margin,
+                projected_total  = EXCLUDED.projected_total,
+                confidence       = EXCLUDED.confidence
         """, (
             today, sport, game,
             parts[1] if len(parts) == 2 else "",
@@ -1008,9 +1045,17 @@ def log_prediction(bet: dict, sport: str):
             bet.get("home_injuries", ""),
             bet.get("away_injuries", ""),
             bet.get("bet", "").replace(" ML", ""),
+            market,
+            bet.get("pick", ""),
+            bet.get("line"),
+            bet.get("projected_home"),
+            bet.get("projected_away"),
+            bet.get("projected_margin"),
+            bet.get("projected_total"),
+            bet.get("confidence", ""),
         ))
         conn.commit()
-        print(f"Logged prediction: {game}")
+        print(f"Logged prediction: {game} [{market}]")
     except Exception as e:
         conn.rollback()
         print(f"Prediction log error: {e}")
@@ -1073,6 +1118,75 @@ def save_prediction_factors(sport: str, game_id: str, home_team: str,
         conn.close()
 
 
+def _grade_prediction(pred, home: str, away: str, home_score: int, away_score: int) -> tuple:
+    """Grades ONE predictions row against the final score, according to
+    its own market. Returns (correct, push):
+        correct: 1 (won) / 0 (lost) / None (push or ungradeable)
+        push:    True only for a genuine push (line landed exactly on
+                 the number) — distinct from "pending", since the game
+                 IS over. results.correct alone can't carry this
+                 distinction (NULL already means "pending" everywhere
+                 else in the app), hence the separate push column.
+
+    market == "moneyline": win/loss only, no push possible (a tied
+        final score doesn't happen in these sports).
+    market == "spread": pick's actual margin (their score - opponent's
+        score) plus their line. > 0 covers, < 0 doesn't, == 0 pushes.
+    market == "total": actual combined score vs the posted total line.
+        > line hits Over, < line hits Under, == line pushes.
+
+    Any row with a market this function doesn't recognize, or missing
+    the pick/line data it needs, grades as (None, False) — same as
+    "no data yet", never a guess.
+    """
+    market = (pred["market"] or "moneyline").lower()
+    pick = pred["pick"]
+    line = pred["line"]
+    actual_winner = home if home_score > away_score else away
+
+    if market == "moneyline":
+        predicted_winner = pred["predicted_winner"]
+        if not predicted_winner:
+            return None, False
+        return (1 if predicted_winner == actual_winner else 0), False
+
+    if market == "spread":
+        if not pick or line is None:
+            return None, False
+        if pick == home:
+            pick_margin = home_score - away_score
+        elif pick == away:
+            pick_margin = away_score - home_score
+        else:
+            return None, False
+        cover_value = pick_margin + line
+        if cover_value > 0:
+            return 1, False
+        if cover_value < 0:
+            return 0, False
+        return None, True  # push
+
+    if market == "total":
+        if not pick or line is None:
+            return None, False
+        total_actual = home_score + away_score
+        if pick.lower() == "over":
+            if total_actual > line:
+                return 1, False
+            if total_actual < line:
+                return 0, False
+            return None, True  # push
+        if pick.lower() == "under":
+            if total_actual < line:
+                return 1, False
+            if total_actual > line:
+                return 0, False
+            return None, True  # push
+        return None, False
+
+    return None, False
+
+
 def log_result(sport: str, game: str, date: str,
                home_score: int, away_score: int):
     """Recovered from pre-regression database.py — not directly called
@@ -1085,7 +1199,25 @@ def log_result(sport: str, game: str, date: str,
     prediction found) never conflict under that constraint in Postgres
     — same as SQLite, which also treats NULLs as distinct for UNIQUE
     purposes — so this preserves the original "always insert if no
-    prediction_id" behavior without extra handling."""
+    prediction_id" behavior without extra handling.
+
+    PREDICTION ENGINE v2 (2026-07-20): now grades EVERY predictions row
+    for this game/date — up to 3 (moneyline/spread/total) — instead of
+    just one. Each market is graded by its own rule via
+    _grade_prediction() and gets its OWN results row (one per
+    prediction_id, same UNIQUE constraint as before). A push (spread or
+    total landing exactly on the line) is stored as correct=NULL,
+    push=TRUE — distinct from a genuinely pending/ungraded pick
+    (correct=NULL, push=FALSE), since the game IS over for a push, it
+    just didn't resolve either way. Requires the `push` column added to
+    `results` (ALTER TABLE results ADD COLUMN push BOOLEAN DEFAULT
+    FALSE) — run that once before this version goes live.
+
+    If no predictions rows exist at all for this game/date, still
+    inserts one unmatched results row (prediction_id=NULL, correct=NULL,
+    push=FALSE) — same fallback behavior the old single-row version
+    had, so the game's final score is on record even with no pick to
+    grade."""
     conn  = get_conn()
     c     = conn.cursor()
     parts = game.split(" @ ")
@@ -1095,51 +1227,58 @@ def log_result(sport: str, game: str, date: str,
     actual_winner = home if home_score > away_score else away
 
     c.execute("""
-        SELECT id, predicted_winner, edge, odds
+        SELECT id, market, pick, line, predicted_winner, edge, odds
         FROM predictions
         WHERE date = ? AND sport = ? AND game = ?
     """, (date, sport, game))
-    pred = c.fetchone()
+    preds = c.fetchall()
 
-    correct      = None
-    pred_id      = None
-    edge_at_pick = None
-    odds_at_pick = None
-
-    if pred:
-        pred_id      = pred["id"]
-        edge_at_pick = pred["edge"]
-        odds_at_pick = pred["odds"]
-        correct      = 1 if pred["predicted_winner"] == actual_winner else 0
+    rows_to_grade = preds if preds else [None]
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    graded_summary = []
 
     try:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        c.execute("""
-            INSERT INTO results
-            (date, sport, game, home_team, away_team,
-             home_score, away_score, actual_winner,
-             prediction_id, correct, edge_at_pick, odds_at_pick, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (prediction_id) DO UPDATE SET
-                date          = EXCLUDED.date,
-                sport         = EXCLUDED.sport,
-                game          = EXCLUDED.game,
-                home_team     = EXCLUDED.home_team,
-                away_team     = EXCLUDED.away_team,
-                home_score    = EXCLUDED.home_score,
-                away_score    = EXCLUDED.away_score,
-                actual_winner = EXCLUDED.actual_winner,
-                correct       = EXCLUDED.correct,
-                edge_at_pick  = EXCLUDED.edge_at_pick,
-                odds_at_pick  = EXCLUDED.odds_at_pick,
-                updated_at    = EXCLUDED.updated_at
-        """, (date, sport, game, home, away,
-              home_score, away_score, actual_winner,
-              pred_id, correct, edge_at_pick, odds_at_pick, now_str))
-        conn.commit()
+        for pred in rows_to_grade:
+            if pred is None:
+                pred_id, edge_at_pick, odds_at_pick = None, None, None
+                correct, push = None, False
+                market_label = "no pick"
+            else:
+                pred_id      = pred["id"]
+                edge_at_pick = pred["edge"]
+                odds_at_pick = pred["odds"]
+                correct, push = _grade_prediction(pred, home, away, home_score, away_score)
+                market_label = pred["market"] or "moneyline"
 
-        status = "CORRECT" if correct == 1 else "WRONG" if correct == 0 else "NO PICK"
-        print(f"Result logged: {game} - {actual_winner} wins {status}")
+            c.execute("""
+                INSERT INTO results
+                (date, sport, game, home_team, away_team,
+                 home_score, away_score, actual_winner,
+                 prediction_id, correct, push, edge_at_pick, odds_at_pick, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (prediction_id) DO UPDATE SET
+                    date          = EXCLUDED.date,
+                    sport         = EXCLUDED.sport,
+                    game          = EXCLUDED.game,
+                    home_team     = EXCLUDED.home_team,
+                    away_team     = EXCLUDED.away_team,
+                    home_score    = EXCLUDED.home_score,
+                    away_score    = EXCLUDED.away_score,
+                    actual_winner = EXCLUDED.actual_winner,
+                    correct       = EXCLUDED.correct,
+                    push          = EXCLUDED.push,
+                    edge_at_pick  = EXCLUDED.edge_at_pick,
+                    odds_at_pick  = EXCLUDED.odds_at_pick,
+                    updated_at    = EXCLUDED.updated_at
+            """, (date, sport, game, home, away,
+                  home_score, away_score, actual_winner,
+                  pred_id, correct, push, edge_at_pick, odds_at_pick, now_str))
+
+            status = "PUSH" if push else "CORRECT" if correct == 1 else "WRONG" if correct == 0 else "NO PICK"
+            graded_summary.append(f"{market_label}={status}")
+
+        conn.commit()
+        print(f"Result logged: {game} - {actual_winner} wins | {', '.join(graded_summary)}")
     except Exception as e:
         conn.rollback()
         print(f"Result log error: {e}")

@@ -1,13 +1,136 @@
 """
 routes_mlb.py
 FastAPI routes for MLB predictions — mirrors routes_cfb.py / routes_nfl.py.
+
+PREDICTION ENGINE v2 (2026-07-20): /edges now emits up to 3 bet rows per
+game — moneyline, run line, total — instead of moneyline-only with
+spread/total data tacked on as unused extra fields. See
+_build_bets_for_pred() below.
+
+Run-line and total bets use REAL odds via mlb_data.py's
+get_run_line_odds()/get_total_odds() — both marked "not yet verified
+against a live payload" in that file (built before an in-season game was
+available to confirm ESPN's "pointSpread"/"total" keys match). Both
+functions already return None safely if the keys don't match, so this
+route falls back to -110 per-side automatically with no crash risk
+either way — but the run-line/total odds shown won't be real prices
+until that's confirmed against a live game. Worth a quick check now that
+MLB is in season.
 """
 
-from fastapi import APIRouter
-from mlb_data import get_mlb_events, get_moneyline_odds, american_to_implied
+from fastapi import APIRouter, Query
+from collections import Counter
+from mlb_data import get_mlb_events, get_moneyline_odds, get_run_line_odds, get_total_odds, american_to_implied
 from mlb_predictor import predict_game
 
 router = APIRouter(prefix="/mlb", tags=["MLB"])
+
+# Breakeven win% for standard -110 juice — same baseline WNBA/CFB/NFL use
+# as the "no edge" floor for run-line/total picks, since those markets
+# don't have a real book-implied probability wired in the way moneyline
+# does via get_moneyline_odds().
+BREAKEVEN_PCT = 52.4
+
+
+def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: float,
+                          run_line_odds: dict = None, total_odds: dict = None) -> list:
+    """Turns one predict_game() result into up to 3 bet dicts — moneyline,
+    run line ("spread" market), total — instead of the old single
+    moneyline dict with spread/total fields attached but unused. Each
+    dict carries market/pick/line so database.log_prediction() can log
+    it as its own row.
+
+    Replaces the old _spread_and_total_fields() helper. Along the way,
+    fixes a real bug in that helper: it always displayed the HOME team's
+    run-line number in spread_pick regardless of which side the model
+    actually favored to cover — e.g. it could say "Cubs -1.5" even when
+    the model favored the away team. Pick and line are now derived
+    together from the same favored side.
+    """
+    bets = []
+    model_home = round(pred["home_win_prob"] * 100, 1)
+    model_away = round(pred["away_win_prob"] * 100, 1)
+    implied_home = round(american_to_implied(ml_odds["home"]) * 100, 1)
+    implied_away = round(american_to_implied(ml_odds["away"]) * 100, 1)
+    edge_home = round(model_home - implied_home, 2)
+    edge_away = round(model_away - implied_away, 2)
+    projected = f"{pred['proj_home_runs']}-{pred['proj_away_runs']}"
+    pred_margin = round(pred["proj_home_runs"] - pred["proj_away_runs"], 1)
+
+    common = {
+        "game": game_label,
+        "projected": projected,
+        "projected_home": pred["proj_home_runs"], "projected_away": pred["proj_away_runs"],
+        "projected_margin": pred_margin,
+        "home_record": pred.get("home_record", ""), "away_record": pred.get("away_record", ""),
+        "home_injuries": pred.get("home_injuries", ""), "away_injuries": pred.get("away_injuries", ""),
+        "home_rest": pred.get("home_rest"), "away_rest": pred.get("away_rest"),
+    }
+
+    # ---- Moneyline (both sides checked independently, same as before) ----
+    if edge_home >= min_edge:
+        bets.append({
+            **common, "market": "moneyline",
+            "bet": f"{pred['home_team']} ML", "pick": pred["home_team"], "line": None,
+            "odds": ml_odds["home"], "model_prob": model_home, "implied_prob": implied_home,
+            "edge": round(edge_home / 100, 4),
+        })
+    if edge_away >= min_edge:
+        bets.append({
+            **common, "market": "moneyline",
+            "bet": f"{pred['away_team']} ML", "pick": pred["away_team"], "line": None,
+            "odds": ml_odds["away"], "model_prob": model_away, "implied_prob": implied_away,
+            "edge": round(edge_away / 100, 4),
+        })
+
+    # ---- Run line ("spread" market) ----
+    posted_run_line = pred.get("posted_run_line")
+    home_cover_prob = pred.get("home_cover_prob")
+    away_cover_prob = pred.get("away_cover_prob")
+    if posted_run_line is not None and home_cover_prob is not None:
+        home_favored_to_cover = pred_margin > -posted_run_line
+        rl_pick = pred["home_team"] if home_favored_to_cover else pred["away_team"]
+        rl_line = posted_run_line if home_favored_to_cover else -posted_run_line
+        rl_prob = home_cover_prob if home_favored_to_cover else away_cover_prob
+        rl_edge_pct = rl_prob - BREAKEVEN_PCT
+        if rl_edge_pct >= min_edge:
+            sign = "+" if rl_line > 0 else ""
+            if run_line_odds:
+                rl_odds = run_line_odds["home_odds"] if home_favored_to_cover else run_line_odds["away_odds"]
+            else:
+                rl_odds = -110  # get_run_line_odds() returned None for this game — fallback
+            bets.append({
+                **common, "market": "spread",
+                "bet": f"{rl_pick} {sign}{rl_line}", "pick": rl_pick, "line": rl_line,
+                "odds": rl_odds,
+                "model_prob": rl_prob, "implied_prob": BREAKEVEN_PCT,
+                "edge": round(rl_edge_pct / 100, 4),
+            })
+
+    # ---- Total ----
+    posted_total = pred.get("posted_total")
+    over_prob = pred.get("over_prob")
+    under_prob = pred.get("under_prob")
+    if posted_total is not None and over_prob is not None:
+        over_edge_pct = over_prob - BREAKEVEN_PCT
+        under_edge_pct = (under_prob if under_prob is not None else 0) - BREAKEVEN_PCT
+        if max(over_edge_pct, under_edge_pct) >= min_edge:
+            total_pick = "Over" if over_edge_pct >= under_edge_pct else "Under"
+            total_prob = over_prob if total_pick == "Over" else under_prob
+            total_edge_pct = max(over_edge_pct, under_edge_pct)
+            if total_odds:
+                t_odds = total_odds["over_odds"] if total_pick == "Over" else total_odds["under_odds"]
+            else:
+                t_odds = -110  # get_total_odds() returned None for this game — fallback
+            bets.append({
+                **common, "market": "total",
+                "bet": f"{total_pick} {posted_total}", "pick": total_pick, "line": posted_total,
+                "odds": t_odds,
+                "model_prob": total_prob, "implied_prob": BREAKEVEN_PCT,
+                "edge": round(total_edge_pct / 100, 4),
+            })
+
+    return bets
 
 
 @router.get("/predictions")
@@ -15,6 +138,7 @@ def mlb_predictions():
     """
     Returns ALL games with predictions, no edge filter — matches
     the WNBA/CFB/NFL /predictions route used by morning briefings.
+    Left as the raw prediction payload (not bet rows) — unchanged.
     """
     events = get_mlb_events()
     results = []
@@ -26,10 +150,8 @@ def mlb_predictions():
     return {"count": len(results), "games": results}
 
 
-from collections import Counter
-
 @router.get("/edges")
-def mlb_edges(min_edge: float = 3.0):
+def mlb_edges(min_edge: float = Query(default=3.0)):
     events = get_mlb_events()
     best_bets = []
 
@@ -50,15 +172,6 @@ def mlb_edges(min_edge: float = 3.0):
         if not odds:
             continue
 
-        implied_home = round(american_to_implied(odds["home"]) * 100, 1)
-        implied_away = round(american_to_implied(odds["away"]) * 100, 1)
-
-        model_home = round(pred["home_win_prob"] * 100, 1)
-        model_away = round(pred["away_win_prob"] * 100, 1)
-
-        edge_home = round(model_home - implied_home, 2)
-        edge_away = round(model_away - implied_away, 2)
-
         matchup_key = (pred["home_team"], pred["away_team"])
         game_number[matchup_key] += 1
 
@@ -66,41 +179,11 @@ def mlb_edges(min_edge: float = 3.0):
         if matchup_counts[matchup_key] > 1:
             game_label += f" (DH Game {game_number[matchup_key]})"
 
-        projected = f"{pred['proj_home_runs']}-{pred['proj_away_runs']}"
-
-        if edge_home >= min_edge:
-            best_bets.append({
-                "game": game_label,
-                "bet": f"{pred['home_team']} ML",
-                "odds": odds["home"],
-                "model_prob": model_home,
-                "implied_prob": implied_home,
-                "edge": round(edge_home / 100, 4),
-                "projected": projected,
-                "home_record": pred.get("home_record", ""),
-                "away_record": pred.get("away_record", ""),
-                "home_injuries": pred.get("home_injuries", ""),
-                "away_injuries": pred.get("away_injuries", ""),
-                "home_rest": pred.get("home_rest"),
-                "away_rest": pred.get("away_rest"),
-            })
-
-        if edge_away >= min_edge:
-            best_bets.append({
-                "game": game_label,
-                "bet": f"{pred['away_team']} ML",
-                "odds": odds["away"],
-                "model_prob": model_away,       # fixed from last message
-                "implied_prob": implied_away,   # fixed from last message
-                "edge": round(edge_away / 100, 4),
-                "projected": projected,
-                "home_record": pred.get("home_record", ""),
-                "away_record": pred.get("away_record", ""),
-                "home_injuries": pred.get("home_injuries", ""),
-                "away_injuries": pred.get("away_injuries", ""),
-                "home_rest": pred.get("home_rest"),
-                "away_rest": pred.get("away_rest"),
-            })
+        run_line_odds = get_run_line_odds(event)
+        total_odds = get_total_odds(event)
+        bets = _build_bets_for_pred(pred, game_label, odds, min_edge,
+                                     run_line_odds=run_line_odds, total_odds=total_odds)
+        best_bets.extend(bets)
 
     best_bets.sort(key=lambda x: x["edge"], reverse=True)
     return {"count": len(best_bets), "best_bets": best_bets}

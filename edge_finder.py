@@ -56,6 +56,14 @@ HIT_RATE_WEIGHT = 0.40
 EDGE_PCT_WEIGHT = 0.40
 DEFENSE_WEIGHT  = 0.20
 
+# Projection edge % is a raw percentage of the prop line. Low-line props
+# (e.g. HITS Over 0.5) mathematically produce huge percentages just from
+# a small denominator — that's not stronger signal, it's the line being
+# small. Capping before normalization stops these from structurally
+# dominating the composite score over higher-line props. Report display
+# still shows the real uncapped number.
+MAX_EDGE_PCT_FOR_SCORING = 100.0
+
 SUPPORTED_SPORTS = ["wnba", "mlb", "nba", "nfl"]
 
 # --- Confidence guardrails ---
@@ -158,7 +166,10 @@ def get_edge_finder(
         return []
 
     hit_rate_vals = {i: r["hit_rate_overall"] for i, r in enumerate(rows)}
-    edge_pct_vals = {i: abs(r["projection_edge_pct"]) for i, r in enumerate(rows)}
+    edge_pct_vals = {
+        i: min(abs(r["projection_edge_pct"]), MAX_EDGE_PCT_FOR_SCORING)
+        for i, r in enumerate(rows)
+    }
 
     defense_vals = {}
     for i, r in enumerate(rows):
