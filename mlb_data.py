@@ -217,6 +217,74 @@ def get_moneyline_odds(event):
         return None
 
 
+def get_run_line_odds(event):
+    """
+    Pulls the MLB run line (baseball's spread — standard is +/-1.5,
+    occasionally +/-2.5 in lopsided games) from the same ESPN odds
+    block get_moneyline_odds() already reads successfully.
+
+    ESPN's odds object follows the same {home:{close:{...}},
+    away:{close:{...}}} shape for every market (confirmed working for
+    "moneyline" above) — "pointSpread" is the documented key for this
+    market. line/odds are read the same way "moneyline" is.
+
+    Returns {"home_line": float, "home_odds": int, "away_line": float,
+    "away_odds": int} or None if missing/unavailable. NOT YET VERIFIED
+    against a live payload (2026 MLB in-season data needed to confirm
+    ESPN actually populates "pointSpread" the same way "moneyline" is
+    populated for every game) — same caveat NFL's game log parsing
+    carried until a real debug_dump_keys() check confirmed field names.
+    If this key doesn't match ESPN's real payload, this returns None
+    (never fabricates a line) and mlb_predictor.py degrades to
+    moneyline-only for that game, same as today.
+    """
+    try:
+        odds_list = event["competitions"][0].get("odds", [])
+        if not odds_list:
+            return None
+        spread = odds_list[0]["pointSpread"]
+        home_line = float(spread["home"]["close"]["line"])
+        away_line = float(spread["away"]["close"]["line"])
+        home_odds = int(spread["home"]["close"]["odds"])
+        away_odds = int(spread["away"]["close"]["odds"])
+        return {"home_line": home_line, "home_odds": home_odds, "away_line": away_line, "away_odds": away_odds}
+    except (KeyError, IndexError, ValueError, TypeError):
+        return None
+
+
+def get_total_odds(event):
+    """
+    Pulls the MLB over/under total from the same ESPN odds block.
+    "total" is the documented key, mirroring "moneyline"/"pointSpread".
+
+    Returns {"line": float, "over_odds": int, "under_odds": int} or
+    None if missing.
+
+    FIXED (2026-07-20): confirmed live against a real in-season game —
+    the "total" key IS correct (it was never a wrong-key problem the
+    way the docstring worried it might be), but ESPN's line field
+    comes back as a STRING with an o/u prefix baked in — "o7.5" for
+    the over line, "u7.5" for the under line — not a plain number.
+    float("o7.5") raises ValueError, which the bare except below was
+    silently swallowing and turning into None every single time,
+    regardless of whether the game had real total odds. Stripping the
+    leading o/u character before the float() call fixes it. Odds
+    themselves ("-110") were always plain numeric strings and never
+    had this problem — only the line field does.
+    """
+    try:
+        odds_list = event["competitions"][0].get("odds", [])
+        if not odds_list:
+            return None
+        total = odds_list[0]["total"]
+        raw_line = str(total["over"]["close"]["line"])
+        line = float(raw_line.lstrip("ouOU"))
+        over_odds = int(total["over"]["close"]["odds"])
+        under_odds = int(total["under"]["close"]["odds"])
+        return {"line": line, "over_odds": over_odds, "under_odds": under_odds}
+    except (KeyError, IndexError, ValueError, TypeError):
+        return None
+
 def american_to_implied(odds):
     """Converts American odds to implied win probability (0-1 scale)."""
     if odds < 0:
