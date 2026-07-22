@@ -21,6 +21,7 @@ MLB is in season.
 from fastapi import APIRouter, Query
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 from mlb_data import get_mlb_events, get_moneyline_odds, get_run_line_odds, get_total_odds, american_to_implied
 from mlb_predictor import predict_game
 
@@ -197,7 +198,13 @@ def _process_one_game(event: dict, dh_game_number: int, matchup_is_dh: bool, min
     matchup-included predict_game() call. This is the fix for MLB's
     /edges route timing out — matchup's per-game API call volume was
     the dominant remaining cost after weather/team-stats caching.
+
+    TIMING instrumentation (2026-07-22): prints wall-clock time for
+    each pass so Render's free-tier logs (no Memory/CPU metrics
+    available) can show where time is actually going, since the
+    route has been timing out with no visible cause.
     """
+    t0 = time.time()
     odds = get_moneyline_odds(event)
     if not odds:
         return []
@@ -210,22 +217,30 @@ def _process_one_game(event: dict, dh_game_number: int, matchup_is_dh: bool, min
     game_label = f"{pred['away_team']} @ {pred['home_team']}"
     if matchup_is_dh:
         game_label += f" (DH Game {dh_game_number})"
+    t1 = time.time()
+    print(f"  [MLB TIMING] {game_label}: pass1 (no matchup) took {t1 - t0:.1f}s")
 
     candidate_edge = max(min_edge - MLB_MATCHUP_CANDIDATE_BUFFER, 0)
     candidate_bets = _build_bets_for_pred(pred, game_label, odds, candidate_edge,
                                            run_line_odds=run_line_odds, total_odds=total_odds)
     if not candidate_bets:
+        print(f"  [MLB TIMING] {game_label}: not a candidate, skipping matchup fetch (total {t1 - t0:.1f}s)")
         return []  # not close enough to qualify even with matchup's help — skip the expensive fetch
 
     # Pass 2: this game is a real candidate — refine with matchup included
+    print(f"  [MLB TIMING] {game_label}: IS a candidate, starting matchup fetch")
     pred = predict_game(event, include_matchup=True)
+    t2 = time.time()
+    print(f"  [MLB TIMING] {game_label}: pass2 (with matchup) took {t2 - t1:.1f}s (total {t2 - t0:.1f}s)")
     return _build_bets_for_pred(pred, game_label, odds, min_edge,
                                  run_line_odds=run_line_odds, total_odds=total_odds)
 
 
 @router.get("/edges")
 def mlb_edges(min_edge: float = Query(default=3.0)):
+    request_start = time.time()
     events = get_mlb_events()
+    print(f"[MLB TIMING] mlb_edges started, {len(events)} game(s) fetched at {time.time() - request_start:.1f}s")
     best_bets = []
 
     # Count how many times each matchup appears today — 2+ means doubleheader
@@ -277,6 +292,7 @@ def mlb_edges(min_edge: float = Query(default=3.0)):
     best_bets.sort(key=lambda x: x["edge"], reverse=True)
     print(f"mlb_edges: {len(best_bets)} qualifying bet(s) from {len(events)} game(s) "
           f"(two-pass matchup filtering active, buffer={MLB_MATCHUP_CANDIDATE_BUFFER})")
+    print(f"[MLB TIMING] mlb_edges TOTAL time: {time.time() - request_start:.1f}s")
     return {"count": len(best_bets), "best_bets": best_bets}
 
 
