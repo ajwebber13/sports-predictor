@@ -240,12 +240,20 @@ def pick_display(row) -> str:
 # click-to-sort so we don't lose the sortability of the native table.
 
 GAME_LOG_TABLES = {"wnba": "wnba_game_log", "mlb": "mlb_game_log", "nba": "nba_game_log", "nfl": "nfl_game_log"}
+
+# Pitching stats live in a SEPARATE table from batting (mlb_pitcher_game_log,
+# not mlb_game_log) — confirmed real and working since 2026-07-20. Any MLB
+# stat in PITCHER_STATS gets routed to this table instead of the batting one.
+PITCHER_GAME_LOG_TABLES = {"mlb": "mlb_pitcher_game_log"}
+PITCHER_STATS = {"mlb": {"strikeouts", "hits_allowed"}}
+
 STAT_COLS = {
     "wnba": {"pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
              "pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast"), "ra": ("reb", "ast")},
     "nba":  {"pts": "pts", "reb": "reb", "ast": "ast", "stl": "stl", "blk": "blk",
              "pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast"), "ra": ("reb", "ast")},
-    "mlb":  {"hits": "hits", "runs": "runs", "rbis": "rbis", "hr": "hrs"},
+    "mlb":  {"hits": "hits", "runs": "runs", "rbis": "rbis", "hr": "hrs",
+             "strikeouts": "strikeouts", "hits_allowed": "hits_allowed"},
     "nfl":  {
         "passing_completions": "passing_completions", "passing_attempts": "passing_attempts",
         "passing_yards": "passing_yards", "passing_tds": "passing_tds", "interceptions": "interceptions",
@@ -265,7 +273,10 @@ def get_recent_values_batch(sport: str, stat: str, player_names: tuple, n: int =
     query volume, even with a cached/reused connection, was still
     crashing cp-picks-dashboard on Render's 512MB free tier roughly
     every 15 min whenever the Player Props tab was opened."""
-    table = GAME_LOG_TABLES.get(sport)
+    if stat in PITCHER_STATS.get(sport, set()):
+        table = PITCHER_GAME_LOG_TABLES.get(sport)
+    else:
+        table = GAME_LOG_TABLES.get(sport)
     if not table or not player_names:
         return {}
     col_def = STAT_COLS.get(sport, {}).get(stat)
@@ -476,11 +487,12 @@ div[data-testid="stExpander"]:hover {
 }
 div[data-testid="stExpander"] summary {
     padding: 12px 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
 }
 div[data-testid="stExpander"] summary,
-div[data-testid="stExpander"] summary p,
-div[data-testid="stExpander"] summary span,
-div[data-testid="stExpander"] summary div {
+div[data-testid="stExpander"] summary p {
     font-family: 'Oswald', sans-serif !important;
     font-size: 13px !important;
     font-weight: 500 !important;
@@ -500,6 +512,27 @@ div[data-testid="stExpander"] > div:nth-child(2) {
 }
 #MainMenu, footer, header { visibility: hidden; }
 * { font-family: 'Inter', -apple-system, sans-serif; }
+/* Previous fix didn't work: restoring the icon's font only helps if
+   that font is actually loaded — it isn't (only Oswald/Inter/IBM Plex
+   Mono are imported above), so the ligature text still prints as raw
+   letters. Fix: hide the native icon completely and draw our own
+   arrow with CSS, so nothing depends on an icon font loading. */
+div[data-testid="stExpander"] summary svg,
+div[data-testid="stExpander"] summary [data-testid*="Icon"],
+div[data-testid="stExpander"] summary [class*="Icon"] {
+    display: none !important;
+}
+div[data-testid="stExpander"] summary::before {
+    content: "▶";
+    font-family: inherit !important;
+    font-size: 10px;
+    color: var(--cp-mute);
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+}
+div[data-testid="stExpander"] details[open] summary::before {
+    transform: rotate(90deg);
+}
 .cp-card .record, .cp-overall .value, .cp-ticker .stat-val, .cp-card .pct-up, .cp-card .pct-down {
     font-family: 'IBM Plex Mono', monospace !important;
 }
