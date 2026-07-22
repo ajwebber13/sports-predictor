@@ -13,6 +13,7 @@ from mlb_data import (
     get_run_line_odds, get_total_odds,
 )
 from mlb_weather import get_stadium_weather, get_weather_adj
+from mlb_h2h import get_h2h_record, get_h2h_adj
 from database import get_conn, get_situational_row as _get_situational_row, get_line_movement_adj
 from intel_feed import get_matchup_injury_adj
 
@@ -26,7 +27,7 @@ SIMS = 10000
 
 
 
-def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situational_adj=0.0, injury_adj=0.0, line_adj=0.0):
+def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situational_adj=0.0, injury_adj=0.0, line_adj=0.0, h2h_adj=0.0):
     """
     Build a team's projected runs for the game.
 
@@ -78,6 +79,9 @@ def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situationa
 
     factors["line_movement"] = round(line_adj, 3)
     base += line_adj
+
+    factors["h2h"] = round(h2h_adj, 3)
+    base += h2h_adj
 
     final = max(base, 0.5)
     return final, factors
@@ -196,8 +200,16 @@ def predict_game(event):
         print(f"  [MLB] line movement fetch failed, defaulting to 0: {e}")
         home_line_adj, away_line_adj = 0.0, 0.0
 
-    home_runs_proj, home_factors = project_runs(home_stats, home_pitcher_stats, is_home=True, weather_adj=weather_adj, injury_adj=home_inj_adj, line_adj=home_line_adj)
-    away_runs_proj, away_factors = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj, situational_adj=total_adj, injury_adj=away_inj_adj, line_adj=away_line_adj)
+    try:
+        h2h_record = get_h2h_record(home_id, home_team, away_team)
+        home_h2h_adj = get_h2h_adj(h2h_record)
+        away_h2h_adj = -home_h2h_adj  # same games, opposite side — no second API call needed
+    except Exception as e:
+        print(f"  [MLB] H2H fetch failed, defaulting to 0: {e}")
+        home_h2h_adj, away_h2h_adj = 0.0, 0.0
+
+    home_runs_proj, home_factors = project_runs(home_stats, home_pitcher_stats, is_home=True, weather_adj=weather_adj, injury_adj=home_inj_adj, line_adj=home_line_adj, h2h_adj=home_h2h_adj)
+    away_runs_proj, away_factors = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj, situational_adj=total_adj, injury_adj=away_inj_adj, line_adj=away_line_adj, h2h_adj=away_h2h_adj)
 
     try:
         from database import save_prediction_factors
