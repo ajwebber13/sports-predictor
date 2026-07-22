@@ -27,9 +27,17 @@ from mlb_predictor import predict_game
 
 # Games processed concurrently in mlb_edges() — bounded so we don't
 # hammer ESPN/odds APIs with 15+ simultaneous requests on a big slate.
-# 6 is a starting point; raise if games stay well under rate limits,
-# lower if 429s start showing up in the logs.
-MLB_EDGES_MAX_WORKERS = 6
+#
+# LOWERED 6 -> 3 (2026-07-22): real timing data showed the first
+# batch of 6 concurrent games taking 144-152s each in pass1 alone
+# (vs 10-18s for games processed later, once earlier threads freed
+# up) — classic request congestion from 6 threads all hitting ESPN/
+# MLB Stats API at the exact same instant. Lowering concurrency
+# smooths the initial burst at the cost of slightly longer total
+# wall-clock time for a full slate. TUNABLE — raise back toward 6 if
+# real runs show 3 leaves meaningful headroom; lower further if the
+# first batch is still slow.
+MLB_EDGES_MAX_WORKERS = 3
 
 # Two-pass matchup filtering: a game must show at least
 # (min_edge - CANDIDATE_BUFFER) on the cheap no-matchup pass before

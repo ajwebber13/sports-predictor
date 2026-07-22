@@ -127,16 +127,17 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
     log(f"Fetching {sport.upper()} edges...")
 
     try:
-        # 150s (was 60s) — MLB's edges route does 6-8+ uncached external
-        # calls PER GAME (team stats x2, pitcher lookup, pitcher stats x2,
-        # weather) with no parallelization; on a normal 10-15 game MLB day
-        # that's 90-120+ sequential network calls, which can genuinely
-        # exceed 60s. This is a stopgap so alerts work again NOW — see
-        # get_team_stats()/get_pitcher_stats()/get_stadium_weather() in
-        # mlb_data.py for the real fix (per-request caching, since the
-        # same team/pitcher/venue is refetched every time it reappears
-        # across the day's games).
-        r    = requests.get(SPORT_ENDPOINTS[sport], timeout=150)
+        # 280s (was 150s, originally 60s) — 2026-07-22: real timing data
+        # confirmed MLB's /edges route now reliably COMPLETES (no longer
+        # crashes — that was a separate H2H caching bug, since fixed) but
+        # takes up to ~254s on a congested run even after weather/team-
+        # stats caching and MLB_EDGES_MAX_WORKERS lowered to 3. 280s
+        # gives real headroom above the worst observed time instead of
+        # cutting off a request that's actually going to finish. If
+        # scheduled runs still time out at 280s, the fix is further
+        # concurrency tuning in routes_mlb.py, not another blind timeout
+        # bump.
+        r    = requests.get(SPORT_ENDPOINTS[sport], timeout=280)
         data = r.json()
     except Exception as e:
         log(f"API error for {sport}: {e}")
@@ -463,7 +464,7 @@ def run(sports: list, retry: bool = False):
                 except Exception as e:
                     log(f"Line movement error for {sport}: {e}")
 
-                r    = requests.get(SPORT_ENDPOINTS[sport], timeout=150)  # see run_alerts() for why
+                r    = requests.get(SPORT_ENDPOINTS[sport], timeout=280)  # see run_alerts() for why — real MLB timing, not a guess
                 data = r.json()
                 bets = data.get("best_bets", [])
                 if any(b.get("model_prob", 0) >= 55 for b in bets):
