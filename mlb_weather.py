@@ -7,6 +7,7 @@ Requires OPENWEATHER_API_KEY (already in use elsewhere in the project).
 
 import os
 import requests
+from functools import lru_cache
 
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/weather"
@@ -60,6 +61,7 @@ STADIUM_COORDS = {
 }
 
 
+@lru_cache(maxsize=32)
 def get_stadium_weather(home_team: str) -> dict:
     """
     Returns weather at the home stadium, or a neutral dict for domed
