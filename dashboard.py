@@ -475,13 +475,20 @@ div[data-testid="stExpander"]:hover {
     border-color: var(--cp-ember) !important;
 }
 div[data-testid="stExpander"] summary {
+    padding: 12px 14px !important;
+}
+div[data-testid="stExpander"] summary,
+div[data-testid="stExpander"] summary p,
+div[data-testid="stExpander"] summary span,
+div[data-testid="stExpander"] summary div {
     font-family: 'Oswald', sans-serif !important;
     font-size: 13px !important;
     font-weight: 500 !important;
     color: var(--cp-text) !important;
-    padding: 12px 14px !important;
 }
-div[data-testid="stExpander"] summary:hover {
+div[data-testid="stExpander"] summary:hover,
+div[data-testid="stExpander"] summary:hover p,
+div[data-testid="stExpander"] summary:hover span {
     color: var(--cp-ember) !important;
 }
 div[data-testid="stExpander"] > div:nth-child(2) {
@@ -576,10 +583,14 @@ section[data-testid="stDataFrame"] {
     border-color: rgba(212,175,55,0.6) !important;
 }
 .stTextInput input { color: #ffffff !important; }
-.stSlider [data-baseweb="slider"] { background: var(--cp-line) !important; }
-.stSlider [data-baseweb="slider"] > div { background: var(--cp-line) !important; }
-.stSlider [data-baseweb="slider"] > div > div { background: var(--cp-ember) !important; }
-.stSlider [role="slider"] { background-color: var(--cp-ember) !important; border-color: var(--cp-ember) !important; box-shadow: none !important; }
+div[data-testid="stSlider"] [data-baseweb="slider"] { background: var(--cp-line) !important; }
+div[data-testid="stSlider"] [data-baseweb="slider"] > div { background: var(--cp-line) !important; }
+div[data-testid="stSlider"] [data-baseweb="slider"] > div > div { background: var(--cp-ember) !important; }
+div[data-testid="stSlider"] [role="slider"] { background-color: var(--cp-ember) !important; border-color: var(--cp-ember) !important; box-shadow: none !important; }
+div[data-testid="stSlider"] [role="slider"] div { background-color: var(--cp-ember) !important; color: var(--cp-ink) !important; }
+div[data-testid="stSliderThumbValue"] { color: var(--cp-ember) !important; }
+div[data-testid="stTickBarMin"], div[data-testid="stTickBarMax"] { color: var(--cp-mute) !important; }
+div[data-testid="stSlider"] * { border-color: var(--cp-ember) !important; }
 
 hr { border-color: rgba(212,175,55,0.14) !important; margin: 22px 0 !important; }
 
