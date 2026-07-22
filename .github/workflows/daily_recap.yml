@@ -1,0 +1,24 @@
+name: Daily Recap
+
+on:
+  schedule:
+    - cron: '30 11 * * *'   # 6:30 AM CT daily — send daily recap
+  workflow_dispatch:
+
+jobs:
+  daily_recap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send daily recap
+        run: python recap_engine.py --daily
+        env:
+          DISCORD_WEBHOOK_RECAPS: ${{ secrets.DISCORD_WEBHOOK_RECAPS }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
