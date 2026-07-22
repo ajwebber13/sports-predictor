@@ -2,7 +2,8 @@ name: Noon Retry
 
 on:
   schedule:
-    - cron: '0 17 * * *'
+    - cron: '0 17 * * *'   # 12:00 PM CT — original noon retry
+    - cron: '0 20 * * *'   # 3:00 PM CT — lineup-confirmed pass (scaffolding, see note above)
   workflow_dispatch:
 
 jobs:
@@ -17,16 +18,20 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run noon retry
+      - name: Run retry (noon or 3pm)
         run: python render_job.py --retry
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-      - name: Score yesterday's predictions
+      - name: Score yesterday's predictions (noon run only)
+        if: github.event.schedule == '0 17 * * *' || github.event_name == 'workflow_dispatch'
         run: python auto_results.py yesterday
         env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
