@@ -30,6 +30,16 @@ from mlb_predictor import predict_game
 # lower if 429s start showing up in the logs.
 MLB_EDGES_MAX_WORKERS = 6
 
+# Two-pass matchup filtering: a game must show at least
+# (min_edge - CANDIDATE_BUFFER) on the cheap no-matchup pass before
+# we spend the expensive roster+per-batter matchup fetch on it.
+# 5.0 percentage points is a starting guess for how much matchup
+# could realistically swing an edge — TUNABLE. If real results show
+# matchup regularly flips games from below this buffer into
+# qualifying, raise it; if refined games almost never move much,
+# lower it to cut API load further.
+MLB_MATCHUP_CANDIDATE_BUFFER = 5.0
+
 router = APIRouter(prefix="/mlb", tags=["MLB"])
 
 # Breakeven win% for standard -110 juice — same baseline WNBA/CFB/NFL use
@@ -179,19 +189,36 @@ def _process_one_game(event: dict, dh_game_number: int, matchup_is_dh: bool, min
     """All network-bound work for ONE game — predict + 3 odds calls.
     Pure function of its inputs (no shared mutable state), safe to run
     concurrently across games in a thread pool. Returns [] if no
-    moneyline odds are available (same skip behavior as before)."""
-    pred = predict_game(event)
-    odds = get_moneyline_odds(event)
+    moneyline odds are available (same skip behavior as before).
 
+    TWO-PASS matchup filtering (2026-07-22): first pass skips the
+    expensive roster+per-batter matchup fetch entirely. Only games
+    that clear a lowered "candidate" threshold get a second,
+    matchup-included predict_game() call. This is the fix for MLB's
+    /edges route timing out — matchup's per-game API call volume was
+    the dominant remaining cost after weather/team-stats caching.
+    """
+    odds = get_moneyline_odds(event)
     if not odds:
         return []
 
+    run_line_odds = get_run_line_odds(event)
+    total_odds = get_total_odds(event)
+
+    # Pass 1: cheap, no matchup fetch at all
+    pred = predict_game(event, include_matchup=False)
     game_label = f"{pred['away_team']} @ {pred['home_team']}"
     if matchup_is_dh:
         game_label += f" (DH Game {dh_game_number})"
 
-    run_line_odds = get_run_line_odds(event)
-    total_odds = get_total_odds(event)
+    candidate_edge = max(min_edge - MLB_MATCHUP_CANDIDATE_BUFFER, 0)
+    candidate_bets = _build_bets_for_pred(pred, game_label, odds, candidate_edge,
+                                           run_line_odds=run_line_odds, total_odds=total_odds)
+    if not candidate_bets:
+        return []  # not close enough to qualify even with matchup's help — skip the expensive fetch
+
+    # Pass 2: this game is a real candidate — refine with matchup included
+    pred = predict_game(event, include_matchup=True)
     return _build_bets_for_pred(pred, game_label, odds, min_edge,
                                  run_line_odds=run_line_odds, total_odds=total_odds)
 
@@ -248,6 +275,8 @@ def mlb_edges(min_edge: float = Query(default=3.0)):
                 print(f"mlb_edges: game processing error: {e}")
 
     best_bets.sort(key=lambda x: x["edge"], reverse=True)
+    print(f"mlb_edges: {len(best_bets)} qualifying bet(s) from {len(events)} game(s) "
+          f"(two-pass matchup filtering active, buffer={MLB_MATCHUP_CANDIDATE_BUFFER})")
     return {"count": len(best_bets), "best_bets": best_bets}
 
 
