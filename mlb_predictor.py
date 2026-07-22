@@ -14,10 +14,7 @@ from mlb_data import (
 )
 from mlb_weather import get_stadium_weather, get_weather_adj
 from mlb_h2h import get_h2h_record, get_h2h_adj
-<<<<<<< HEAD
-=======
 from mlb_matchup import get_team_vs_pitcher, get_matchup_adj
->>>>>>> 8f28a97 (Add MLB H2H + team-vs-pitcher matchup adjustments; fix Noon Retry env vars, add 3pm trigger)
 from database import get_conn, get_situational_row as _get_situational_row, get_line_movement_adj
 from intel_feed import get_matchup_injury_adj
 
@@ -31,11 +28,7 @@ SIMS = 10000
 
 
 
-<<<<<<< HEAD
-def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situational_adj=0.0, injury_adj=0.0, line_adj=0.0, h2h_adj=0.0):
-=======
 def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situational_adj=0.0, injury_adj=0.0, line_adj=0.0, h2h_adj=0.0, matchup_adj=0.0):
->>>>>>> 8f28a97 (Add MLB H2H + team-vs-pitcher matchup adjustments; fix Noon Retry env vars, add 3pm trigger)
     """
     Build a team's projected runs for the game.
 
@@ -91,12 +84,9 @@ def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situationa
     factors["h2h"] = round(h2h_adj, 3)
     base += h2h_adj
 
-<<<<<<< HEAD
-=======
     factors["matchup"] = round(matchup_adj, 3)
     base += matchup_adj
 
->>>>>>> 8f28a97 (Add MLB H2H + team-vs-pitcher matchup adjustments; fix Noon Retry env vars, add 3pm trigger)
     final = max(base, 0.5)
     return final, factors
 
@@ -169,7 +159,15 @@ def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS, run_line=None, tota
     return result
 
 
-def predict_game(event):
+def predict_game(event, include_matchup=True):
+    """
+    include_matchup=False skips the roster + per-batter matchup fetch
+    entirely (not just zeroing the adjustment) — this is what actually
+    saves the API calls. Used by routes_mlb.py's two-pass approach:
+    a cheap first pass identifies which games are even worth
+    refining, and only those get a second predict_game() call with
+    include_matchup=True.
+    """
     competitors = event["competitions"][0]["competitors"]
     home_comp = next(c for c in competitors if c["homeAway"] == "home")
     away_comp = next(c for c in competitors if c["homeAway"] == "away")
@@ -222,29 +220,31 @@ def predict_game(event):
         print(f"  [MLB] H2H fetch failed, defaulting to 0: {e}")
         home_h2h_adj, away_h2h_adj = 0.0, 0.0
 
-<<<<<<< HEAD
-    home_runs_proj, home_factors = project_runs(home_stats, home_pitcher_stats, is_home=True, weather_adj=weather_adj, injury_adj=home_inj_adj, line_adj=home_line_adj, h2h_adj=home_h2h_adj)
-    away_runs_proj, away_factors = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj, situational_adj=total_adj, injury_adj=away_inj_adj, line_adj=away_line_adj, h2h_adj=away_h2h_adj)
-=======
     # matchup: HOME team bats against the AWAY pitcher, and vice versa —
     # pitchers dict is keyed by which side's PITCHER it is, so home
     # team's matchup uses pitchers["away"] (the pitcher home batters face)
-    try:
-        away_pitcher_name = pitchers["away"].get("athlete", {}).get("displayName", "") if pitchers["away"] else ""
-        home_pitcher_name = pitchers["home"].get("athlete", {}).get("displayName", "") if pitchers["home"] else ""
+    #
+    # include_matchup=False skips this block ENTIRELY — no roster
+    # fetch, no per-batter calls — not just a zeroed result. This is
+    # the actual API-call savings for the two-pass approach.
+    if include_matchup:
+        try:
+            away_pitcher_name = pitchers["away"].get("athlete", {}).get("displayName", "") if pitchers["away"] else ""
+            home_pitcher_name = pitchers["home"].get("athlete", {}).get("displayName", "") if pitchers["home"] else ""
 
-        home_matchup = get_team_vs_pitcher(home_team, away_pitcher_name)
-        away_matchup = get_team_vs_pitcher(away_team, home_pitcher_name)
+            home_matchup = get_team_vs_pitcher(home_team, away_pitcher_name)
+            away_matchup = get_team_vs_pitcher(away_team, home_pitcher_name)
 
-        home_matchup_adj = get_matchup_adj(home_matchup)
-        away_matchup_adj = get_matchup_adj(away_matchup)
-    except Exception as e:
-        print(f"  [MLB] matchup fetch failed, defaulting to 0: {e}")
+            home_matchup_adj = get_matchup_adj(home_matchup)
+            away_matchup_adj = get_matchup_adj(away_matchup)
+        except Exception as e:
+            print(f"  [MLB] matchup fetch failed, defaulting to 0: {e}")
+            home_matchup_adj, away_matchup_adj = 0.0, 0.0
+    else:
         home_matchup_adj, away_matchup_adj = 0.0, 0.0
 
     home_runs_proj, home_factors = project_runs(home_stats, home_pitcher_stats, is_home=True, weather_adj=weather_adj, injury_adj=home_inj_adj, line_adj=home_line_adj, h2h_adj=home_h2h_adj, matchup_adj=home_matchup_adj)
     away_runs_proj, away_factors = project_runs(away_stats, away_pitcher_stats, is_home=False, weather_adj=weather_adj, situational_adj=total_adj, injury_adj=away_inj_adj, line_adj=away_line_adj, h2h_adj=away_h2h_adj, matchup_adj=away_matchup_adj)
->>>>>>> 8f28a97 (Add MLB H2H + team-vs-pitcher matchup adjustments; fix Noon Retry env vars, add 3pm trigger)
 
     try:
         from database import save_prediction_factors
@@ -331,11 +331,7 @@ if __name__ == "__main__":
     events = get_mlb_events()
     for event in events:
         pred = predict_game(event)
-<<<<<<< HEAD
-        print(pred)
-=======
         print(f"{pred['away_team']} @ {pred['home_team']}")
         print(f"  home_factors: {pred['home_factors']}")
         print(f"  away_factors: {pred['away_factors']}")
         print(pred)
->>>>>>> 8f28a97 (Add MLB H2H + team-vs-pitcher matchup adjustments; fix Noon Retry env vars, add 3pm trigger)
