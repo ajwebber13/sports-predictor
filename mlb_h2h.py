@@ -2,15 +2,26 @@
 mlb_h2h.py - Culture & Pulse Analytics
 Head-to-head matchup history between two MLB teams this season.
 
-v2 (2026-07-22): rebuilt after live debug confirmed each ESPN
-competitor object carries a direct "winner": true/false flag — no
-need to parse/guess at score field shapes. Simpler and more reliable
-than the original run-differential approach. Win/loss record only,
-no run differential.
+v3 (2026-07-22): added lru_cache — this was the real gap in the
+two-pass matchup fix. get_h2h_record() was running UNCONDITIONALLY
+for every game in both passes (unlike matchup, which was correctly
+gated behind candidate filtering), hitting ESPN's team-schedule
+endpoint — a genuinely large payload (full team objects with 8+ logo
+URLs each, plus the team's full season schedule) — once per game,
+with up to 6 of these firing concurrently via the thread pool. This
+is the most likely cause of the process crashing (not just timing
+out) shortly after starting a full slate.
+
+Cached per team_id for the life of the process — the same team's
+schedule doesn't change mid-run, and a team appearing in multiple
+games (doubleheaders) previously meant fetching this same large
+payload twice.
+
+v2: uses the real "winner": true/false flag ESPN returns — no
+guessing at score field shapes.
 
 v1: computed LIVE from ESPN schedule data each call, no new DB table
-required. Reuses the same ESPN schedule endpoint get_team_rest_days()
-in mlb_data.py already calls successfully.
+required.
 
 Sample size caveat: two teams may only play each other 3-19 times a
 season (fewer if interleague). Real signal, small sample — the
@@ -18,8 +29,32 @@ adjustment is deliberately damped.
 """
 
 import requests
+from functools import lru_cache
 
 ESPN_TEAM_SCHEDULE_URL = "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/teams/{team_id}/schedule"
+
+
+@lru_cache(maxsize=32)
+def _fetch_team_schedule(team_id: str) -> tuple:
+    """
+    Raw ESPN schedule fetch for one team, cached per team_id for the
+    life of the process. Returns a tuple (not a list/dict) so it's
+    hashable-safe for lru_cache's own internal bookkeeping — the
+    caller reconstructs what it needs from this.
+
+    This is the actual fix: previously every call to get_h2h_record()
+    re-fetched this same large payload from scratch, even for the
+    same team across multiple calls in one run (doubleheaders, or
+    simply being on both a home and away slate elsewhere that day).
+    """
+    url = ESPN_TEAM_SCHEDULE_URL.format(team_id=team_id)
+    try:
+        r = requests.get(url, timeout=10)
+        data = r.json()
+        return tuple(data.get("events", []))
+    except Exception as e:
+        print(f"  H2H schedule fetch error (team_id={team_id}): {e}")
+        return ()
 
 
 def get_h2h_record(team_id: str, team_name: str, opponent_name: str) -> dict:
@@ -30,16 +65,12 @@ def get_h2h_record(team_id: str, team_name: str, opponent_name: str) -> dict:
     """
     empty = {"games": 0, "wins": 0, "losses": 0}
 
-    url = ESPN_TEAM_SCHEDULE_URL.format(team_id=team_id)
-    try:
-        r = requests.get(url, timeout=10)
-        data = r.json()
-    except Exception as e:
-        print(f"  H2H fetch error ({team_name}): {e}")
+    events = _fetch_team_schedule(team_id)
+    if not events:
         return empty
 
     record = dict(empty)
-    for event in data.get("events", []):
+    for event in events:
         comp = event.get("competitions", [{}])[0]
         status = comp.get("status", {}).get("type", {})
         if not status.get("completed", False):
