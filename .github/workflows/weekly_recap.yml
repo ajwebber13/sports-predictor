@@ -1,0 +1,24 @@
+name: Weekly Recap
+
+on:
+  schedule:
+    - cron: '0 14 * * 0'    # 9 AM CT Sunday — send weekly recap
+  workflow_dispatch:
+
+jobs:
+  weekly_recap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Send weekly recap
+        run: python recap_engine.py --weekly
+        env:
+          DISCORD_WEBHOOK_RECAPS: ${{ secrets.DISCORD_WEBHOOK_RECAPS }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
