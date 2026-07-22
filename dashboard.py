@@ -545,21 +545,31 @@ div[data-testid="stExpander"] > div:nth-child(2) {
 .cp-ticker .stat-lbl { display:block; font-family: 'Oswald', sans-serif; color: var(--cp-mute); font-size: 9px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 3px; }
 .cp-ticker .stat-val { color: var(--cp-text); font-weight: 600; font-size: 16px; font-family: 'IBM Plex Mono', monospace; }
 .cp-pill { background: rgba(227,163,57,0.1); border: 1px solid rgba(227,163,57,0.3); color: var(--cp-ember); font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: 3px; font-family:'IBM Plex Mono',monospace; }
-div[data-testid="column"] .stButton button {
-    background: rgba(19,18,9,0.7) !important;
-    border: 1px solid rgba(212,175,55,0.2) !important;
-    color: #D4AF37 !important;
+.stButton button,
+button[kind="secondary"],
+div[data-testid="stButton"] button {
+    background: var(--cp-panel) !important;
+    border: 1px solid var(--cp-line) !important;
+    color: var(--cp-ember) !important;
+    font-family: 'Oswald', sans-serif !important;
     font-size: 11px !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     padding: 4px 14px !important;
-    border-radius: 20px !important;
+    border-radius: 4px !important;
     width: auto !important;
     min-height: 0 !important;
 }
-div[data-testid="column"] .stButton button:hover {
-    background: rgba(212,175,55,0.15) !important;
-    border-color: #D4AF37 !important;
-    color: #fff !important;
+.stButton button:hover,
+button[kind="secondary"]:hover,
+div[data-testid="stButton"] button:hover {
+    background: rgba(227,163,57,0.1) !important;
+    border-color: var(--cp-ember) !important;
+    color: var(--cp-ember) !important;
+}
+.stButton button p,
+div[data-testid="stButton"] button p {
+    color: inherit !important;
+    font-family: inherit !important;
 }
 
 h3 { font-family: 'Oswald', sans-serif !important; color: #8a7d55 !important; font-weight: 600 !important; font-size: 14px !important; text-transform: uppercase; letter-spacing: 1.5px; }
