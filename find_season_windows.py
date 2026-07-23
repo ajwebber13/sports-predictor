@@ -1,2 +1,0 @@
-from telegram_alerts import SEASON_WINDOWS
-print(SEASON_WINDOWS)

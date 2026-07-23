@@ -1,0 +1,43 @@
+name: CFB Stats Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'backfill (full season) or update (last 7 days)'
+        required: false
+        default: 'backfill'
+      start_date:
+        description: 'Backfill start date YYYYMMDD (only used with mode=backfill). Leave default for full season.'
+        required: false
+        default: '20250823'
+      end_date:
+        description: 'Backfill end date YYYYMMDD (only used with mode=backfill). Leave blank for full season through today — set this for a limited test range.'
+        required: false
+        default: ''
+
+jobs:
+  run_backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run CFB stats backfill
+        run: |
+          if [ "${{ github.event.inputs.mode }}" = "backfill" ]; then
+            if [ -n "${{ github.event.inputs.end_date }}" ]; then
+              python -u backfill/cfb/cfb_player_game_logs.py backfill "${{ github.event.inputs.start_date }}" "${{ github.event.inputs.end_date }}"
+            else
+              python -u backfill/cfb/cfb_player_game_logs.py backfill "${{ github.event.inputs.start_date }}"
+            fi
+          else
+            python -u backfill/cfb/cfb_player_game_logs.py update
+          fi
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
