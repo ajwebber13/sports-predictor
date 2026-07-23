@@ -140,13 +140,73 @@ def match_game(prediction: dict, espn_games: list):
 
 
 def score_prediction(prediction: dict, espn_game: dict) -> dict:
-    """Determine if the prediction was correct (unchanged logic)."""
-    bet = prediction.get("bet", "")
+    """Determine if the prediction was correct.
+
+    FIXED 2026-07-23: this function used to only know how to grade
+    moneyline picks — it stripped " ML"/" ml" off the bet string and
+    checked if what remained matched a team name. That's meaningless
+    for a total pick like "Over 164.5" (no team name in the string at
+    all), so every single total pick was silently marked WRONG
+    regardless of the real outcome — confirmed via
+    calibration_audit.py's --by-market breakdown showing an impossible
+    0.0% actual win rate on totals. Spread bets partially "worked" by
+    accident (the team name substring inside "Team +3.5" often matched
+    the actual game winner), but that was grading "did the favorite
+    win outright," a different and wrong question from "did they
+    cover the spread."
+
+    Now branches on prediction["market"] and uses the real posted
+    pick/line fields already stored on the prediction row (the same
+    fields _build_bets_for_game() writes — "pick" and "line") instead
+    of re-parsing the display string. ASSUMES the predictions table
+    actually has pick/line columns populated for spread/total rows —
+    if they come back None for every row, log_prediction()'s column
+    mapping needs checking, not this grading logic.
+
+    KNOWN LIMITATION not fixed here: an exact push (margin+line == 0,
+    or actual_total == line) is scored as a loss (correct=0), not a
+    push/no-action. Real sportsbooks refund the stake on a push — this
+    would need a third result state (not just 0/1) to handle properly,
+    a bigger change than this grading fix. Flagged, not silently
+    wrong-by-omission.
+    """
+    market = prediction.get("market", "moneyline")
+    home_score = espn_game["home_score"]
+    away_score = espn_game["away_score"]
     actual_winner = espn_game["actual_winner"]
 
-    picked_team = bet.replace(" ML", "").replace(" ml", "").strip()
-    correct = 1 if picked_team.lower() in actual_winner.lower() or \
-                   actual_winner.lower() in picked_team.lower() else 0
+    if market == "total":
+        # pick is "Over" or "Under", line is the posted total.
+        pick = (prediction.get("pick") or "").strip().lower()
+        line = prediction.get("line")
+        actual_total = home_score + away_score
+        if line is None or pick not in ("over", "under"):
+            correct = 0  # can't grade without a real line/pick — treated as wrong, not silently skipped
+        elif pick == "over":
+            correct = 1 if actual_total > line else 0
+        else:
+            correct = 1 if actual_total < line else 0
+
+    elif market == "spread":
+        # pick is the team name, line is THAT team's own posted number,
+        # already sign-adjusted for whichever side was picked (see
+        # _build_bets_for_game()'s spread_line_for_pick upstream).
+        pick = (prediction.get("pick") or "").strip()
+        line = prediction.get("line")
+        home_team = espn_game["home_team"]
+        if line is None or not pick:
+            correct = 0
+        else:
+            pick_is_home = pick.lower() in home_team.lower() or home_team.lower() in pick.lower()
+            margin = (home_score - away_score) if pick_is_home else (away_score - home_score)
+            correct = 1 if margin + line > 0 else 0
+
+    else:
+        # moneyline — original logic, unchanged.
+        bet = prediction.get("bet", "")
+        picked_team = bet.replace(" ML", "").replace(" ml", "").strip()
+        correct = 1 if picked_team.lower() in actual_winner.lower() or \
+                       actual_winner.lower() in picked_team.lower() else 0
 
     return {
         "date": prediction["date"],
@@ -154,8 +214,8 @@ def score_prediction(prediction: dict, espn_game: dict) -> dict:
         "game": prediction["game"],
         "home_team": espn_game["home_team"],
         "away_team": espn_game["away_team"],
-        "home_score": espn_game["home_score"],
-        "away_score": espn_game["away_score"],
+        "home_score": home_score,
+        "away_score": away_score,
         "actual_winner": actual_winner,
         "prediction_id": prediction["id"],
         "correct": correct,

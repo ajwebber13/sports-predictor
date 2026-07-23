@@ -8,10 +8,16 @@ pick really win ~90% of the time? — with real numbers, not a hunch.
 Builds on performance_tracker.calculate_confidence_buckets(), which
 already found the core problem on 2026-07-11 (80-89% landing at 50%
 actual win rate). This script goes further: a finer-grained reliability
-curve, Brier score, Expected Calibration Error (ECE), and a check for
-whether model_prob is actually just a repackaged edge_at_pick (i.e.
-"confidence" and "edge" measuring the same thing under two names,
-rather than confidence being an independent probability estimate).
+curve, Brier score, Expected Calibration Error (ECE), a check for
+whether model_prob is actually just a repackaged edge_at_pick, and
+(added 2026-07-23) a breakdown BY MARKET TYPE (moneyline/spread/total)
+— added after finding that a garbage total_line=0 bug had been feeding
+the Monte Carlo sim an impossible total for some WNBA totals picks,
+producing model_prob=100.0. That bug is now patched at the source
+(_get_market_details() in routes_wnba/nfl/cfb.py), but the broader
+question remains: is totals-market miscalibration hiding inside the
+overall numbers, or is moneyline/spread separately broken too? This
+breakdown answers that directly instead of guessing.
 
 WHAT THIS DOES NOT DO:
   Does not fix calibration. A real fix (isotonic regression / Platt
@@ -24,6 +30,7 @@ Usage:
     py calibration_audit.py                    # all sports, all time
     py calibration_audit.py --sport wnba
     py calibration_audit.py --start 2026-07-01 --end 2026-07-15
+    py calibration_audit.py --by-market         # break down by moneyline/spread/total
 """
 
 import os
@@ -43,13 +50,16 @@ from database import get_conn
 def fetch_graded_predictions(sport: str = None, start: str = None, end: str = None) -> list:
     """Same join performance_tracker.calculate_confidence_buckets() uses
     (results.prediction_id -> predictions.id), extended with
-    edge_at_pick for the conflation check. Real schema, not guessed —
-    mirrors the exact column names performance_tracker.py already
-    validated against production."""
+    edge_at_pick for the conflation check AND p.market (added
+    2026-07-23) so predictions can be broken down by moneyline/spread/
+    total — the predictions table has carried a market column since
+    the 2026-07-20 schema update. Real schema, not guessed — mirrors
+    the exact column names performance_tracker.py already validated
+    against production."""
     conn = get_conn()
     c = conn.cursor()
     query = """
-        SELECT r.correct, p.model_prob, r.edge_at_pick, r.sport, r.date
+        SELECT r.correct, p.model_prob, r.edge_at_pick, r.sport, r.date, p.market
         FROM results r
         JOIN predictions p ON r.prediction_id = p.id
         WHERE r.correct IS NOT NULL AND p.model_prob IS NOT NULL
@@ -70,9 +80,12 @@ def fetch_graded_predictions(sport: str = None, start: str = None, end: str = No
     conn.close()
     # Normalize to plain dicts regardless of row-wrapper type, same
     # defensive pattern the rest of the codebase uses after the
-    # dict(row)/row[key] incident.
+    # dict(row)/row[key] incident. market defaults to "unknown" for any
+    # pre-2026-07-20 row logged before that column existed, rather than
+    # crashing or silently dropping the row from the breakdown.
     return [{"correct": r["correct"], "model_prob": r["model_prob"],
-              "edge_at_pick": r["edge_at_pick"], "sport": r["sport"], "date": r["date"]} for r in rows]
+              "edge_at_pick": r["edge_at_pick"], "sport": r["sport"], "date": r["date"],
+              "market": r["market"] if r["market"] else "unknown"} for r in rows]
 
 
 def reliability_curve(rows: list, bucket_size: int = 10) -> list:
@@ -183,7 +196,51 @@ def prob_spread_check(rows: list) -> dict:
     }
 
 
-def print_calibration_report(rows: list, sport_label: str = "ALL SPORTS"):
+def market_breakdown(rows: list) -> list:
+    """Added 2026-07-23. Groups rows by p.market (moneyline/spread/
+    total/unknown) and computes the same core metrics (n, avg
+    predicted, actual win rate, gap, Brier, ECE) per market instead of
+    lumped together. Built to answer directly whether totals-market
+    miscalibration (see the total_line=0 bug found this same day) is
+    the whole overconfidence story, or whether moneyline/spread are
+    separately broken too — rather than guessing from the combined
+    number. Markets with fewer than 5 picks are flagged low_n, same
+    threshold reliability_curve() uses, for the same reason."""
+    by_market = {}
+    for r in rows:
+        by_market.setdefault(r["market"], []).append(r)
+
+    out = []
+    for market in sorted(by_market.keys()):
+        market_rows = by_market[market]
+        n = len(market_rows)
+        avg_predicted = sum(r["model_prob"] for r in market_rows) / n
+        actual_win_rate = sum(1 for r in market_rows if r["correct"] == 1) / n * 100
+        out.append({
+            "market": market,
+            "n": n,
+            "avg_predicted": round(avg_predicted, 1),
+            "actual_win_rate": round(actual_win_rate, 1),
+            "gap": round(actual_win_rate - avg_predicted, 1),
+            "brier": brier_score(market_rows),
+            "ece": expected_calibration_error(market_rows),
+            "low_n": n < 5,
+        })
+    return out
+
+
+def print_market_breakdown(rows: list):
+    breakdown = market_breakdown(rows)
+    print("-- Breakdown By Market Type --")
+    print(f"  {'Market':<12} {'N':<6} {'Predicted':<11} {'Actual':<9} {'Gap':<8} {'Brier':<8} {'ECE':<8}")
+    for m in breakdown:
+        flag = "  (low N)" if m["low_n"] else ""
+        print(f"  {m['market']:<12} {m['n']:<6} {m['avg_predicted']:<11} "
+              f"{m['actual_win_rate']:<9} {m['gap']:+.1f}{'':<4} {m['brier']:<8} {m['ece']:<8}{flag}")
+    print()
+
+
+def print_calibration_report(rows: list, sport_label: str = "ALL SPORTS", show_market_breakdown: bool = False):
     print(f"\n{'='*60}")
     print(f"  Confidence Calibration Audit — {sport_label}")
     print(f"  {len(rows)} graded predictions with model_prob")
@@ -226,7 +283,11 @@ def print_calibration_report(rows: list, sport_label: str = "ALL SPORTS"):
     if spread["range"] < 20:
         print("  Narrow spread — possible compression toward a central value.")
 
-    print(f"\n{'='*60}\n")
+    if show_market_breakdown:
+        print()
+        print_market_breakdown(rows)
+
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":
@@ -235,8 +296,9 @@ if __name__ == "__main__":
     parser.add_argument("--start", metavar="YYYY-MM-DD", default=None)
     parser.add_argument("--end", metavar="YYYY-MM-DD", default=None)
     parser.add_argument("--bucket-size", type=int, default=10)
+    parser.add_argument("--by-market", action="store_true", help="add a breakdown by moneyline/spread/total")
     args = parser.parse_args()
 
     rows = fetch_graded_predictions(sport=args.sport, start=args.start, end=args.end)
     label = args.sport.upper() if args.sport else "ALL SPORTS"
-    print_calibration_report(rows, sport_label=label)
+    print_calibration_report(rows, sport_label=label, show_market_breakdown=args.by_market)

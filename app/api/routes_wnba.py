@@ -116,6 +116,20 @@ def _get_market_details(events_odds: list, home: str, away: str) -> dict:
                         name = (o.get("name") or "")
                         price = o.get("price", -110)
                         point = o.get("point")
+                        # Guard against garbage/placeholder odds-feed
+                        # entries with point<=0 — a real total line is
+                        # never 0 or negative for any sport this
+                        # platform covers. Confirmed via
+                        # calibration_audit.py 2026-07-22: a total_line
+                        # of 0 fed the Monte Carlo sim an impossible
+                        # line, producing model_prob=100.0. Treating
+                        # point<=0 as missing (same as None) lets the
+                        # existing DEFAULT_TOTAL fallback catch it —
+                        # and lets a later, real bookmaker entry
+                        # overwrite it if one exists, since this only
+                        # sets total_line the FIRST time it's None.
+                        if point is not None and point <= 0:
+                            point = None
                         if name == "Over":
                             if out["total_line"] is None:
                                 out["total_line"] = point
