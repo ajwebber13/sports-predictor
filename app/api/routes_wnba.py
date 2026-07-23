@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query
 import sys
 import os
 
@@ -21,7 +21,13 @@ def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
     The real_* odds are the actual American price pulled from the odds feed —
     use these for display, never a price synthesized from the model's own
     probability (that number will always look "consistent" with the edge %
-    since it's derived from it, even when it doesn't match any real book)."""
+    since it's derived from it, even when it doesn't match any real book).
+
+    implied_home_pct/implied_away_pct are NO-VIG (fair) probabilities —
+    renormalized to sum to 100%. Real market odds sum to ~104-106% (the
+    vig); comparing model_prob against the raw un-normalized number
+    overstates the bookmaker's cut as if it were part of your real edge.
+    """
     from services.odds_parser import american_to_implied
     home_pairs = []  # (implied_prob, raw_price)
     away_pairs = []
@@ -46,14 +52,20 @@ def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
                         home_pairs.append((prob, price))
                     elif away.lower() in name:
                         away_pairs.append((prob, price))
-    default_prob = round(american_to_implied(-110) * 100, 1)
     if not home_pairs or not away_pairs:
-        return default_prob, default_prob, -110, -110
+        # No real odds found — fall back to a true 50/50, not 52.4/52.4
+        # (52.4/52.4 sums to 104.8%, which isn't a valid probability pair)
+        return 50.0, 50.0, -110, -110
     home_pairs.sort(key=lambda x: x[0])
     away_pairs.sort(key=lambda x: x[0])
     h_prob, h_price = home_pairs[len(home_pairs) // 2]
     a_prob, a_price = away_pairs[len(away_pairs) // 2]
-    return h_prob, a_prob, h_price, a_price
+
+    # Remove vig: renormalize so both sides sum to exactly 100%.
+    total = h_prob + a_prob
+    h_fair = round(h_prob / total * 100, 1)
+    a_fair = round(a_prob / total * 100, 1)
+    return h_fair, a_fair, h_price, a_price
 
 
 def _get_market_details(events_odds: list, home: str, away: str) -> dict:

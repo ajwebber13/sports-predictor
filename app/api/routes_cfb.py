@@ -11,17 +11,20 @@ router = APIRouter(prefix="/cfb", tags=["CFB"])
 DEFAULT_TOTAL = 52.0
 
 # Breakeven win% for standard -110 juice — used as the "no edge" baseline
-# for spread/total picks, same convention routes_wnba.py uses. CFB/NFL's
-# moneyline odds are already synthesized from the model's own probability
-# (see bet_odds below) rather than pulled from a real book price — that's
-# pre-existing behavior, unchanged here.
+# for spread/total picks, same convention routes_wnba.py uses.
 BREAKEVEN_PCT = 52.4
 
 
 def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
+    """Returns (implied_home_pct, implied_away_pct, real_home_odds, real_away_odds).
+    implied_*_pct are NO-VIG (fair) probabilities, renormalized to sum to
+    100%. real_*_odds are the actual American price pulled from the odds
+    feed — None if no real h2h odds were found for this game (caller
+    should fall back to a synthesized price in that case, not treat None
+    as a real -110)."""
     from services.odds_parser import american_to_implied
-    home_probs = []
-    away_probs = []
+    home_pairs = []  # (implied_prob, raw_price)
+    away_pairs = []
     for game in events_odds:
         game_home = (game.get("home_team") or "").lower()
         game_away = (game.get("away_team") or "").lower()
@@ -40,15 +43,21 @@ def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
                         continue
                     prob = round(american_to_implied(price) * 100, 1)
                     if home.lower() in name:
-                        home_probs.append(prob)
+                        home_pairs.append((prob, price))
                     elif away.lower() in name:
-                        away_probs.append(prob)
-    default = round(american_to_implied(-110) * 100, 1)
-    if not home_probs or not away_probs:
-        return default, default
-    home_probs.sort()
-    away_probs.sort()
-    return (home_probs[len(home_probs) // 2], away_probs[len(away_probs) // 2])
+                        away_pairs.append((prob, price))
+    if not home_pairs or not away_pairs:
+        return 50.0, 50.0, None, None
+    home_pairs.sort(key=lambda x: x[0])
+    away_pairs.sort(key=lambda x: x[0])
+    h_prob, h_price = home_pairs[len(home_pairs) // 2]
+    a_prob, a_price = away_pairs[len(away_pairs) // 2]
+
+    # Remove vig: renormalize so both sides sum to exactly 100%.
+    total = h_prob + a_prob
+    h_fair = round(h_prob / total * 100, 1)
+    a_fair = round(a_prob / total * 100, 1)
+    return h_fair, a_fair, h_price, a_price
 
 
 def _get_market_details(events_odds: list, home: str, away: str) -> dict:
@@ -113,7 +122,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     are only included when a real posted line exists AND the model's edge
     clears min_edge, same bar moneyline uses. Shared by /edges and
     /predictions so both stay in sync (previously duplicated verbatim)."""
-    implied_home, implied_away = get_market_implied(events_odds, home, away)
+    implied_home, implied_away, real_odds_home, real_odds_away = get_market_implied(events_odds, home, away)
     market = _get_market_details(events_odds, home, away)
 
     edge_home = pred.home_win_prob - implied_home
@@ -123,9 +132,11 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     pred_margin = round(pred.projected_home - pred.projected_away, 1)
 
     def synth_odds(prob):
-        # Existing behavior, unchanged: fair odds derived from the
-        # model's own probability, since this route has no real
-        # moneyline book price to fall back on (unlike WNBA).
+        # Fallback ONLY — used when no real h2h odds exist for this game
+        # in the feed. Fair odds derived from the model's own probability.
+        # This is a synthesized display price, not a real market quote —
+        # every bet dict carries odds_is_real so callers can tell which
+        # kind of price they're looking at.
         return round(-(prob / (100 - prob)) * 100) if prob >= 50 else round(((100 - prob) / prob) * 100)
 
     bets = []
@@ -134,11 +145,20 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     ml_pick = home if edge_home >= edge_away else away
     ml_prob = pred.home_win_prob if edge_home >= edge_away else pred.away_win_prob
     ml_implied = implied_home if edge_home >= edge_away else implied_away
+    real_odds_for_pick = real_odds_home if edge_home >= edge_away else real_odds_away
+
+    if real_odds_for_pick is not None:
+        ml_odds = real_odds_for_pick
+        odds_is_real = True
+    else:
+        ml_odds = synth_odds(ml_prob)
+        odds_is_real = False
+
     bets.append({
         "game": label, "market": "moneyline",
         "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
         "model_prob": ml_prob, "implied_prob": ml_implied,
-        "edge": round(best_edge / 100, 4), "odds": synth_odds(ml_prob),
+        "edge": round(best_edge / 100, 4), "odds": ml_odds, "odds_is_real": odds_is_real,
         "projected": f"{pred.projected_home}-{pred.projected_away}",
         "projected_home": pred.projected_home, "projected_away": pred.projected_away,
         "projected_margin": pred_margin, "projected_total": pred.projected_total,

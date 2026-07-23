@@ -76,8 +76,16 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
     bets = []
     model_home = round(pred["home_win_prob"] * 100, 1)
     model_away = round(pred["away_win_prob"] * 100, 1)
-    implied_home = round(american_to_implied(ml_odds["home"]) * 100, 1)
-    implied_away = round(american_to_implied(ml_odds["away"]) * 100, 1)
+
+    # Remove vig: implied_home/implied_away are converted from real odds
+    # separately, so raw they sum to ~104-106% (the vig). Renormalize so
+    # edge_home/edge_away compare model_prob against the fair (no-vig)
+    # probability, not a vig-inflated one on both sides.
+    raw_implied_home = american_to_implied(ml_odds["home"]) * 100
+    raw_implied_away = american_to_implied(ml_odds["away"]) * 100
+    total_implied = raw_implied_home + raw_implied_away
+    implied_home = round(raw_implied_home / total_implied * 100, 1)
+    implied_away = round(raw_implied_away / total_implied * 100, 1)
     edge_home = round(model_home - implied_home, 2)
     edge_away = round(model_away - implied_away, 2)
     projected = f"{pred['proj_home_runs']}-{pred['proj_away_runs']}"

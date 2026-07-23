@@ -44,6 +44,20 @@ def normalize_name(name):
     return NAME_MAP.get(name, name)
 
 
+def no_vig_implied(odds_home, odds_away):
+    """Converts a real h2h price pair into NO-VIG (fair) probabilities,
+    renormalized to sum to 100%. Real market odds sum to ~104-106% (the
+    vig); comparing model_prob against the raw un-normalized number
+    overstates the bookmaker's cut as if it were part of your real edge.
+    """
+    raw_home = american_to_implied(odds_home) * 100
+    raw_away = american_to_implied(odds_away) * 100
+    total = raw_home + raw_away
+    i_home = round(raw_home / total * 100, 1)
+    i_away = round(raw_away / total * 100, 1)
+    return i_home, i_away
+
+
 def nba_win_prob(home_profile, away_profile) -> float:
     """
     NBA win probability based on net rating differential.
@@ -80,8 +94,7 @@ def get_model_edges(sport="ncaaf", context=None, simulations=10000):
 
         spread_line, over_under, odds_home, odds_away = _extract_lines(game)
         label = f"{away} @ {home}"
-        i_home = round(american_to_implied(odds_home) * 100, 1)
-        i_away = round(american_to_implied(odds_away) * 100, 1)
+        i_home, i_away = no_vig_implied(odds_home, odds_away)
 
         # ── NBA: use net rating model ──────────────────────────
         if sport == "nba":
@@ -129,7 +142,8 @@ def get_model_edges(sport="ncaaf", context=None, simulations=10000):
                     "cover_prob": prediction.team_b_cover_prob,
                     "confidence": prediction.confidence.label() if prediction.confidence else "N/A",
                     "epa_off": round(prediction.epa_off_b, 3), "epa_def": round(prediction.epa_def_b, 3)})
-        except:
+        except Exception as e:
+            print(f"get_model_edges: prediction error for {label}: {e}")
             continue
 
     return sorted(results, key=lambda x: x["edge"], reverse=True)
