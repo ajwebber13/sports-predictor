@@ -30,12 +30,12 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.mode }}" = "backfill" ]; then
             if [ -n "${{ github.event.inputs.end_date }}" ]; then
-              python -u nfl_player_game_logs.py backfill "${{ github.event.inputs.start_date }}" "${{ github.event.inputs.end_date }}"
+              python -u backfill/nfl/nfl_player_game_logs.py backfill "${{ github.event.inputs.start_date }}" "${{ github.event.inputs.end_date }}"
             else
-              python -u nfl_player_game_logs.py backfill "${{ github.event.inputs.start_date }}"
+              python -u backfill/nfl/nfl_player_game_logs.py backfill "${{ github.event.inputs.start_date }}"
             fi
           else
-            python -u nfl_player_game_logs.py update
+            python -u backfill/nfl/nfl_player_game_logs.py update
           fi
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}

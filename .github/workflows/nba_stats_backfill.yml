@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run NBA stats backfill
-        run: python -u nba_player_stats.py ${{ github.event.inputs.mode }}
+        run: python -u backfill/nba/nba_player_stats.py ${{ github.event.inputs.mode }}
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
