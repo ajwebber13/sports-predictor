@@ -249,10 +249,18 @@ def format_edge_finder_report(date: str, sport: str = "wnba", top_n: int = 5, **
         rank, total = _defense_rank(sport, p["stat"], p["opponent"], p["projection_direction"])
         matchup = f"#{rank}/{total} Defense vs {p['stat'].upper()}" if rank else f"vs {p['opponent']}"
 
+        # Same cap already used for scoring (MAX_EDGE_PCT_FOR_SCORING) —
+        # applied here too so the DISPLAYED number matches what actually
+        # drove the Edge Score. Uncapped, a low-line prop (e.g. HITS
+        # Over 0.5) shows a misleadingly huge percentage purely from a
+        # small denominator, not real signal.
+        capped_edge_pct = max(-MAX_EDGE_PCT_FOR_SCORING,
+                               min(MAX_EDGE_PCT_FOR_SCORING, p["projection_edge_pct"]))
+
         lines.append(f"{i}. {p['player_name']} {p['stat'].upper()} {direction_label} {p['line']}")
         lines.append(f"Edge Score: {p['edge_score']}")
         lines.append(f"✅ Hit Rate: {p['hit_rate_overall']}% ({p['games_overall']}G)")
-        lines.append(f"📈 Projection Edge: {p['projection_edge_pct']:+.1f}%")
+        lines.append(f"📈 Projection Edge: {capped_edge_pct:+.1f}%")
         lines.append(f"🛡️ Matchup: {matchup}")
         lines.append(f"Confidence: {p['confidence']}")
         lines.append("")
