@@ -12,6 +12,7 @@ Usage:
 """
 
 import os
+import re
 import sys
 import requests
 from datetime import datetime, timezone, timedelta
@@ -63,9 +64,13 @@ def parse_target_date(arg: str):
 def fetch_espn_results(date_str: str, sport: str) -> list:
     """
     Returns list of completed games with scores from ESPN for one sport.
-    Each item: {game_id, home_team, away_team, home_score, away_score, actual_winner}
-    game_id is ESPN's numeric event id — captured here but not yet stored in
-    the predictions/results tables (that's Phase 2 of the unification).
+    Each item: {game_id, home_team, away_team, home_score, away_score,
+    actual_winner, start_time}. start_time (added 2026-07-24) is the
+    raw ESPN event date string — needed to chronologically order
+    doubleheader games, since two DH games share identical team names
+    and only differ by start time. game_id is ESPN's numeric event id
+    — captured here but not yet stored in the predictions/results
+    tables (that's Phase 2 of the unification).
     """
     base_url = SPORT_CONFIG.get(sport)
     if not base_url:
@@ -110,6 +115,7 @@ def fetch_espn_results(date_str: str, sport: str) -> list:
             "home_score": home_score,
             "away_score": away_score,
             "actual_winner": actual_winner,
+            "start_time": event.get("date", ""),
         })
 
         print(f"  [{sport.upper()}] ESPN: {away_name} @ {home_name} -> "
@@ -127,16 +133,51 @@ def fetch_predictions(conn, date_str: str, sport: str) -> list:
     return [dict(r) for r in c.fetchall()]
 
 
+def _parse_dh_game_number(game_label: str):
+    """Extracts the doubleheader game number from a prediction's game
+    label, e.g. 'Pittsburgh Pirates @ Cleveland Guardians (DH Game 2)'
+    -> 2. This suffix is added by routes_mlb.py's mlb_edges() for real
+    MLB doubleheaders (see its dh_game_number_by_index logic). Returns
+    None for a normal (non-DH) game label."""
+    m = re.search(r"\(DH Game (\d+)\)", game_label or "")
+    return int(m.group(1)) if m else None
+
+
 def match_game(prediction: dict, espn_games: list):
-    """Match a prediction to an ESPN result by team name (unchanged logic)."""
+    """Match a prediction to an ESPN result by team name.
+
+    FIXED 2026-07-24: doubleheaders were silently mismatched before
+    this. Two games between the same two teams on the same date have
+    IDENTICAL home_team/away_team — this used to just return whichever
+    ESPN game happened to come first in the list, so a prediction
+    explicitly logged as "(DH Game 2)" could get scored against Game
+    1's actual result instead of its own. Predictions for MLB
+    doubleheaders already carry that "(DH Game N)" marker in their
+    game label (see routes_mlb.py) — this now collects every
+    team-name match as a candidate, sorts them chronologically by
+    start_time, and picks the Nth one when a DH marker is present.
+    Non-doubleheader games are unaffected (only one candidate either
+    way); an out-of-range or missing DH number falls back to the
+    earliest game, the same behavior this function always had."""
     pred_home = prediction.get("home_team", "")
     pred_away = prediction.get("away_team", "")
 
-    for g in espn_games:
-        if (pred_home.lower() in g["home_team"].lower() or g["home_team"].lower() in pred_home.lower()) and \
-           (pred_away.lower() in g["away_team"].lower() or g["away_team"].lower() in pred_away.lower()):
-            return g
-    return None
+    candidates = [
+        g for g in espn_games
+        if (pred_home.lower() in g["home_team"].lower() or g["home_team"].lower() in pred_home.lower())
+        and (pred_away.lower() in g["away_team"].lower() or g["away_team"].lower() in pred_away.lower())
+    ]
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    candidates.sort(key=lambda g: g.get("start_time", ""))
+    dh_game_number = _parse_dh_game_number(prediction.get("game", ""))
+    if dh_game_number is not None and 1 <= dh_game_number <= len(candidates):
+        return candidates[dh_game_number - 1]
+
+    return candidates[0]
 
 
 def score_prediction(prediction: dict, espn_game: dict) -> dict:
