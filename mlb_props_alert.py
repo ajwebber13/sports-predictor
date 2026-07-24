@@ -42,6 +42,8 @@ from prop_hit_rates import setup_props_table
 
 CENTRAL_OFFSET = -5
 
+# Fallback webhook, kept from the old content-type migration — used
+# only if get_webhook_for_sport("mlb") can't find DISCORD_WEBHOOK_MLB.
 DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 
 STRONG_THRESHOLD = 70  # hit_rate_overall >= this -> shown as a strong 'over' play
@@ -206,8 +208,11 @@ def build_message(date_str: str, props: list, fades: list = None) -> str:
 
 
 def send_message(text: str):
-    from discord_alerts import send_discord_message, html_to_discord_markdown
-    send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_PROPS)
+    from discord_alerts import send_discord_message, html_to_discord_markdown, get_webhook_for_sport
+    # Routed to the MLB channel, added 2026-07-23 — falls back to the
+    # old props-only webhook if DISCORD_WEBHOOK_MLB isn't set yet.
+    webhook = get_webhook_for_sport("mlb") or DISCORD_WEBHOOK_PROPS
+    send_discord_message(html_to_discord_markdown(text), webhook_url=webhook)
 
 
 def run(dry_run: bool = False, date_override: str = None):
@@ -238,10 +243,6 @@ def run(dry_run: bool = False, date_override: str = None):
     if dry_run:
         print("DRY RUN — not sent.")
         return
-
-    if not DISCORD_WEBHOOK_PROPS:
-        print("ERROR: DISCORD_WEBHOOK_PROPS not set in environment.")
-        sys.exit(1)
 
     send_message(message)
     time.sleep(2)

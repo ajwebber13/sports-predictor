@@ -13,6 +13,29 @@ parlay is skipped rather than guessing which game to pair with the
 prop — a 3+ leg combo changes the risk profile too much to build
 automatically.
 
+RESTRUCTURED 2026-07-23: this used to build ONE combined Telegram
+message covering every sport's Lock/Projection plus the single
+cross-sport Prop of the Day, sent to one channel. Discord is now
+organized per sport instead of by content type, so build_messages()
+(plural) replaces the old build_message() (singular) — content for
+the same sport (a Lock, a Projection, or the Prop of the Day, since
+prop_pick carries its own "sport" field) merges into ONE message for
+that sport's channel; content for different sports splits into
+separate messages, each sent to its own channel.
+
+RESOLVED 2026-07-23: the parlay section (only built when exactly one
+game pick and one prop pick qualify the same day) now also requires
+BOTH legs to be the same sport — see build_parlay_section(). A
+cross-sport parlay (e.g. a WNBA game + an MLB prop) doesn't cleanly
+belong to either channel's audience, so it's simply not built rather
+than attached to one channel by default. This is decided once at the
+source, so the Discord message and the daily-intelligence.json export
+can never disagree about whether a parlay exists.
+
+daily-intelligence.json export is UNCHANGED — still one combined JSON
+across every sport, since that feeds the website/dashboard, not
+Discord, and there's no reason to split a data file by chat channel.
+
 Run this AFTER morning_run.yml and wnba_morning_alert.yml/props have
 already populated today's predictions/player_props tables — otherwise
 there's nothing to select from yet.
@@ -39,6 +62,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 
 CENTRAL_OFFSET = -5
+# Fallback webhook, kept from the old content-type migration — used
+# only for a sport with no dedicated channel yet.
 DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 
 GAME_CONFIDENCE_FLOOR = 80.0   # model_prob must clear this
@@ -216,10 +241,22 @@ def get_prop_of_the_day(date_str: str):
 
 def build_parlay_section(game_picks: dict, prop_pick: dict) -> list:
     """Only builds a parlay when exactly one game pick and one prop
-    pick qualified today, and both have usable odds. Returns an empty
-    list (no section) otherwise — never guesses which game to pair
-    with the prop when multiple sports cleared the bar."""
+    pick qualified today, both have usable odds, AND they're the same
+    sport. Returns an empty list (no section) otherwise — never
+    guesses which game to pair with the prop when multiple sports
+    cleared the bar, and (added 2026-07-23) never builds a CROSS-sport
+    parlay: with Discord now organized per sport, a parlay combining
+    e.g. a WNBA game with an MLB prop wouldn't cleanly belong to
+    either channel's audience. This is the single choke point both
+    the Discord message (build_messages()) and the
+    daily-intelligence.json export (export_daily_intelligence(), via
+    parlay_eligible) read from, so both automatically agree — no risk
+    of the website showing a cross-sport parlay Discord doesn't."""
     if len(game_picks) != 1 or not prop_pick:
+        return []
+
+    game_sport = list(game_picks.keys())[0]
+    if prop_pick.get("sport") != game_sport:
         return []
 
     game_odds = list(game_picks.values())[0].get("odds")
@@ -249,14 +286,16 @@ DAILY_INTELLIGENCE_PATH = "daily-intelligence.json"
 
 def export_daily_intelligence(date_str: str, game_picks: dict, model_projections: dict,
                                prop_pick: dict, parlay_lines: list) -> dict:
-    """Structures the SAME data build_message() renders into Telegram
+    """Structures the SAME data build_messages() renders into Telegram
     text, as one JSON file — the single source Telegram, the website,
     and Streamlit should all read from, instead of each independently
     re-deriving locks/projections/props (same reasoning as reusing
     team_form_engine.py's fields instead of rebuilding them elsewhere).
     This function does not query the database itself — it only
     reshapes data already fetched by run(), so it can never disagree
-    with what the Telegram message actually said."""
+    with what the Telegram messages actually said. UNCHANGED by the
+    2026-07-23 per-sport-channel restructure — still one combined
+    JSON, since this feeds the website/dashboard, not Discord."""
     locks = [
         {
             "sport": sport,
@@ -307,55 +346,86 @@ def export_daily_intelligence(date_str: str, game_picks: dict, model_projections
     }
 
 
-def build_message(date_str: str, game_picks: dict, prop_pick: dict, model_projections: dict = None) -> str:
+def build_messages(date_str: str, game_picks: dict, prop_pick: dict, model_projections: dict = None) -> dict:
+    """Returns {sport: message_text} — one message per sport that has
+    content today, instead of one combined string. Content for the
+    SAME sport (a Lock, a Projection, and/or the Prop of the Day, since
+    prop_pick carries its own "sport" field) merges into one message
+    for that sport's channel; different sports split into separate
+    messages. See module docstring for the parlay-attachment judgment
+    call."""
     model_projections = model_projections or {}
     pretty_date = datetime.strptime(date_str, "%Y-%m-%d").strftime("%B %d, %Y")
-    lines = [
-        "\U0001f512 <b>C&amp;P LOCK OF THE DAY</b>",
-        f"\U0001f4c5 {pretty_date}",
-        "\u2501" * 20,
-    ]
+    parlay_lines = build_parlay_section(game_picks, prop_pick)
+    # Parlay only ever exists when exactly one game pick qualified —
+    # that pick's sport is the anchor leg, so the parlay attaches there.
+    parlay_sport = list(game_picks.keys())[0] if (parlay_lines and len(game_picks) == 1) else None
 
-    if not game_picks and not prop_pick and not model_projections:
-        return ""
+    sections = {}  # sport -> list of blocks, each block a list of lines
+
+    def add(sport, block_lines):
+        sections.setdefault(sport, []).append(block_lines)
 
     for sport, pick in game_picks.items():
-        lines.append(f"\n\U0001f3c6 <b>{sport.upper()} PICK</b>")
-        lines.append(f"{pick['game']}")
-        lines.append(f"\u2705 {pick['bet']} ({pick['odds']})")
-        lines.append(f"\U0001f4ca {pick['model_prob']:.1f}% confidence")
-        lines.append(f"\U0001f525 Confidence: {get_confidence_grade(pick['model_prob'])}")
-        lines.append(f"\U0001f4c8 Edge: +{pick['edge']:.1f}%")
+        block = [
+            f"\U0001f3c6 <b>{sport.upper()} PICK</b>",
+            f"{pick['game']}",
+            f"\u2705 {pick['bet']} ({pick['odds']})",
+            f"\U0001f4ca {pick['model_prob']:.1f}% confidence",
+            f"\U0001f525 Confidence: {get_confidence_grade(pick['model_prob'])}",
+            f"\U0001f4c8 Edge: +{pick['edge']:.1f}%",
+        ]
+        if sport == parlay_sport:
+            block.extend(parlay_lines)
+        add(sport, block)
 
     for sport, proj in model_projections.items():
         # Deliberately different framing from a Lock pick above — no
         # checkmark, no "Edge" claim, no implication this cleared any
         # bar. Just "here's who the model favors, and how strongly."
-        lines.append(f"\n\U0001f3af <b>{sport.upper()} MODEL PROJECTION</b>")
-        lines.append(f"{proj['game']}")
-        lines.append(f"Model favors: {proj['bet']}")
-        lines.append(f"\U0001f4ca Win Probability: {proj['model_prob']:.1f}%")
-        lines.append(f"\u2696\ufe0f Confidence: {get_confidence_grade(proj['model_prob'])}")
-        lines.append(f"<i>No qualifying betting edge today \u2014 projection only, not a Lock.</i>")
+        block = [
+            f"\U0001f3af <b>{sport.upper()} MODEL PROJECTION</b>",
+            f"{proj['game']}",
+            f"Model favors: {proj['bet']}",
+            f"\U0001f4ca Win Probability: {proj['model_prob']:.1f}%",
+            f"\u2696\ufe0f Confidence: {get_confidence_grade(proj['model_prob'])}",
+            "<i>No qualifying betting edge today \u2014 projection only, not a Lock.</i>",
+        ]
+        add(sport, block)
 
     if prop_pick:
+        sport = prop_pick["sport"]
         stat_label = STAT_LABELS.get(prop_pick["stat"], prop_pick["stat"].upper())
-        lines.append(f"\n\U0001f3af <b>PROP OF THE DAY</b>")
-        lines.append(f"{prop_pick['player_name']} \u2014 {prop_pick['side']} {stat_label} {prop_pick['line']:g}")
-        lines.append(f"\U0001f4ca {prop_pick['display_pct']}% historical rate ({prop_pick['games_overall']} games)")
-        lines.append(f"\U0001f525 Confidence: {get_confidence_grade(prop_pick['display_pct'])}")
+        block = [
+            "\U0001f3af <b>PROP OF THE DAY</b>",
+            f"{prop_pick['player_name']} \u2014 {prop_pick['side']} {stat_label} {prop_pick['line']:g}",
+            f"\U0001f4ca {prop_pick['display_pct']}% historical rate ({prop_pick['games_overall']} games)",
+            f"\U0001f525 Confidence: {get_confidence_grade(prop_pick['display_pct'])}",
+        ]
+        add(sport, block)
 
-    lines.extend(build_parlay_section(game_picks, prop_pick))
+    messages = {}
+    for sport, blocks in sections.items():
+        lines = [
+            "\U0001f512 <b>C&amp;P LOCK OF THE DAY</b>",
+            f"\U0001f4c5 {pretty_date}",
+            "\u2501" * 20,
+        ]
+        for block in blocks:
+            lines.append("")
+            lines.extend(block)
+        lines.append("\n" + "\u2501" * 20)
+        lines.append("<i>Culture &amp; Pulse Analytics</i>")
+        lines.append("<i>For entertainment only. Bet responsibly.</i>")
+        messages[sport] = "\n".join(lines).strip()
 
-    lines.append("\n" + "\u2501" * 20)
-    lines.append("<i>Culture &amp; Pulse Analytics</i>")
-    lines.append("<i>For entertainment only. Bet responsibly.</i>")
-    return "\n".join(lines).strip()
+    return messages
 
 
-def send_message(text: str):
-    from discord_alerts import send_discord_message, html_to_discord_markdown
-    send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_GAME_PICKS)
+def send_message(text: str, sport: str):
+    from discord_alerts import send_discord_message, html_to_discord_markdown, get_webhook_for_sport
+    webhook = get_webhook_for_sport(sport) or DISCORD_WEBHOOK_GAME_PICKS
+    send_discord_message(html_to_discord_markdown(text), webhook_url=webhook)
 
 
 def run(dry_run: bool = False):
@@ -390,24 +460,24 @@ def run(dry_run: bool = False):
           f"({len(intelligence['locks'])} lock(s), {len(intelligence['projections'])} projection(s), "
           f"{len(intelligence['props'])} prop(s))")
 
-    message = build_message(date_str, game_picks, prop_pick, model_projections)
-    if not message:
+    messages = build_messages(date_str, game_picks, prop_pick, model_projections)
+    if not messages:
         print("Nothing cleared the confidence bar today — no message sent.")
         return
 
-    print("\n" + "\u2500" * 40)
-    print(message)
-    print("\u2500" * 40 + "\n")
+    for sport, message in messages.items():
+        print("\n" + "\u2500" * 40)
+        print(f"[{sport.upper()}]")
+        print(message)
+        print("\u2500" * 40 + "\n")
+
+        if dry_run:
+            continue
+
+        send_message(message, sport)
 
     if dry_run:
         print("DRY RUN — not sent.")
-        return
-
-    if not DISCORD_WEBHOOK_GAME_PICKS:
-        print("ERROR: DISCORD_WEBHOOK_GAME_PICKS not set.")
-        sys.exit(1)
-
-    send_message(message)
 
 
 if __name__ == "__main__":

@@ -9,8 +9,19 @@ vars are present (SUPABASE_DB_URL first, Turso fallback), same as
 every other file. results_tracker.py's separate results_log.json file
 is retired, this is now the single source of truth for recaps.
 
+RESTRUCTURED 2026-07-23: this used to build ONE combined message
+covering every sport (with a "Total" line appended when more than one
+sport had data) and send it to a single Recaps channel. Discord is now
+organized per sport instead of by content type, so recaps for each
+sport now get their OWN message, sent to that sport's own channel —
+build_daily_message()/build_weekly_message() (singular, one sport)
+replace the old build_daily_message()/build_weekly_message() that
+built the combined multi-sport string. The "Total across all sports"
+summary line is gone since there's no longer one shared message for it
+to summarize — each sport's own recap already shows its own record.
+
 Usage:
-  python recap_engine.py --daily                 # all sports, yesterday
+  python recap_engine.py --daily                 # all sports, yesterday (one message per sport with data)
   python recap_engine.py --daily --sport wnba     # one sport only
   python recap_engine.py --weekly
   python recap_engine.py --weekly --sport nfl
@@ -28,6 +39,9 @@ try:
 except ImportError:
     pass
 
+# Fallback webhook, kept from the old content-type migration — used
+# only if get_webhook_for_sport(sport) can't find that sport's own
+# DISCORD_WEBHOOK_* env var yet.
 DISCORD_WEBHOOK_RECAPS = os.getenv("DISCORD_WEBHOOK_RECAPS", "")
 CENTRAL_OFFSET   = -5
 
@@ -60,13 +74,22 @@ def get_today_ct():
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
 
 
-def send_message(text: str):
+def _webhook_for(sport: str) -> str:
+    """cfb/ncaab don't have a dedicated recap webhook naming mismatch
+    to worry about — SPORTS keys here already match SPORT_WEBHOOK_ENV_VARS
+    in discord_alerts.py (wnba/mlb/nfl/cfb/ncaab). Falls back to the old
+    shared Recaps webhook if a sport's own var isn't set."""
+    from discord_alerts import get_webhook_for_sport
+    return get_webhook_for_sport(sport) or DISCORD_WEBHOOK_RECAPS
+
+
+def send_message(text: str, sport: str):
     from discord_alerts import send_discord_message, html_to_discord_markdown
-    ok = send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_RECAPS)
+    ok = send_discord_message(html_to_discord_markdown(text), webhook_url=_webhook_for(sport))
     if ok:
-        print("Sent successfully.")
+        print(f"  Sent successfully ({sport}).")
     else:
-        print("Recap send failed — see error above.")
+        print(f"  Recap send failed for {sport} — see error above.")
 
 
 def get_results(sport: str, start_date: str, end_date: str) -> list:
@@ -123,7 +146,6 @@ def sport_daily_block(sport: str, date_str: str):
         return "", 0, 0
 
     wins = sum(1 for r in rows if r["correct"] == 1)
-    edge_rows = [r for r in rows if r["edge"] and r["edge"] >= 10]
 
     label = SPORT_LABELS.get(sport, sport.upper())
     lines = [f"{label} — {format_record(wins, len(rows))}"]
@@ -136,77 +158,54 @@ def sport_daily_block(sport: str, date_str: str):
     return "\n".join(lines), wins, len(rows)
 
 
-def build_daily_message(date_str: str, sport_filter: str = None) -> str:
-    sports = [sport_filter] if sport_filter else SPORTS
-
-    blocks = []
-    total_wins = 0
-    total_games = 0
-
-    for sport in sports:
-        block, wins, total = sport_daily_block(sport, date_str)
-        if block:
-            blocks.append(block)
-            total_wins += wins
-            total_games += total
+def build_daily_message(sport: str, date_str: str) -> str:
+    """Returns the full daily recap message for ONE sport, or "" if
+    that sport had no scored results on this date. Singular now —
+    replaces the old multi-sport combined builder (see module
+    docstring, 2026-07-23 restructure)."""
+    block, wins, total = sport_daily_block(sport, date_str)
+    if not block:
+        return ""
 
     header = f"📊 <b>C&amp;P Picks — Daily Recap</b>\n📅 {date_str}\n"
-
-    if not blocks:
-        return header + "\nNo scored results for this date yet."
-
-    body = "\n\n".join(blocks)
-    lines = [header, body]
-
-    if len(sports) > 1:
-        lines.append(f"\n📋 <b>Total:</b> {format_record(total_wins, total_games)}")
-
-    lines.append("\n<i>Culture &amp; Pulse Analytics | For entertainment only.</i>")
+    lines = [header, block, "\n<i>Culture &amp; Pulse Analytics | For entertainment only.</i>"]
     return "\n".join(lines)
 
 
-def build_weekly_message(week_start: str, week_end: str, sport_filter: str = None) -> str:
-    sports = [sport_filter] if sport_filter else SPORTS
-    lines = [f"📊 <b>C&amp;P Picks — Weekly Recap</b>\n📅 Week of {week_start}\n"]
+def build_weekly_message(sport: str, week_start: str, week_end: str) -> str:
+    """Returns the full weekly recap message for ONE sport, or "" if
+    that sport had no data (this week or season-to-date). Singular
+    now — replaces the old multi-sport combined builder."""
+    rows = get_results(sport, week_start, week_end)
+    clean_start = CLEAN_DATA_START.get(sport, week_start)
+    season_rows = get_results(sport, clean_start, week_end)
 
-    any_data = False
-    for sport in sports:
-        rows = get_results(sport, week_start, week_end)
-        clean_start = CLEAN_DATA_START.get(sport, week_start)
-        season_rows = get_results(sport, clean_start, week_end)
+    if not rows and not season_rows:
+        return ""
 
-        if not rows and not season_rows:
-            continue
-        any_data = True
+    label = SPORT_LABELS.get(sport, sport.upper())
+    lines = [f"📊 <b>C&amp;P Picks — Weekly Recap</b>\n📅 Week of {week_start}\n", f"<b>{label}</b>"]
 
-        label = SPORT_LABELS.get(sport, sport.upper())
-        lines.append(f"<b>{label}</b>")
+    if rows:
+        wins = sum(1 for r in rows if r["correct"] == 1)
+        roi = calc_roi(rows)
+        sign = "+" if roi["net_units"] >= 0 else ""
+        lines.append(f"  This week: {format_record(wins, len(rows))}  |  {sign}{roi['net_units']}u")
+    else:
+        lines.append("  This week: no scored results")
 
-        if rows:
-            wins = sum(1 for r in rows if r["correct"] == 1)
-            roi = calc_roi(rows)
-            sign = "+" if roi["net_units"] >= 0 else ""
-            lines.append(f"  This week: {format_record(wins, len(rows))}  |  {sign}{roi['net_units']}u")
-        else:
-            lines.append("  This week: no scored results")
+    if season_rows:
+        s_wins = sum(1 for r in season_rows if r["correct"] == 1)
+        roi = calc_roi(season_rows)
+        sign = "+" if roi["net_units"] >= 0 else ""
+        lines.append(f"  Season (since {clean_start}): {format_record(s_wins, len(season_rows))}  |  {sign}{roi['net_units']}u")
 
-        if season_rows:
-            s_wins = sum(1 for r in season_rows if r["correct"] == 1)
-            roi = calc_roi(season_rows)
-            sign = "+" if roi["net_units"] >= 0 else ""
-            lines.append(f"  Season (since {clean_start}): {format_record(s_wins, len(season_rows))}  |  {sign}{roi['net_units']}u")
+        correct_picks = [r for r in season_rows if r["correct"] == 1 and r["edge"]]
+        best = max(correct_picks, key=lambda x: x["edge"], default=None)
+        if best:
+            lines.append(f"  🔥 Best: {best['bet']} (+{best['edge']}%) — {best['game']}")
 
-            correct_picks = [r for r in season_rows if r["correct"] == 1 and r["edge"]]
-            best = max(correct_picks, key=lambda x: x["edge"], default=None)
-            if best:
-                lines.append(f"  🔥 Best: {best['bet']} (+{best['edge']}%) — {best['game']}")
-
-        lines.append("")
-
-    if not any_data:
-        lines.append("No scored results this week yet.")
-        return "\n".join(lines)
-
+    lines.append("")
     lines.append("<i>Culture &amp; Pulse Analytics | For entertainment only.</i>")
     return "\n".join(lines)
 
@@ -214,26 +213,37 @@ def build_weekly_message(week_start: str, week_end: str, sport_filter: str = Non
 def run(mode: str, sport_filter: str = None, dry_run: bool = False):
     today = get_today_ct()
     yesterday = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    sports = [sport_filter] if sport_filter else SPORTS
 
-    if mode == "daily":
-        msg = build_daily_message(yesterday, sport_filter)
-        print(f"Daily recap for {yesterday}" + (f" ({sport_filter})" if sport_filter else " (all sports)"))
+    any_sent = False
 
-    elif mode == "weekly":
-        days_since_monday = today.weekday()
-        week_start = (today - timedelta(days=days_since_monday)).strftime("%Y-%m-%d")
-        week_end = yesterday
-        msg = build_weekly_message(week_start, week_end, sport_filter)
-        print(f"Weekly recap for {week_start} to {week_end}")
+    for sport in sports:
+        if mode == "daily":
+            msg = build_daily_message(sport, yesterday)
+            desc = f"Daily recap for {yesterday} ({sport})"
+        elif mode == "weekly":
+            days_since_monday = today.weekday()
+            week_start = (today - timedelta(days=days_since_monday)).strftime("%Y-%m-%d")
+            week_end = yesterday
+            msg = build_weekly_message(sport, week_start, week_end)
+            desc = f"Weekly recap for {week_start} to {week_end} ({sport})"
+        else:
+            return
 
-    else:
-        return
+        if not msg:
+            continue  # no data for this sport — skip silently, same as before
 
-    if dry_run:
-        print("\n--- DRY RUN ---")
-        print(msg)
-    else:
-        send_message(msg)
+        any_sent = True
+        print(desc)
+        if dry_run:
+            print("--- DRY RUN ---")
+            print(msg)
+            print()
+        else:
+            send_message(msg, sport)
+
+    if not any_sent:
+        print(f"No scored results for any sport yet ({mode}).")
 
 
 if __name__ == "__main__":

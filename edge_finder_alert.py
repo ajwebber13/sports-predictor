@@ -45,6 +45,9 @@ from edge_finder_parlay import build_parlay
 
 CENTRAL_OFFSET = -5
 
+# Fallback webhook, kept from the old content-type migration — used
+# only for a sport with no dedicated channel yet (e.g. nba, per
+# SUPPORTED_SPORTS = ["wnba","mlb","nba","nfl"] in edge_finder.py).
 DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 
 CONFIDENCE_EMOJI = {"HIGH": "\U0001F525", "MEDIUM": "\u2705"}  # fire / check
@@ -114,9 +117,13 @@ def build_message(date: str, sport: str, picks: list, brief: bool = False, parla
     return "\n".join(lines).strip()
 
 
-def send_message(text: str):
-    from discord_alerts import send_discord_message, html_to_discord_markdown
-    send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_PROPS)
+def send_message(text: str, sport: str):
+    from discord_alerts import send_discord_message, html_to_discord_markdown, get_webhook_for_sport
+    # Routed to the pick's own sport channel, added 2026-07-23 — falls
+    # back to the old props-only webhook for a sport with no dedicated
+    # channel yet.
+    webhook = get_webhook_for_sport(sport) or DISCORD_WEBHOOK_PROPS
+    send_discord_message(html_to_discord_markdown(text), webhook_url=webhook)
 
 
 def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, top_n: int = 5,
@@ -155,11 +162,7 @@ def run(sport: str = "wnba", dry_run: bool = False, date_override: str = None, t
         print("DRY RUN \u2014 not sent.")
         return
 
-    if not DISCORD_WEBHOOK_PROPS:
-        print("ERROR: DISCORD_WEBHOOK_PROPS not set in environment.")
-        sys.exit(1)
-
-    send_message(message)
+    send_message(message, sport)
     time.sleep(2)  # match existing alert pacing
 
     # Log AFTER a real send, not before and not on dry-run — a pick that

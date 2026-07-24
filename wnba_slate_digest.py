@@ -35,6 +35,8 @@ try:
 except ImportError:
     ESPN_PROB_ENABLED = False
 
+# Fallback webhook, kept from the old content-type migration — used
+# only if get_webhook_for_sport("wnba") can't find DISCORD_WEBHOOK_WNBA.
 DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 CENTRAL_OFFSET   = -5  # CDT
@@ -1002,8 +1004,13 @@ def format_digest(
 
 
 def send_message(text: str):
-    from discord_alerts import send_discord_message, html_to_discord_markdown
-    ok = send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_GAME_PICKS)
+    from discord_alerts import send_discord_message, html_to_discord_markdown, get_webhook_for_sport
+    # Routed to the WNBA channel, added 2026-07-23 — this whole file is
+    # WNBA-only, so no sport parameter needed, just the direct lookup.
+    # Falls back to the old content-type webhook if DISCORD_WEBHOOK_WNBA
+    # isn't set yet.
+    webhook = get_webhook_for_sport("wnba") or DISCORD_WEBHOOK_GAME_PICKS
+    ok = send_discord_message(html_to_discord_markdown(text), webhook_url=webhook)
     if ok:
         print("Digest sent successfully.")
     else:

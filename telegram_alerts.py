@@ -29,6 +29,10 @@ try:
 except ImportError:
     LOGGING_ENABLED = False
 
+# Fallback webhook — used when a sport has no dedicated channel yet
+# (e.g. nba, ncaaw) or when get_webhook_for_sport() can't find an env
+# var. Kept from the old content-type migration rather than removed,
+# so nothing silently fails to send during the sport-channel rollout.
 DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 CENTRAL_OFFSET   = -5  # CDT
@@ -139,9 +143,24 @@ def get_game_times(sport: str) -> tuple:
     return times, times_raw
 
 
-def send_message(text: str):
+def _webhook_for(sport: str) -> str:
+    """Routes to the sport's own Discord channel, added 2026-07-23 —
+    Discord is now organized per sport instead of by content type.
+    'ncaaf' is mapped to 'cfb' since that's this file's internal key
+    for college football, but the actual channel/env var is
+    DISCORD_WEBHOOK_CFB. Falls back to the old DISCORD_WEBHOOK_GAME_PICKS
+    constant for any sport without its own channel yet (nba, ncaaw) or
+    if the sport-specific env var isn't set — never silently drops a
+    message just because a channel doesn't exist yet."""
+    from discord_alerts import get_webhook_for_sport
+    sport_key = "cfb" if sport == "ncaaf" else sport
+    return get_webhook_for_sport(sport_key) or DISCORD_WEBHOOK_GAME_PICKS
+
+
+def send_message(text: str, sport: str = None):
     from discord_alerts import send_discord_message, html_to_discord_markdown
-    send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_GAME_PICKS)
+    webhook = _webhook_for(sport) if sport else DISCORD_WEBHOOK_GAME_PICKS
+    send_discord_message(html_to_discord_markdown(text), webhook_url=webhook)
 
 def sport_emoji(sport: str) -> str:
     return "🏈" if sport in ["ncaaf", "nfl"] else "⚾" if sport == "mlb" else "🏀"
@@ -425,7 +444,7 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         # WNBA slate digest (above) already sends its own "no games" message —
         # skip the duplicate here.
         if sport != "wnba":
-            send_message(format_no_games(sport))
+            send_message(format_no_games(sport), sport)
         return
 
     if LOGGING_ENABLED:
@@ -464,12 +483,13 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
         send_message(
             f"{emoji} <b>C&amp;P Picks — {label}</b>\n\n"
             f"📅 {today_label}\n"
-            f"No clean edges after model validation. Stay patient."
+            f"No clean edges after model validation. Stay patient.",
+            sport,
         )
         return
 
     # ── SEND SLATE SUMMARY ──
-    send_message(format_slate_summary(clean_bets, sport, suppressed=suppressed))
+    send_message(format_slate_summary(clean_bets, sport, suppressed=suppressed), sport)
     time.sleep(1)
 
     # ── SEND INDIVIDUAL ALERTS ──
@@ -483,10 +503,10 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
                 game_time = game_times.get(parts[0], game_times.get(parts[1], "Time TBD"))
 
         msg = format_alert(bet, sport, game_time)
-        send_message(msg)
+        send_message(msg, sport)
         time.sleep(1)
 
-    print(f"Sent {len(clean_bets)} alerts for {label} on {today_label} to Discord (Game Day Picks)")
+    print(f"Sent {len(clean_bets)} alerts for {label} on {today_label} to Discord ({sport}'s channel)")
 
 
 if __name__ == "__main__":

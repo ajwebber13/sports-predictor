@@ -26,6 +26,9 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
+# Fallback webhook, kept from the old content-type migration — used
+# only for a sport with no dedicated channel yet, or when no sport
+# context is available at all (shouldn't normally happen).
 DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 
 ALL_SPORTS = ["nba", "wnba", "nfl", "cfb", "ncaab", "mlb"]
@@ -60,13 +63,20 @@ def wake_api():
         log(f"Wake ping failed: {e}")
 
 
-def send_discord_alert(text: str):
-    if not DISCORD_WEBHOOK_GAME_PICKS:
-        log("No Discord webhook — skipping.")
-        return
+def send_discord_alert(text: str, sport: str = None):
+    """Routed to the given sport's own Discord channel, added
+    2026-07-23 — Discord is now organized per sport instead of by
+    content type. Falls back to the old DISCORD_WEBHOOK_GAME_PICKS
+    constant if sport is None or has no dedicated channel/env var yet
+    — never silently drops a message just because a channel doesn't
+    exist."""
     try:
-        from discord_alerts import send_discord_message, html_to_discord_markdown
-        ok = send_discord_message(html_to_discord_markdown(text), webhook_url=DISCORD_WEBHOOK_GAME_PICKS)
+        from discord_alerts import send_discord_message, html_to_discord_markdown, get_webhook_for_sport
+        webhook = (get_webhook_for_sport(sport) if sport else "") or DISCORD_WEBHOOK_GAME_PICKS
+        if not webhook:
+            log("No Discord webhook — skipping.")
+            return
+        ok = send_discord_message(html_to_discord_markdown(text), webhook_url=webhook)
         if not ok:
             log("Discord send failed — see error above.")
     except Exception as e:
@@ -320,7 +330,7 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
                 log(f"Edge Finder prop spotlight failed (non-fatal): {e}")
 
             lines.append("<i>Culture &amp; Pulse Analytics | For entertainment only.</i>")
-            send_discord_alert("\n".join(lines))
+            send_discord_alert("\n".join(lines), sport)
 
             log(f"Sent leaner {label} alert covering {len(daily_games)} game(s).")
             return True
@@ -381,7 +391,7 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
                 if len(parts) == 2:
                     game_time = game_times.get(parts[0], game_times.get(parts[1], "Time TBD"))
 
-            send_discord_alert(format_game_card(bet, sport, game_time))
+            send_discord_alert(format_game_card(bet, sport, game_time), sport)
             time.sleep(1)
 
         log(f"Sent {len(clean_bets)} {sport.upper()} alerts.")
@@ -432,7 +442,7 @@ def run(sports: list, retry: bool = False):
         log(f"Could not import season gates: {e}")
         return
 
-    all_sharp_hits = []  # accumulated across every sport this run, for one consolidated steam alert
+    all_sharp_hits = []  # accumulated across every sport this run, for the per-sport steam alerts below
 
     for sport in sports:
         if not is_in_season(sport):
@@ -480,16 +490,28 @@ def run(sports: list, retry: bool = False):
 
         time.sleep(5)
 
+    # ── STEAM ALERT — split per sport, added 2026-07-23 ──
+    # Previously ONE consolidated message covering every sport's sharp
+    # line moves, sent to a single channel. Discord is now organized
+    # per sport, so this groups all_sharp_hits by hit['sport'] and
+    # sends one message per sport that actually had a hit, each to its
+    # own channel — same pattern as recap_engine.py's restructure.
     if retry and all_sharp_hits:
-        lines = ["⚡ <b>Line Movement Alert</b>", ""]
+        hits_by_sport = {}
         for hit in all_sharp_hits:
-            lines.append(f"🏟 {hit['game']} ({hit['sport'].upper()})")
-            lines.append(f"   {hit['detail']}")
-        lines.append("")
-        lines.append("Culture & Pulse Analytics | Line movement, not a pick.")
-        send_discord_alert("\n".join(lines))
-        log(f"Sent consolidated steam alert covering {len(all_sharp_hits)} game(s) across "
-            f"{len(set(h['sport'] for h in all_sharp_hits))} sport(s)")
+            hits_by_sport.setdefault(hit["sport"], []).append(hit)
+
+        for sport, hits in hits_by_sport.items():
+            lines = ["⚡ <b>Line Movement Alert</b>", ""]
+            for hit in hits:
+                lines.append(f"🏟 {hit['game']} ({hit['sport'].upper()})")
+                lines.append(f"   {hit['detail']}")
+            lines.append("")
+            lines.append("Culture & Pulse Analytics | Line movement, not a pick.")
+            send_discord_alert("\n".join(lines), sport)
+
+        log(f"Sent {len(hits_by_sport)} steam alert(s) covering {len(all_sharp_hits)} game(s) across "
+            f"{len(hits_by_sport)} sport(s)")
 
     if not retry:
         log("")
