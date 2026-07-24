@@ -39,6 +39,22 @@ NAME_MAP = {
 EDGE_THRESHOLD = 3.0
 engine = EnhancedPredictionEngine()
 
+# Standard deviation of final score margin per sport, used by
+# spread_to_moneyline()'s normal-distribution approximation. These are
+# published sports-analytics approximations (public literature), NOT
+# fit against Drew's own historical picks — a real fit needs his own
+# graded spread-conversion history, which doesn't exist yet. Still a
+# materially better default than one flat coefficient applied to
+# every sport identically (see spread_to_moneyline()'s docstring).
+SPREAD_SIGMA = {
+    "nfl": 13.5,
+    "ncaaf": 16.5,   # CFB has meaningfully higher game-margin variance than NFL — blowouts are routine
+    "nba": 12.0,
+    "ncaab": 11.0,
+    "wnba": 10.5,
+}
+DEFAULT_SPREAD_SIGMA = 14.0  # fallback for an unrecognized sport key
+
 
 def normalize_name(name):
     return NAME_MAP.get(name, name)
@@ -92,7 +108,7 @@ def get_model_edges(sport="ncaaf", context=None, simulations=10000):
         if home not in ALL_PROFILES or away not in ALL_PROFILES:
             continue
 
-        spread_line, over_under, odds_home, odds_away = _extract_lines(game)
+        spread_line, over_under, odds_home, odds_away = _extract_lines(game, sport)
         label = f"{away} @ {home}"
         i_home, i_away = no_vig_implied(odds_home, odds_away)
 
@@ -149,7 +165,7 @@ def get_model_edges(sport="ncaaf", context=None, simulations=10000):
     return sorted(results, key=lambda x: x["edge"], reverse=True)
 
 
-def _extract_lines(game):
+def _extract_lines(game, sport="ncaaf"):
     spread_line, over_under, odds_home, odds_away = 0.0, 45.0, -110, -110
     for bm in game.get("bookmakers", []):
         for m in bm.get("markets", []):
@@ -165,13 +181,45 @@ def _extract_lines(game):
                     elif o["name"] == game["away_team"]: odds_away = o["price"]
 
     if odds_home == -110 and odds_away == -110 and spread_line != 0.0:
-        odds_home, odds_away = spread_to_moneyline(spread_line)
+        odds_home, odds_away = spread_to_moneyline(spread_line, sport)
 
     return spread_line, over_under, odds_home, odds_away
 
 
-def spread_to_moneyline(spread: float):
-    home_win_prob = 1 / (1 + math.exp(spread * 0.15))
+def _normal_cdf(x: float) -> float:
+    """Standard normal CDF via math.erf — no scipy dependency needed."""
+    return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+
+
+def spread_to_moneyline(spread: float, sport: str = "ncaaf"):
+    """
+    Converts a posted point spread into an implied win probability
+    using a normal-distribution approximation of final score margin —
+    P(win) = Phi(favored_margin / sigma), standard sports-analytics
+    practice. sigma is the standard deviation of final margin for the
+    given sport (see SPREAD_SIGMA above).
+
+    FIXED 2026-07-24: this function previously used one flat logistic
+    curve (1 / (1 + exp(spread * 0.15))) for every sport that calls
+    it, and didn't even accept a sport argument to distinguish them.
+    Verified against real published NFL win-rate-by-spread tables, the
+    old flat formula was reasonably close for NFL specifically (~61%
+    at -3, ~74% at -7, ~82% at -10, vs commonly cited real rates of
+    roughly 58-62%/68-72%/76-80%) but meaningfully overconfident once
+    applied to CFB, whose real game-margin variance is much higher —
+    at a -14 CFB spread the old formula implied ~89% win probability
+    vs a more realistic ~80% once CFB's own variance is used; at -21
+    it was 96% vs ~90%. This overconfidence in the fallback synthetic
+    price (used only when no real h2h odds exist) runs in the same
+    direction as the broader confidence-overconfidence pattern already
+    found in calibration_audit.py, though it's a separate mechanism.
+
+    SPREAD_SIGMA values are published sports-analytics approximations,
+    not fit against Drew's own historical picks (no such fit data
+    exists yet) — a real improvement, not a final tuned answer.
+    """
+    sigma = SPREAD_SIGMA.get(sport, DEFAULT_SPREAD_SIGMA)
+    home_win_prob = _normal_cdf(-spread / sigma)
     away_win_prob = 1 - home_win_prob
 
     def prob_to_american(p):
