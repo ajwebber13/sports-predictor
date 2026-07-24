@@ -20,6 +20,8 @@ jobs:
       - name: Fetch today's props
         run: python fetch_prizepicks_props.py --sport wnba
         env:
+          # No Discord webhook needed here — this job only fetches and
+          # saves prop data, it never sends a message.
           PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -38,6 +40,7 @@ jobs:
       - name: Fetch today's MLB props
         run: python fetch_prizepicks_props.py --sport mlb
         env:
+          # No Discord webhook needed here either — fetch-only job.
           PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -57,6 +60,10 @@ jobs:
       - name: Send props alert
         run: python wnba_props_alert.py
         env:
+          # DISCORD_WEBHOOK_WNBA added 2026-07-23 — wnba_props_alert.py
+          # now routes to get_webhook_for_sport("wnba") first, falling
+          # back to DISCORD_WEBHOOK_PROPS below only if that's not set.
+          DISCORD_WEBHOOK_WNBA: ${{ secrets.DISCORD_WEBHOOK_WNBA }}
           DISCORD_WEBHOOK_PROPS: ${{ secrets.DISCORD_WEBHOOK_PROPS }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -76,6 +83,10 @@ jobs:
       - name: Send MLB props alert
         run: python mlb_props_alert.py
         env:
+          # DISCORD_WEBHOOK_MLB added 2026-07-23 — mlb_props_alert.py
+          # now routes to get_webhook_for_sport("mlb") first, falling
+          # back to DISCORD_WEBHOOK_PROPS below only if that's not set.
+          DISCORD_WEBHOOK_MLB: ${{ secrets.DISCORD_WEBHOOK_MLB }}
           DISCORD_WEBHOOK_PROPS: ${{ secrets.DISCORD_WEBHOOK_PROPS }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
