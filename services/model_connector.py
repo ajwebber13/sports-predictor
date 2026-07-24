@@ -77,23 +77,51 @@ def no_vig_implied(odds_home, odds_away):
 def nba_win_prob(home_profile, away_profile) -> float:
     """
     NBA win probability based on net rating differential.
-    Bypasses football rating engine — uses pts scored/allowed directly.
+    Bypasses the full EnhancedPredictionEngine — uses pts scored/allowed
+    directly, since there's no dedicated nba_predictor.py/routes_nba.py
+    the way MLB and WNBA have. This is likely the real live NBA
+    prediction path.
+
+    FIXED 2026-07-24: previously used a flat logistic curve
+    (1 / (1 + exp(-diff / 8.0))) with a hardcoded /8.0 divisor that was
+    never validated against real NBA data or published win-rate tables —
+    unlike spread_to_moneyline()'s normal-CDF approach, which WAS
+    checked against real NFL win-rate-by-spread numbers. Replaced with
+    the same normal-CDF method, reusing SPREAD_SIGMA["nba"] (12.0) —
+    a real game-margin standard deviation already used successfully
+    elsewhere in this file — instead of an invented, untested divisor.
+    Same caveat as SPREAD_SIGMA generally: a published approximation,
+    not fit against Drew's own graded NBA picks yet.
     """
     home_net = home_profile.pts_off - home_profile.pts_def
     away_net = away_profile.pts_off - away_profile.pts_def
-    diff = (home_net - away_net) + 3.0  # home court advantage
-    prob = 1 / (1 + math.exp(-diff / 8.0))
+    projected_margin = (home_net - away_net) + 3.0  # home court advantage
+    sigma = SPREAD_SIGMA.get("nba", DEFAULT_SPREAD_SIGMA)
+    prob = _normal_cdf(projected_margin / sigma)
     return round(prob * 100, 1)
 
 
 def wnba_win_prob(home_profile, away_profile) -> float:
     """
     WNBA win probability based on net points differential.
+
+    NOT the live WNBA path — routes_wnba.py's WNBAPredictionEngine
+    (full Monte Carlo sim, real market odds) is what actually runs
+    for WNBA; get_model_edges() below never calls this function.
+    Kept for reference / potential future use, and fixed to match
+    nba_win_prob()'s normal-CDF approach (same reasoning) rather than
+    left on the old untested logistic curve, in case it's ever wired
+    back in.
+
+    FIXED 2026-07-24: same fix as nba_win_prob() — flat logistic with
+    an untested /8.0 divisor replaced with the normal-CDF method using
+    SPREAD_SIGMA["wnba"] (10.5), consistent with the rest of this file.
     """
     home_net = home_profile.pts_off - home_profile.pts_def
     away_net = away_profile.pts_off - away_profile.pts_def
-    diff = (home_net - away_net) + 3.0
-    prob = 1 / (1 + math.exp(-diff / 8.0))
+    projected_margin = (home_net - away_net) + 3.0
+    sigma = SPREAD_SIGMA.get("wnba", DEFAULT_SPREAD_SIGMA)
+    prob = _normal_cdf(projected_margin / sigma)
     return round(prob * 100, 1)
 
 
