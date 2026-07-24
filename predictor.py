@@ -8,12 +8,25 @@ Core constants and utility functions used by enhanced_predictor.py
 # LEAGUE CONSTANTS
 # ─────────────────────────────────────────────────────────────
 
+# score_std_dev = per-team standard deviation of final score, used by
+# enhanced_predictor.py's normal-distribution Monte Carlo sim. WIDENED
+# 2026-07-24 for CFB/NBA — too narrow a std_dev understates real scoring
+# variance, which inflates win probabilities the same way MLB's Poisson
+# sim did before its negative-binomial fix (see mlb_predictor.py). CFB
+# in particular had barely more variance than NFL despite college
+# football's real blowout-prone, less-consistent scoring — same
+# reasoning already applied to SPREAD_SIGMA in model_connector.py, just
+# never carried over to this separate prediction path. These are
+# directional improvements based on published sports-analytics
+# approximations, NOT fit against Drew's own graded picks yet — that
+# fit doesn't exist for this file. NFL/WNBA left unchanged; already in
+# a reasonable range.
 CFB_CONSTANTS = {
     "league_avg_pts":      29.0,
     "league_avg_ypp":       5.9,
     "league_avg_to_given":  1.5,
     "home_adv_pts":         3.0,
-    "score_std_dev":       10.5,
+    "score_std_dev":       12.0,
 }
 
 NFL_CONSTANTS = {
@@ -37,7 +50,7 @@ NBA_CONSTANTS = {
     "league_avg_ypp":       5.65,
     "league_avg_to_given": 13.5,
     "home_adv_pts":         3.0,
-    "score_std_dev":       11.0,
+    "score_std_dev":       12.0,
 }
 
 
