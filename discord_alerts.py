@@ -44,6 +44,28 @@ except ImportError:
 
 DISCORD_MAX_LENGTH = 2000
 
+# Maps sport -> its dedicated Discord webhook env var. Matches the
+# env vars already set in GitHub Actions / Render (2026-07-24).
+SPORT_WEBHOOK_ENV = {
+    "wnba":  "DISCORD_WEBHOOK_WNBA",
+    "mlb":   "DISCORD_WEBHOOK_MLB",
+    "nfl":   "DISCORD_WEBHOOK_NFL",
+    "cfb":   "DISCORD_WEBHOOK_CFB",
+    "ncaab": "DISCORD_WEBHOOK_NCAAB",
+}
+
+
+def get_webhook_for_sport(sport: str) -> str:
+    """Returns the Discord webhook URL for a sport's dedicated channel,
+    or "" if no channel exists yet for that sport (caller falls back
+    to DISCORD_WEBHOOK_GAME_PICKS in that case). NBA has no dedicated
+    channel yet — falls back too, which is fine since NBA is out of
+    season."""
+    if not sport:
+        return ""
+    env_var = SPORT_WEBHOOK_ENV.get(sport.lower())
+    return os.getenv(env_var, "") if env_var else ""
+
 
 def html_to_discord_markdown(text: str) -> str:
     """Converts the small HTML subset every alert file actually used
