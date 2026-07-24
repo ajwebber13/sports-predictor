@@ -1332,6 +1332,15 @@ with tab_edge:
                 f"#{rank}/{total} Defense vs {p['stat'].upper()}" if rank
                 else f"vs {p['opponent']}"
             )
+            # Same cap as edge_finder.py's format_edge_finder_report() —
+            # this tab builds its own HTML straight from get_edge_finder()'s
+            # raw dict, so it never picked up that cap. Uncapped, a
+            # low-line prop (e.g. HITS Over 0.5) shows a misleading
+            # 150%+ "edge" from a small denominator, not real signal.
+            capped_edge_pct = max(
+                -edge_finder.MAX_EDGE_PCT_FOR_SCORING,
+                min(edge_finder.MAX_EDGE_PCT_FOR_SCORING, p["projection_edge_pct"]),
+            )
 
             st.markdown(f"""
 <div class="cp-overall" style="border-left-color:{conf_color};">
@@ -1348,7 +1357,7 @@ with tab_edge:
 </div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(212,175,55,0.14);">
 <div><div class="label">Hit Rate</div><div style="color:#fff;font-weight:700;">{p['hit_rate_overall']}% ({p['games_overall']}G)</div></div>
-<div><div class="label">Projection Edge</div><div style="color:#fff;font-weight:700;">{abs(p['projection_edge_pct']):.1f}%</div></div>
+<div><div class="label">Projection Edge</div><div style="color:#fff;font-weight:700;">{abs(capped_edge_pct):.1f}%</div></div>
 <div><div class="label">Matchup</div><div style="color:#fff;font-weight:700;">{matchup_label}</div></div>
 </div>
 </div>
