@@ -20,11 +20,38 @@ from intel_feed import get_matchup_injury_adj
 
 MLB_CONSTANTS = {
     "home_adv": 0.35,      # home teams average ~0.35 more runs/game than road teams
-    "std_dev": 3.0,         # kept for reference/logging, not used directly in Poisson sim
+    "std_dev": 3.0,         # kept for reference/logging, not used directly in the sim
     "home_win_pct": 0.535,  # baseline to sanity-check model output against
 }
 
 SIMS = 10000
+
+# Real MLB team runs/game has variance meaningfully above the mean —
+# Poisson forces variance == mean, which was making the sim too
+# confident (small real scoring gaps were producing near-100% win
+# probabilities). 1.6 is a published sports-analytics approximation
+# for MLB run-scoring overdispersion, NOT fit to Drew's own graded
+# picks yet — same caveat as SPREAD_SIGMA in model_connector.py.
+RUN_VARIANCE_MULTIPLIER = 1.6
+
+
+def _negbinom_params(mean, variance_multiplier=RUN_VARIANCE_MULTIPLIER):
+    """
+    Converts a projected-runs mean into (n, p) parameters for
+    numpy's negative_binomial, targeting variance = mean * multiplier
+    instead of Poisson's fixed variance == mean.
+
+    Negative binomial requires variance > mean strictly, so a small
+    floor is enforced rather than letting it silently fall back to
+    Poisson-equivalent behavior.
+    """
+    mean = max(mean, 0.01)
+    variance = mean * variance_multiplier
+    if variance <= mean:
+        variance = mean * 1.01
+    p = mean / variance
+    n = mean * p / (1 - p)
+    return n, p
 
 
 
@@ -63,6 +90,11 @@ def project_runs(team_stats, pitcher_stats, is_home, weather_adj=1.0, situationa
         era_factor = era / 4.20
         whip_factor = whip / 1.30
         combined_factor = (era_factor * 0.7) + (whip_factor * 0.3)
+        # Capped 0.75-1.25 — an uncapped factor let elite/replacement
+        # pitchers swing projected runs ~2x, which was overstating
+        # real pitcher impact and widening the scoring gap fed into
+        # the sim. Real ace/scrub effects run roughly 20-30%, not 50%.
+        combined_factor = max(0.75, min(1.25, combined_factor))
     else:
         combined_factor = 1.0
     factors["pitcher_factor"] = round(combined_factor, 3)
@@ -106,14 +138,17 @@ def simulate_game(home_runs_proj, away_runs_proj, sims=SIMS, run_line=None, tota
     wnba_predictor.py's approach (home_cov/away_cov/over_p/under_p
     all derived from one set of simulated scores).
     """
-    home_scores = np.random.poisson(lam=home_runs_proj, size=sims)
-    away_scores = np.random.poisson(lam=away_runs_proj, size=sims)
+    home_n, home_p = _negbinom_params(home_runs_proj)
+    away_n, away_p = _negbinom_params(away_runs_proj)
+
+    home_scores = np.random.negative_binomial(home_n, home_p, size=sims)
+    away_scores = np.random.negative_binomial(away_n, away_p, size=sims)
 
     ties = home_scores == away_scores
     while ties.sum() > 0:
         n = ties.sum()
-        home_scores[ties] = np.random.poisson(lam=home_runs_proj, size=n)
-        away_scores[ties] = np.random.poisson(lam=away_runs_proj, size=n)
+        home_scores[ties] = np.random.negative_binomial(home_n, home_p, size=n)
+        away_scores[ties] = np.random.negative_binomial(away_n, away_p, size=n)
         ties = home_scores == away_scores
 
     home_wins = np.sum(home_scores > away_scores)
