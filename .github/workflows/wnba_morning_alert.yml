@@ -22,6 +22,11 @@ jobs:
       - name: Run WNBA slate digest and edge alerts
         run: python telegram_alerts.py --sport wnba
         env:
+          # DISCORD_WEBHOOK_WNBA added 2026-07-23 — telegram_alerts.py
+          # now routes to the sport's own channel via
+          # get_webhook_for_sport("wnba"), falling back to
+          # DISCORD_WEBHOOK_GAME_PICKS below only if this isn't set.
+          DISCORD_WEBHOOK_WNBA: ${{ secrets.DISCORD_WEBHOOK_WNBA }}
           DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}

@@ -21,6 +21,17 @@ jobs:
       - name: Run retry (noon or 3pm)
         run: python render_job.py --retry
         env:
+          # 5 per-sport webhooks added 2026-07-23 — same reasoning as
+          # morning_run.yml: render_job.py --retry can send alerts
+          # (and the grouped-by-sport steam/line-movement alert) for
+          # any sport in one run.
+          DISCORD_WEBHOOK_WNBA: ${{ secrets.DISCORD_WEBHOOK_WNBA }}
+          DISCORD_WEBHOOK_MLB: ${{ secrets.DISCORD_WEBHOOK_MLB }}
+          DISCORD_WEBHOOK_NFL: ${{ secrets.DISCORD_WEBHOOK_NFL }}
+          DISCORD_WEBHOOK_CFB: ${{ secrets.DISCORD_WEBHOOK_CFB }}
+          DISCORD_WEBHOOK_NCAAB: ${{ secrets.DISCORD_WEBHOOK_NCAAB }}
+          # Fallback for nba/ncaaw (no dedicated channel yet) and as a
+          # safety net if a sport-specific secret above isn't set.
           DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
@@ -32,6 +43,11 @@ jobs:
         if: github.event.schedule == '0 17 * * *' || github.event_name == 'workflow_dispatch'
         run: python auto_results.py yesterday
         env:
+          # NOTE: auto_results.py never sends a Discord message (no
+          # discord_alerts import in that file) — this webhook var was
+          # already unused before today's change and is left as-is
+          # rather than touched, since removing it is outside the
+          # scope of this routing fix.
           DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

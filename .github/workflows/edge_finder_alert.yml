@@ -18,6 +18,13 @@ jobs:
       - name: Send Edge Finder alert
         run: python edge_finder_alert.py --sport wnba --top 5 --parlay-legs 3
         env:
+          # DISCORD_WEBHOOK_WNBA added 2026-07-23 — this run is hardcoded
+          # to --sport wnba, so only the one sport secret is needed here
+          # (unlike morning_run.yml/daily_recap.yml which loop every
+          # sport). edge_finder_alert.py routes to
+          # get_webhook_for_sport("wnba") first, falling back to
+          # DISCORD_WEBHOOK_PROPS below only if that's not set.
+          DISCORD_WEBHOOK_WNBA: ${{ secrets.DISCORD_WEBHOOK_WNBA }}
           DISCORD_WEBHOOK_PROPS: ${{ secrets.DISCORD_WEBHOOK_PROPS }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}

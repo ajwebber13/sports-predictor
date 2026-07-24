@@ -20,6 +20,18 @@ jobs:
       - name: Run morning alerts
         run: python render_job.py
         env:
+          # 5 per-sport webhooks added 2026-07-23 — render_job.py can
+          # send alerts for any sport in a single run (loops ALL_SPORTS
+          # unless --sport/--exclude narrows it), and each send now
+          # routes through get_webhook_for_sport(sport). All 5 are
+          # needed here, unlike the single-sport workflows.
+          DISCORD_WEBHOOK_WNBA: ${{ secrets.DISCORD_WEBHOOK_WNBA }}
+          DISCORD_WEBHOOK_MLB: ${{ secrets.DISCORD_WEBHOOK_MLB }}
+          DISCORD_WEBHOOK_NFL: ${{ secrets.DISCORD_WEBHOOK_NFL }}
+          DISCORD_WEBHOOK_CFB: ${{ secrets.DISCORD_WEBHOOK_CFB }}
+          DISCORD_WEBHOOK_NCAAB: ${{ secrets.DISCORD_WEBHOOK_NCAAB }}
+          # Fallback for nba/ncaaw (no dedicated channel yet) and as a
+          # safety net if a sport-specific secret above isn't set.
           DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
           CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
@@ -27,4 +39,3 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-         

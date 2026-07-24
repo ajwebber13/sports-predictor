@@ -18,6 +18,18 @@ jobs:
       - name: Send Pick of the Day
         run: python pick_of_the_day.py
         env:
+          # 5 per-sport webhooks added 2026-07-23 — pick_of_the_day.py
+          # can send a Lock/Projection/Prop message for any sport with
+          # a qualifying pick in one run, each routed through
+          # get_webhook_for_sport(sport). Same reasoning as
+          # morning_run.yml/daily_recap.yml.
+          DISCORD_WEBHOOK_WNBA: ${{ secrets.DISCORD_WEBHOOK_WNBA }}
+          DISCORD_WEBHOOK_MLB: ${{ secrets.DISCORD_WEBHOOK_MLB }}
+          DISCORD_WEBHOOK_NFL: ${{ secrets.DISCORD_WEBHOOK_NFL }}
+          DISCORD_WEBHOOK_CFB: ${{ secrets.DISCORD_WEBHOOK_CFB }}
+          DISCORD_WEBHOOK_NCAAB: ${{ secrets.DISCORD_WEBHOOK_NCAAB }}
+          # Fallback for nba (no dedicated channel yet) and as a
+          # safety net if a sport-specific secret above isn't set.
           DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
