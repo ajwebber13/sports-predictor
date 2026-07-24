@@ -83,6 +83,33 @@ def send_discord_alert(text: str, sport: str = None):
         log(f"Discord exception: {e}")
 
 
+def fetch_edges_with_retry(sport: str, attempts: int = 3, backoff: int = 15):
+    """Fetch a sport's /edges endpoint with retries on transient
+    network errors (timeouts, connection resets, etc). Returns the
+    parsed JSON dict on success. Returns None if every attempt fails
+    — and sends a Discord alert to the sport's channel so a real API
+    outage doesn't look identical to 'no edges today' (silence)."""
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            r = requests.get(SPORT_ENDPOINTS[sport], timeout=280)
+            return r.json()
+        except Exception as e:
+            last_error = e
+            log(f"API error for {sport} (attempt {attempt}/{attempts}): {e}")
+            if attempt < attempts:
+                time.sleep(backoff)
+
+    log(f"API fetch failed for {sport} after {attempts} attempts — giving up.")
+    send_discord_alert(
+        f"⚠️ <b>{sport.upper()} fetch failed</b>\n"
+        f"Could not reach the edges API after {attempts} attempts.\n"
+        f"Error: {last_error}",
+        sport,
+    )
+    return None
+
+
 # ─────────────────────────────────────────────────────────────
 # DEDUP CHECK — prevents noon retry from re-alerting a game
 # already covered by the morning alert.
@@ -136,21 +163,17 @@ def already_alerted_today(sport: str, game: str, market: str = None) -> bool:
 def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
     log(f"Fetching {sport.upper()} edges...")
 
-    try:
-        # 280s (was 150s, originally 60s) — 2026-07-22: real timing data
-        # confirmed MLB's /edges route now reliably COMPLETES (no longer
-        # crashes — that was a separate H2H caching bug, since fixed) but
-        # takes up to ~254s on a congested run even after weather/team-
-        # stats caching and MLB_EDGES_MAX_WORKERS lowered to 3. 280s
-        # gives real headroom above the worst observed time instead of
-        # cutting off a request that's actually going to finish. If
-        # scheduled runs still time out at 280s, the fix is further
-        # concurrency tuning in routes_mlb.py, not another blind timeout
-        # bump.
-        r    = requests.get(SPORT_ENDPOINTS[sport], timeout=280)
-        data = r.json()
-    except Exception as e:
-        log(f"API error for {sport}: {e}")
+    # 280s inner timeout (was 150s, originally 60s) — 2026-07-22: real
+    # timing data confirmed MLB's /edges route now reliably COMPLETES
+    # (no longer crashes — that was a separate H2H caching bug, since
+    # fixed) but takes up to ~254s on a congested run even after
+    # weather/team-stats caching and MLB_EDGES_MAX_WORKERS lowered to
+    # 3. If scheduled runs still time out at 280s, the fix is further
+    # concurrency tuning in routes_mlb.py, not another blind timeout
+    # bump. fetch_edges_with_retry() wraps this in 3 attempts and
+    # alerts Discord if every attempt fails (2026-07-24 fix).
+    data = fetch_edges_with_retry(sport)
+    if data is None:
         return False
 
     bets = data.get("best_bets", [])
@@ -474,8 +497,9 @@ def run(sports: list, retry: bool = False):
                 except Exception as e:
                     log(f"Line movement error for {sport}: {e}")
 
-                r    = requests.get(SPORT_ENDPOINTS[sport], timeout=280)  # see run_alerts() for why — real MLB timing, not a guess
-                data = r.json()
+                data = fetch_edges_with_retry(sport)  # see run_alerts() for why — real MLB timing, not a guess
+                if data is None:
+                    continue
                 bets = data.get("best_bets", [])
                 if any(b.get("model_prob", 0) >= 55 for b in bets):
                     log(f"{sport.upper()}: picks found on retry — checking for duplicates")
