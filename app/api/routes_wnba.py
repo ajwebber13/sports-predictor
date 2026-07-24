@@ -8,12 +8,34 @@ if _root not in sys.path:
 
 router = APIRouter(prefix="/wnba", tags=["WNBA"])
 
-# Breakeven win% for standard -110 juice — used as the baseline "no edge"
-# probability for spread/total picks, same way implied_home/implied_away
-# already serves that role for moneyline. Not pulled from the odds feed
-# per-game since spread/total prices are usually near -110 either way and
-# the feed doesn't always carry them cleanly (see _get_market_details).
-BREAKEVEN_PCT = 52.4
+
+def _fair_two_way_prob(picked_side_odds: int, other_side_odds: int) -> float:
+    """Converts a two-sided real price into the fair (no-vig)
+    probability of the picked side, added 2026-07-24 to replace the
+    old flat BREAKEVEN_PCT=52.4 constant used for spread/total edge
+    calculations.
+
+    52.4 was never actually a "fair" probability — it's the raw,
+    vig-inclusive implied probability of a single -110 price. Once
+    both sides of a real two-sided market are renormalized together
+    (same no-vig approach already used for moneyline), a genuinely
+    fair -110/-110 market comes out to exactly 50.0%, not 52.4%.
+    Using 52.4 as if it were fair required the model to show slightly
+    more edge than it should have before a spread/total pick could
+    qualify — conservative-direction wrong, not aggressive, but wrong.
+
+    Falls back to 50.0 if the odds are missing/invalid rather than
+    crashing — same safe-default philosophy as get_market_implied()."""
+    from services.odds_parser import american_to_implied
+    try:
+        p_picked = american_to_implied(picked_side_odds) * 100
+        p_other = american_to_implied(other_side_odds) * 100
+        total = p_picked + p_other
+        if total <= 0:
+            return 50.0
+        return round(p_picked / total * 100, 1)
+    except Exception:
+        return 50.0
 
 
 def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
@@ -119,15 +141,7 @@ def _get_market_details(events_odds: list, home: str, away: str) -> dict:
                         # Guard against garbage/placeholder odds-feed
                         # entries with point<=0 — a real total line is
                         # never 0 or negative for any sport this
-                        # platform covers. Confirmed via
-                        # calibration_audit.py 2026-07-22: a total_line
-                        # of 0 fed the Monte Carlo sim an impossible
-                        # line, producing model_prob=100.0. Treating
-                        # point<=0 as missing (same as None) lets the
-                        # existing DEFAULT_TOTAL fallback catch it —
-                        # and lets a later, real bookmaker entry
-                        # overwrite it if one exists, since this only
-                        # sets total_line the FIRST time it's None.
+                        # platform covers.
                         if point is not None and point <= 0:
                             point = None
                         if name == "Over":
@@ -194,14 +208,20 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         spread_line_for_pick = market["spread_line"] if home_favored_to_cover else -market["spread_line"]
         spread_prob = pred.home_cover_prob if home_favored_to_cover else pred.away_cover_prob
         spread_odds = market["home_spread_odds"] if home_favored_to_cover else market["away_spread_odds"]
-        spread_edge_pct = spread_prob - BREAKEVEN_PCT
+        other_spread_odds = market["away_spread_odds"] if home_favored_to_cover else market["home_spread_odds"]
+        # Real fair (no-vig) probability from both sides of the spread
+        # market, replacing the old flat BREAKEVEN_PCT=52.4 constant —
+        # see _fair_two_way_prob()'s docstring for why 52.4 was never
+        # actually a fair probability to begin with.
+        spread_implied_pct = _fair_two_way_prob(spread_odds, other_spread_odds)
+        spread_edge_pct = spread_prob - spread_implied_pct
         if spread_edge_pct >= min_edge:
             sign = "+" if spread_line_for_pick > 0 else ""
             bets.append({
                 "game": label, "market": "spread",
                 "bet": f"{spread_pick} {sign}{spread_line_for_pick}",
                 "pick": spread_pick, "line": spread_line_for_pick,
-                "model_prob": spread_prob, "implied_prob": BREAKEVEN_PCT,
+                "model_prob": spread_prob, "implied_prob": spread_implied_pct,
                 "edge": round(spread_edge_pct / 100, 4), "odds": spread_odds,
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "projected_home": pred.projected_home, "projected_away": pred.projected_away,
@@ -212,18 +232,25 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
 
     # ---- Total ----
     if market["total_line"] is not None:
-        over_edge_pct = pred.over_prob - BREAKEVEN_PCT
-        under_edge_pct = pred.under_prob - BREAKEVEN_PCT
+        # Real fair (no-vig) probability from both sides of the total
+        # market, replacing the old flat BREAKEVEN_PCT=52.4 constant.
+        # over_implied_pct + under_implied_pct sum to exactly 100% by
+        # construction, so under is derived rather than recomputed.
+        over_implied_pct = _fair_two_way_prob(market["over_odds"], market["under_odds"])
+        under_implied_pct = round(100 - over_implied_pct, 1)
+        over_edge_pct = pred.over_prob - over_implied_pct
+        under_edge_pct = pred.under_prob - under_implied_pct
         if max(over_edge_pct, under_edge_pct) >= min_edge:
             total_pick = "Over" if over_edge_pct >= under_edge_pct else "Under"
             total_prob = pred.over_prob if total_pick == "Over" else pred.under_prob
             total_odds = market["over_odds"] if total_pick == "Over" else market["under_odds"]
+            total_implied_pct = over_implied_pct if total_pick == "Over" else under_implied_pct
             total_edge_pct = max(over_edge_pct, under_edge_pct)
             bets.append({
                 "game": label, "market": "total",
                 "bet": f"{total_pick} {market['total_line']}",
                 "pick": total_pick, "line": market["total_line"],
-                "model_prob": total_prob, "implied_prob": BREAKEVEN_PCT,
+                "model_prob": total_prob, "implied_prob": total_implied_pct,
                 "edge": round(total_edge_pct / 100, 4), "odds": total_odds,
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "projected_home": pred.projected_home, "projected_away": pred.projected_away,

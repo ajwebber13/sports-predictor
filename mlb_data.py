@@ -237,6 +237,14 @@ def get_run_line_odds(event):
     If this key doesn't match ESPN's real payload, this returns None
     (never fabricates a line) and mlb_predictor.py degrades to
     moneyline-only for that game, same as today.
+
+    GUARD added 2026-07-24: a real MLB run line is NEVER exactly 0 —
+    it's always a half-integer (+/-1.5, occasionally +/-2.5). Same bug
+    class as the confirmed WNBA/NFL/CFB total_line=0 garbage-data
+    incident (see calibration-and-mlb-gap notes): a placeholder/error
+    entry from the odds feed returning 0 would otherwise be trusted as
+    a real line. Treated as missing data (None), same as a genuinely
+    absent key, rather than fed into the predictor.
     """
     try:
         odds_list = event["competitions"][0].get("odds", [])
@@ -245,6 +253,8 @@ def get_run_line_odds(event):
         spread = odds_list[0]["pointSpread"]
         home_line = float(spread["home"]["close"]["line"])
         away_line = float(spread["away"]["close"]["line"])
+        if home_line == 0 or away_line == 0:
+            return None
         home_odds = int(spread["home"]["close"]["odds"])
         away_odds = int(spread["away"]["close"]["odds"])
         return {"home_line": home_line, "home_odds": home_odds, "away_line": away_line, "away_odds": away_odds}
@@ -271,6 +281,13 @@ def get_total_odds(event):
     leading o/u character before the float() call fixes it. Odds
     themselves ("-110") were always plain numeric strings and never
     had this problem — only the line field does.
+
+    GUARD added 2026-07-24: a real MLB total is never 0 or negative —
+    real games run roughly 6-11. Same bug class as the confirmed
+    WNBA/NFL/CFB total_line=0 garbage-data incident, where a
+    placeholder/error entry from the odds feed fed the Monte Carlo sim
+    an impossible line and produced a model_prob near 100%. Treated as
+    missing data (None) here before it can reach the predictor.
     """
     try:
         odds_list = event["competitions"][0].get("odds", [])
@@ -279,6 +296,8 @@ def get_total_odds(event):
         total = odds_list[0]["total"]
         raw_line = str(total["over"]["close"]["line"])
         line = float(raw_line.lstrip("ouOU"))
+        if line <= 0:
+            return None
         over_odds = int(total["over"]["close"]["odds"])
         under_odds = int(total["under"]["close"]["odds"])
         return {"line": line, "over_odds": over_odds, "under_odds": under_odds}
