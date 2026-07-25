@@ -27,5 +27,6 @@ jobs:
       - name: Run migration
         run: python -u migrate_predictions_dedupe.py --yes
         env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

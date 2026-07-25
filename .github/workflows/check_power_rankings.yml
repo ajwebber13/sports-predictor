@@ -23,6 +23,7 @@ jobs:
 
       - name: Run ranking_engine.py
         env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: python ranking_engine.py "${{ github.event.inputs.sport }}"

@@ -21,5 +21,6 @@ jobs:
       - name: Run MLB stats backfill
         run: python mlb_player_stats.py ${{ github.event.inputs.mode }}
         env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
