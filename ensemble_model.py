@@ -101,36 +101,11 @@ def get_team_features(team_name: str, sport: str, season: str = None) -> dict:
 
 
 def get_h2h_features(home_team: str, away_team: str, sport: str, before_date: str = None) -> dict:
-    """Get head-to-head record between two teams."""
-    conn = get_conn()
-    c    = conn.cursor()
-
-    query = """
-        SELECT winner, home_team, away_team
-        FROM head_to_head
-        WHERE sport = ?
-        AND ((home_team = ? AND away_team = ?)
-          OR (home_team = ? AND away_team = ?))
-    """
-    params = [sport, home_team, away_team, away_team, home_team]
-
-    if before_date:
-        query  += " AND date < ?"
-        params.append(before_date)
-
-    query += " ORDER BY date DESC LIMIT 10"
-    c.execute(query, params)
-    rows = c.fetchall()
-    conn.close()
-
-    if not rows:
-        return {"h2h_home_win_pct": 0.5, "h2h_games": 0}
-
-    home_wins = sum(1 for r in rows if r["winner"] == home_team)
-    return {
-        "h2h_home_win_pct": home_wins / len(rows),
-        "h2h_games":        len(rows),
-    }
+    """Get head-to-head record between two teams.
+    head_to_head table does not exist in production (see
+    check_head_to_head_freshness.py) — always returns the
+    no-data default rather than crashing."""
+    return {"h2h_home_win_pct": 0.5, "h2h_games": 0}
 
 
 def build_feature_vector(home_team: str, away_team: str, sport: str,
@@ -185,15 +160,21 @@ FEATURE_NAMES = [
 
 def build_training_data(sport: str) -> tuple:
     """
-    Build X (features) and y (labels) from head_to_head history.
+    Build X (features) and y (labels) from results history.
     Label: 1 = home team won, 0 = away team won
+
+    Uses `results` instead of the never-created head_to_head table
+    (see check_head_to_head_freshness.py). Prediction Engine v2 can
+    log up to 3 results rows per game (moneyline/spread/total), so
+    this dedupes to one row per (date, sport, game) before training —
+    otherwise the same game gets counted 2-3x.
     """
     conn = get_conn()
     c    = conn.cursor()
 
     c.execute("""
-        SELECT home_team, away_team, winner, date
-        FROM head_to_head
+        SELECT DISTINCT date, home_team, away_team, actual_winner
+        FROM results
         WHERE sport = ?
         ORDER BY date ASC
     """, (sport,))
@@ -219,7 +200,7 @@ def build_training_data(sport: str) -> tuple:
                 skipped += 1
                 continue
 
-            label = 1 if row["winner"] == row["home_team"] else 0
+            label = 1 if row["actual_winner"] == row["home_team"] else 0
             X.append(features)
             y.append(label)
 
