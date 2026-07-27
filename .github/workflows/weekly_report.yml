@@ -27,6 +27,7 @@ jobs:
           python ensemble_model.py train nfl
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
 
       - name: Commit updated models
         run: |
@@ -42,3 +43,4 @@ jobs:
         run: python model_report.py telegram
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
