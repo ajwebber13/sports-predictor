@@ -11,7 +11,7 @@ Usage:
 
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from database import get_conn, init_db
 
 # Ensure DB exists on fresh environments (GitHub Actions)
@@ -29,12 +29,12 @@ def get_overall_stats() -> dict:
     c    = conn.cursor()
     c.execute("""
         SELECT
-            COUNT(*)                        as total_picks,
-            SUM(correct)                    as total_wins,
-            ROUND(AVG(correct) * 100, 1)    as win_rate,
-            ROUND(AVG(edge_at_pick), 1)     as avg_edge,
-            MIN(date)                       as first_pick,
-            MAX(date)                       as last_pick
+            COUNT(*)                                as total_picks,
+            SUM(correct)                            as total_wins,
+            ROUND(AVG(correct)::numeric * 100, 1)   as win_rate,
+            ROUND(AVG(edge_at_pick)::numeric, 1)    as avg_edge,
+            MIN(date)                               as first_pick,
+            MAX(date)                               as last_pick
         FROM results
         WHERE correct IS NOT NULL
     """)
@@ -49,11 +49,11 @@ def get_sport_breakdown() -> list:
     c.execute("""
         SELECT
             sport,
-            COUNT(*)                        as picks,
-            SUM(correct)                    as wins,
-            ROUND(AVG(correct) * 100, 1)    as win_rate,
-            ROUND(AVG(edge_at_pick), 1)     as avg_edge,
-            ROUND(AVG(odds_at_pick), 0)     as avg_odds
+            COUNT(*)                                as picks,
+            SUM(correct)                            as wins,
+            ROUND(AVG(correct)::numeric * 100, 1)   as win_rate,
+            ROUND(AVG(edge_at_pick)::numeric, 1)    as avg_edge,
+            ROUND(AVG(odds_at_pick)::numeric, 0)    as avg_odds
         FROM results
         WHERE correct IS NOT NULL
         GROUP BY sport
@@ -76,9 +76,9 @@ def get_edge_breakdown() -> list:
                 WHEN edge_at_pick >= 5  THEN '5-10% edge'
                 ELSE 'Under 5% edge'
             END as edge_tier,
-            COUNT(*)                        as picks,
-            SUM(correct)                    as wins,
-            ROUND(AVG(correct) * 100, 1)    as win_rate
+            COUNT(*)                                as picks,
+            SUM(correct)                            as wins,
+            ROUND(AVG(correct)::numeric * 100, 1)   as win_rate
         FROM results
         WHERE correct IS NOT NULL
         GROUP BY edge_tier
@@ -90,17 +90,18 @@ def get_edge_breakdown() -> list:
 
 
 def get_recent_form(days: int = 7) -> dict:
-    conn = get_conn()
-    c    = conn.cursor()
+    conn   = get_conn()
+    c      = conn.cursor()
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     c.execute("""
         SELECT
-            COUNT(*)                        as picks,
-            SUM(correct)                    as wins,
-            ROUND(AVG(correct) * 100, 1)    as win_rate
+            COUNT(*)                                as picks,
+            SUM(correct)                            as wins,
+            ROUND(AVG(correct)::numeric * 100, 1)   as win_rate
         FROM results
         WHERE correct IS NOT NULL
-        AND date >= date('now', ?)
-    """, (f"-{days} days",))
+        AND date >= ?
+    """, (cutoff,))
     row = c.fetchone()
     conn.close()
     return dict(row) if row else {}
