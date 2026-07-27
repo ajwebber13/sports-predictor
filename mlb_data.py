@@ -96,7 +96,24 @@ def get_team_stats(team_name, season=None):
         return _flat_defaults()
 
     data = resp.json()
-    categories = data.get("splits", [])
+
+    # FIXED 2026-07-26: ESPN restructured this endpoint at some point —
+    # confirmed live via debug_team_stats.py that the top-level "splits"
+    # key Drew's code was reading no longer contains season-total stats.
+    # It still exists, but now holds per-OPPONENT breakdowns (71 entries,
+    # one per team faced this season) — same key name, different meaning,
+    # classic silent schema-drift trap. The real season aggregate now
+    # lives at results.stats.categories (the "All Splits"/"Total" split).
+    # Every call was silently hitting the `if not categories: return
+    # _flat_defaults()` branch below and falling back to the flat 4.5
+    # runs/game default for every team, every game — confirmed via
+    # check_base_runs.py showing zero variance across 133 real MLB
+    # predictions. Wrapped in a list since _parse_stat_categories()
+    # expects to iterate over a list of splits (unchanged otherwise —
+    # there's only one real split now instead of several, so its
+    # best-split-by-atbats selection logic just picks the only one).
+    results_stats = data.get("results", {}).get("stats")
+    categories = [results_stats] if results_stats else []
 
     if not categories:
         return _flat_defaults()
