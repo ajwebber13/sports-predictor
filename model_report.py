@@ -110,6 +110,8 @@ def get_recent_form(days: int = 7) -> dict:
 def calculate_roi(avg_odds: float, win_rate: float) -> float:
     if not avg_odds or not win_rate:
         return 0.0
+    avg_odds       = float(avg_odds)
+    win_rate       = float(win_rate)
     win_rate_dec   = win_rate / 100
     loss_rate      = 1 - win_rate_dec
     if avg_odds > 0:
