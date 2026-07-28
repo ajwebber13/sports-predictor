@@ -18,6 +18,7 @@ USAGE:
     python3 rolling_alert_db.py
 """
 
+import os
 import sys
 import re
 from datetime import datetime, timedelta
@@ -36,6 +37,11 @@ ROI_ALERT_PCT = -5.0
 WINRATE_ALERT_PCT = 50.0
 MIN_SAMPLE = 8
 WINDOWS = [7, 14]
+
+# A threshold breach is an alert, not a workflow failure, by default.
+# Set FAIL_WORKFLOW_ON_ALERTS=true in the workflow env if you ever
+# want a breach to turn the run red again.
+FAIL_WORKFLOW_ON_ALERTS = os.getenv("FAIL_WORKFLOW_ON_ALERTS", "false").lower() in ("1", "true", "yes")
 
 
 def american_to_profit(odds, stake=100):
@@ -173,7 +179,10 @@ def run():
     if any_alert:
         print("RESULT: one or more windows breached thresholds. Consider reducing "
               "stake size on flagged markets/sports until they recover.")
-        sys.exit(1)  # non-zero exit so GitHub Actions can flag the step
+        # Breach = alert, not a workflow failure, unless explicitly requested.
+        if FAIL_WORKFLOW_ON_ALERTS:
+            sys.exit(1)
+        sys.exit(0)
     else:
         print("RESULT: no thresholds breached.")
         sys.exit(0)
