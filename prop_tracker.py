@@ -193,8 +193,14 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
     url      = f"{config['scoreboard_url']}?dates={date_fmt}"
     results  = {}
 
+    scraperapi_key = os.environ.get("SCRAPERAPI_KEY", "").strip()
+    fetch_url = (
+        f"http://api.scraperapi.com?api_key={scraperapi_key}&url={url}"
+        if scraperapi_key else url
+    )
+
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(fetch_url, headers=HEADERS, timeout=30)
         if r.status_code != 200 or not r.text.strip():
             print(f"ESPN scoreboard blocked/empty: status={r.status_code} "
                   f"len={len(r.text)} body_start={r.text[:150]!r}")
@@ -225,8 +231,12 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
 
         # Fetch box score
         summary_url = f"{config['summary_url']}?event={game_id}"
+        summary_fetch_url = (
+            f"http://api.scraperapi.com?api_key={scraperapi_key}&url={summary_url}"
+            if scraperapi_key else summary_url
+        )
         try:
-            r2 = requests.get(summary_url, headers=HEADERS, timeout=10)
+            r2 = requests.get(summary_fetch_url, headers=HEADERS, timeout=30)
             if r2.status_code != 200 or not r2.text.strip():
                 print(f"  Box score blocked/empty ({game_id}): status={r2.status_code} "
                       f"len={len(r2.text)} body_start={r2.text[:150]!r}")

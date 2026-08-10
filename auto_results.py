@@ -96,8 +96,14 @@ def fetch_espn_results(date_str: str, sport: str) -> list:
     url = f"{base_url}?dates={date_fmt}"
     games = []
 
+    scraperapi_key = os.environ.get("SCRAPERAPI_KEY", "").strip()
+    fetch_url = (
+        f"http://api.scraperapi.com?api_key={scraperapi_key}&url={url}"
+        if scraperapi_key else url
+    )
+
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(fetch_url, headers=HEADERS, timeout=30)
         if r.status_code != 200 or not r.text.strip():
             print(f"  ESPN blocked/empty ({sport}): status={r.status_code} "
                   f"len={len(r.text)} body_start={r.text[:150]!r}")
