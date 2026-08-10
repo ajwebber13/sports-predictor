@@ -190,7 +190,11 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
     results  = {}
 
     try:
-        r    = requests.get(url, headers=HEADERS, timeout=10)
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        if r.status_code != 200 or not r.text.strip():
+            print(f"ESPN scoreboard blocked/empty: status={r.status_code} "
+                  f"len={len(r.text)} body_start={r.text[:150]!r}")
+            return results
         data = r.json()
     except Exception as e:
         print(f"ESPN scoreboard error: {e}")
@@ -218,7 +222,11 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
         # Fetch box score
         summary_url = f"{config['summary_url']}?event={game_id}"
         try:
-            r2   = requests.get(summary_url, headers=HEADERS, timeout=10)
+            r2 = requests.get(summary_url, headers=HEADERS, timeout=10)
+            if r2.status_code != 200 or not r2.text.strip():
+                print(f"  Box score blocked/empty ({game_id}): status={r2.status_code} "
+                      f"len={len(r2.text)} body_start={r2.text[:150]!r}")
+                continue
             data2 = r2.json()
             boxscore = data2.get("boxscore", {})
 

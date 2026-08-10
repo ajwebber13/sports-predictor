@@ -45,6 +45,17 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+# How many days forward a postponed/rained-out game might get made up.
+# Doubleheader makeups are usually next-day, but a rainout can also get
+# tacked onto the next scheduled series (up to ~1-2 weeks later in some
+# cases). 10 covers the realistic range without scanning forever.
+MAKEUP_WINDOW_DAYS = 10
+
+# How far back to keep retrying predictions that never got a result.
+# A prediction older than this is treated as a lost cause (bad data,
+# team names that will never match, etc.) rather than retried forever.
+STALE_LOOKBACK_DAYS = 14
+
 
 def get_today_ct():
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
@@ -83,6 +94,10 @@ def fetch_espn_results(date_str: str, sport: str) -> list:
 
     try:
         r = requests.get(url, headers=HEADERS, timeout=10)
+        if r.status_code != 200 or not r.text.strip():
+            print(f"  ESPN blocked/empty ({sport}): status={r.status_code} "
+                  f"len={len(r.text)} body_start={r.text[:150]!r}")
+            return games
         data = r.json()
     except Exception as e:
         print(f"  ESPN fetch error ({sport}): {e}")
@@ -347,22 +362,33 @@ def score_sport(conn, date_str: str, sport: str, dry_run: bool = False):
         return 0, 0
 
     scored = 0
+    nearby_cache = {}  # date_str -> espn_games, avoids refetching the
+                        # same nearby date for every prediction below
+
     for pred in predictions:
         espn_game = match_game(pred, espn_games)
 
-        # If no match on the exact date, check the day before/after —
-        # ESPN sometimes logs late games under a different calendar date.
+        # If no match on the exact date, check the day before (ESPN
+        # sometimes logs a late game under a different calendar date)
+        # and forward across MAKEUP_WINDOW_DAYS — this is the case that
+        # matters for postponed/rained-out games, which get replayed
+        # anywhere from the next day to over a week later, often as
+        # part of a later doubleheader. A postponed game never shows up
+        # as "completed" on its original date, so without this forward
+        # scan the prediction has no chance of matching within this run.
         if not espn_game:
-            for offset in (-1, 1):
+            offsets = [-1] + list(range(1, MAKEUP_WINDOW_DAYS + 1))
+            for offset in offsets:
                 nearby_date = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=offset)).strftime("%Y-%m-%d")
-                nearby_games = fetch_espn_results(nearby_date, sport)
-                espn_game = match_game(pred, nearby_games)
+                if nearby_date not in nearby_cache:
+                    nearby_cache[nearby_date] = fetch_espn_results(nearby_date, sport)
+                espn_game = match_game(pred, nearby_cache[nearby_date])
                 if espn_game:
-                    print(f"    Matched via {nearby_date} instead of {date_str}")
+                    print(f"    Matched via {nearby_date} instead of {date_str} (makeup/postponement)")
                     break
 
         if not espn_game:
-            print(f"    No ESPN match for: {pred.get('game')} — skipping")
+            print(f"    No ESPN match for: {pred.get('game')} — skipping (will retry on future runs)")
             continue
         result = score_prediction(pred, espn_game)
         insert_result(conn, result, dry_run=dry_run)
@@ -372,6 +398,63 @@ def score_sport(conn, date_str: str, sport: str, dry_run: bool = False):
         score_prop_results(conn, date_str, dry_run=dry_run)
 
     return scored, len(predictions)
+
+
+def rescan_unresolved_predictions(conn, sport: str, dry_run: bool = False):
+    """Catches predictions from earlier runs that never got a result —
+    almost always a postponed/rained-out game whose makeup hadn't been
+    played yet the day this ran normally. Since the daily cron only
+    ever scores 'yesterday' once, a game that's still postponed at that
+    point never gets looked at again unless something re-checks it.
+
+    This runs every day, for every sport, and re-attempts any
+    prediction from the last STALE_LOOKBACK_DAYS days that still has
+    no matching row in results — so a postponed game gets picked up
+    automatically within a day or two of actually being played,
+    instead of staying PENDING indefinitely.
+    """
+    c = conn.cursor()
+    cutoff = (get_today_ct() - timedelta(days=STALE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    c.execute("""
+        SELECT p.* FROM predictions p
+        LEFT JOIN results r ON r.prediction_id = p.id
+        WHERE r.prediction_id IS NULL
+          AND p.sport = ?
+          AND p.date >= ?
+    """, (sport, cutoff))
+    stale = [dict(r) for r in c.fetchall()]
+    if not stale:
+        return 0
+
+    print(f"\n--- {sport.upper()} rescan: {len(stale)} unresolved prediction(s) "
+          f"from the last {STALE_LOOKBACK_DAYS} days ---")
+
+    # Cache ESPN fetches per date within this rescan so N stale
+    # predictions on the same date don't refetch the same scoreboard.
+    espn_cache = {}
+    rescanned = 0
+
+    for pred in stale:
+        pred_date = pred["date"]
+        matched = None
+        for offset in range(0, MAKEUP_WINDOW_DAYS + 1):
+            check_date = (datetime.strptime(pred_date, "%Y-%m-%d") + timedelta(days=offset)).strftime("%Y-%m-%d")
+            if check_date not in espn_cache:
+                espn_cache[check_date] = fetch_espn_results(check_date, sport)
+            matched = match_game(pred, espn_cache[check_date])
+            if matched:
+                if offset > 0:
+                    print(f"    Matched via {check_date} instead of {pred_date} (makeup/postponement)")
+                break
+
+        if not matched:
+            continue
+
+        result = score_prediction(pred, matched)
+        insert_result(conn, result, dry_run=dry_run)
+        rescanned += 1
+
+    return rescanned
 
 
 def run(date_str: str, sport_filter: str = None, dry_run: bool = False):
@@ -387,15 +470,29 @@ def run(date_str: str, sport_filter: str = None, dry_run: bool = False):
         if total:
             totals[sport] = (scored, total)
 
+    # Always rescan for older unresolved predictions (postponements,
+    # rainouts) regardless of what date was targeted above — this is
+    # what actually stops picks from getting stuck PENDING forever.
+    rescan_totals = {}
+    for sport in sports:
+        rescanned = rescan_unresolved_predictions(conn, sport, dry_run=dry_run)
+        if rescanned:
+            rescan_totals[sport] = rescanned
+
     conn.close()
 
     print(f"\n{'DRY RUN — ' if dry_run else ''}Summary for {date_str}:")
-    if not totals:
+    if not totals and not rescan_totals:
         print("  No predictions found for this date, any sport.")
         return
 
     for sport, (scored, total) in totals.items():
         print(f"  {sport.upper()}: scored {scored}/{total}")
+
+    if rescan_totals:
+        print(f"\nResolved from rescan (postponements/makeups caught up):")
+        for sport, n in rescan_totals.items():
+            print(f"  {sport.upper()}: {n}")
 
     if not dry_run:
         conn2 = get_conn()

@@ -142,7 +142,9 @@ def get_model_edges(sport="ncaaf", context=None, simulations=10000):
 
         # ── NBA: use net rating model ──────────────────────────
         if sport == "nba":
+            from calibration_transform import apply_calibration
             m_home = nba_win_prob(ALL_PROFILES[home], ALL_PROFILES[away])
+            m_home = round(apply_calibration(m_home / 100, "moneyline") * 100, 1)
             m_away = round(100 - m_home, 1)
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
@@ -169,8 +171,9 @@ def get_model_edges(sport="ncaaf", context=None, simulations=10000):
                 neutral_site=False, a_is_home=True,
                 context=context or GameContext(), simulations=simulations,
             )
-            m_home = prediction.team_a_win_prob
-            m_away = prediction.team_b_win_prob
+            from calibration_transform import apply_calibration
+            m_home = round(apply_calibration(prediction.team_a_win_prob / 100, "moneyline") * 100, 1)
+            m_away = round(apply_calibration(prediction.team_b_win_prob / 100, "moneyline") * 100, 1)
             e_home = round(m_home - i_home, 2)
             e_away = round(m_away - i_away, 2)
 

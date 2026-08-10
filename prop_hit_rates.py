@@ -308,7 +308,7 @@ def save_prop_with_hit_rates(
     date: str, player_name: str, team_name: str, opponent: str, home_away: str,
     stat: str, line: float, over_odds: int = None, under_odds: int = None,
     is_b2b: bool = False, game_home_team: str = None, game_away_team: str = None,
-    sport: str = "wnba",
+    sport: str = "wnba", injury_status: str = None, starter_status: str = None,
 ) -> dict:
     setup_props_table()
 
@@ -321,14 +321,23 @@ def save_prop_with_hit_rates(
     conn = _get_conn()
     c    = conn.cursor()
     try:
+        # opening_over_odds/opening_under_odds are inserted here but
+        # deliberately NOT in the DO UPDATE SET below — Postgres upsert
+        # semantics mean any column left out of SET keeps its existing
+        # value untouched on conflict. That's what "opening" means: set
+        # once on first insert, never overwritten by a later refetch.
+        # over_odds/under_odds ARE in SET — they represent "current"
+        # price and are meant to update every refetch.
         c.execute("""
             INSERT INTO player_props
             (date, sport, player_name, team_name, opponent, home_away,
              stat, line, over_odds, under_odds,
+             opening_over_odds, opening_under_odds,
              hit_rate_overall, hit_rate_vs_opp, hit_rate_home_away,
              games_overall, games_vs_opp, games_home_away,
-             confidence_tier, captured_at, game_home_team, game_away_team)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             confidence_tier, captured_at, game_home_team, game_away_team,
+             injury_status, starter_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (date, player_name, stat) DO UPDATE SET
                 sport               = EXCLUDED.sport,
                 team_name           = EXCLUDED.team_name,
@@ -346,15 +355,19 @@ def save_prop_with_hit_rates(
                 confidence_tier     = EXCLUDED.confidence_tier,
                 captured_at         = EXCLUDED.captured_at,
                 game_home_team      = EXCLUDED.game_home_team,
-                game_away_team      = EXCLUDED.game_away_team
+                game_away_team      = EXCLUDED.game_away_team,
+                injury_status       = EXCLUDED.injury_status,
+                starter_status      = EXCLUDED.starter_status
         """, (
             date, sport, player_name, team_name, opponent, home_away,
             stat, line, over_odds, under_odds,
+            over_odds, under_odds,
             overall.get("hit_rate"), vs_opp.get("hit_rate"), ha.get("hit_rate"),
             overall.get("games"), vs_opp.get("games"), ha.get("games"),
             data.get("confidence_tier"),
             datetime.now(timezone.utc).isoformat(),
             game_home_team, game_away_team,
+            injury_status, starter_status,
         ))
         conn.commit()
     except Exception as e:

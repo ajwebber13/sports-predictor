@@ -27,10 +27,18 @@ def root():
 
 @app.get("/nba/edges")
 def nba_edges(simulations: int = Query(default=30000), min_edge: float = Query(default=3.0)):
-    import sys, os, math
+    import sys, os
     sys.path.insert(0, os.path.abspath("."))
     from services.odds_parser import get_live_odds, american_to_implied
     from data.nba_profiles import NBA_PROFILES
+    # Use the SAME nba_win_prob() model_connector.py already uses —
+    # this already has the normal-CDF fix (2026-07-24) AND the
+    # calibration fix (today) applied. This endpoint previously had
+    # its own separate, never-fixed copy of the old flat logistic
+    # curve — that's why the earlier NBA calibration patch wasn't
+    # actually reaching your live dashboard. One model, one fix
+    # location, instead of two copies drifting apart again.
+    from services.model_connector import nba_win_prob
 
     games = get_live_odds("nba")
     results = []
@@ -55,8 +63,7 @@ def nba_edges(simulations: int = Query(default=30000), min_edge: float = Query(d
 
         home_net = NBA_PROFILES[home].pts_off - NBA_PROFILES[home].pts_def
         away_net = NBA_PROFILES[away].pts_off - NBA_PROFILES[away].pts_def
-        diff    = (home_net - away_net) + 3.0
-        m_home  = round(1 / (1 + math.exp(-diff / 8.0)) * 100, 1)
+        m_home  = nba_win_prob(NBA_PROFILES[home], NBA_PROFILES[away])
         m_away  = round(100 - m_home, 1)
         i_home  = round(american_to_implied(odds_home) * 100, 1)
         i_away  = round(american_to_implied(odds_away) * 100, 1)

@@ -1308,18 +1308,26 @@ def rows_to_dicts(cursor, rows):
     columns = [d[0] for d in cursor.description]
     return [dict(zip(columns, row)) for row in rows]
 
-
-# --------------------------------------------------
-# DATABASE CONNECTION
-# --------------------------------------------------
-
 def get_conn():
 
     if SUPABASE_DB_URL:
 
         import psycopg2
+        import time
 
-        conn = psycopg2.connect(SUPABASE_DB_URL)
+        conn = None
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                conn = psycopg2.connect(SUPABASE_DB_URL, connect_timeout=10)
+                break
+            except psycopg2.OperationalError as e:
+                last_error = e
+                print(f"[get_conn] Attempt {attempt}/3 failed: {e}")
+                if attempt < 3:
+                    time.sleep(5 * attempt)  # 5s, then 10s
+        if conn is None:
+            raise last_error
 
         return _DictConnWrapper(conn, translate_placeholders=True)
 
@@ -1355,8 +1363,6 @@ def get_conn():
     conn.row_factory = sqlite3.Row
 
     return conn
-
-
 
 # --------------------------------------------------
 # DATABASE INITIALIZATION

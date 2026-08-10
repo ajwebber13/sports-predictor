@@ -74,6 +74,18 @@ MIN_HIT_RATE    = 65.0   # %
 MIN_EDGE_PCT    = 5.0    # absolute projection edge %
 MIN_SAMPLE_SIZE = 10     # games_overall
 
+# Injury status is a hard exclude when known — a confirmed OUT player
+# should never appear regardless of how good their historical numbers
+# look. This does NOT require injury_status to be populated (most rows
+# won't have it yet) — only excludes rows explicitly marked 'out'.
+EXCLUDE_INJURY_STATUSES = ("out",)
+
+# projected_minutes/injury_status aren't required for eligibility (they're
+# not backfilled yet) but DO raise the confidence bar once available —
+# this rewards picks that have real opportunity context over ones that
+# don't, without breaking anything for rows still missing the fields.
+CONFIDENCE_REQUIRES_MINUTES = True
+
 # HIGH-confidence label thresholds (on top of the eligibility floor above)
 CONFIDENCE_HIGH_SCORE  = 80.0   # edge_score
 CONFIDENCE_HIGH_SAMPLE = 15     # games_overall
@@ -145,11 +157,14 @@ def get_edge_finder(
 
     conn = _get_conn()
     c = conn.cursor()
-    c.execute("""
+    exclude_placeholders = ",".join("?" for _ in EXCLUDE_INJURY_STATUSES)
+    c.execute(f"""
         SELECT player_name, team_name, opponent, stat, line,
                hit_rate_overall, games_overall,
                projection_edge_pct, projection_direction, projection_tier,
-               defense_factor, confidence_tier, over_odds, under_odds
+               defense_factor, confidence_tier, over_odds, under_odds,
+               projected_minutes, injury_status, starter_status,
+               opening_over_odds, opening_under_odds
         FROM player_props
         WHERE date = ? AND sport = ?
           AND hit_rate_overall IS NOT NULL
@@ -158,7 +173,8 @@ def get_edge_finder(
           AND games_overall >= ?
           AND hit_rate_overall >= ?
           AND ABS(projection_edge_pct) >= ?
-    """, (date, sport, min_games, min_hit_rate, min_edge_pct))
+          AND (injury_status IS NULL OR injury_status NOT IN ({exclude_placeholders}))
+    """, (date, sport, min_games, min_hit_rate, min_edge_pct, *EXCLUDE_INJURY_STATUSES))
     rows = _rows_to_dicts(c, c.fetchall())
     conn.close()
 
@@ -189,9 +205,11 @@ def get_edge_finder(
             defense_norm[i]  * DEFENSE_WEIGHT,
             1
         )
+        has_minutes = r.get("projected_minutes") is not None
         confidence = (
             "HIGH" if edge_score >= CONFIDENCE_HIGH_SCORE
                       and r["games_overall"] >= CONFIDENCE_HIGH_SAMPLE
+                      and (has_minutes or not CONFIDENCE_REQUIRES_MINUTES)
             else "MEDIUM"
         )
         ranked.append({
@@ -230,6 +248,13 @@ def print_debug_report(date: str, sport: str = "wnba", top_n: int = 10, **guardr
         print(f"  {p['projection_edge_pct']:+.1f}% -> normalized {comp['edge_pct_norm']}")
         print(f"Defense:")
         print(f"  factor {p['defense_factor']} -> normalized {comp['defense_norm']}")
+        if p.get("projected_minutes") is not None:
+            print(f"Volume: {p['projected_minutes']} projected minutes/volume")
+        if p.get("injury_status"):
+            print(f"Injury: {p['injury_status']}")
+        if p.get("opening_over_odds") is not None and p.get("over_odds") is not None:
+            moved = p["over_odds"] - p["opening_over_odds"]
+            print(f"Line movement (over): {p['opening_over_odds']:+d} -> {p['over_odds']:+d} ({moved:+d})")
         print(f"Final Edge Score:")
         print(f"  {p['edge_score']}  ({p['confidence']} confidence)")
         print()
@@ -262,6 +287,8 @@ def format_edge_finder_report(date: str, sport: str = "wnba", top_n: int = 5, **
         lines.append(f"✅ Hit Rate: {p['hit_rate_overall']}% ({p['games_overall']}G)")
         lines.append(f"📈 Projection Edge: {capped_edge_pct:+.1f}%")
         lines.append(f"🛡️ Matchup: {matchup}")
+        if p.get("injury_status") and p["injury_status"] != "active":
+            lines.append(f"⚠️ Status: {p['injury_status']}")
         lines.append(f"Confidence: {p['confidence']}")
         lines.append("")
 

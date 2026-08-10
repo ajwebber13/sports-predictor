@@ -37,6 +37,7 @@ def audit(date_range=None):
     print("data to fit anything trustworthy. Read before touching calibration.\n")
 
     overall_thin_buckets = []
+    sport_fit_ready = {}
 
     # Per-sport breakdown — this is the number that actually matters,
     # since WNBA/MLB have far more graded history than CFB/NFL right
@@ -60,7 +61,10 @@ def audit(date_range=None):
                 flag = "  ✓ enough for real signal"
             print(f"  {b['bucket']:<8} {b['wins']:>3}-{b['losses']:<3} "
                   f"({b['actual_win_rate']:>5.1f}% actual, n={n:<4}){flag}")
+        ready_buckets = sum(1 for bucket in buckets if bucket["total"] >= MIN_CURVE_FIT)
+        sport_fit_ready[sport] = (ready_buckets / len(buckets)) >= 0.80
         print()
+
 
     # Pooled across all sports — the ONLY view where curve-fitting is
     # remotely viable right now, if any.
@@ -86,7 +90,7 @@ def audit(date_range=None):
     print("VERDICT")
     print("="*70)
     pooled_fit_ready = pooled and all(b["total"] >= MIN_CURVE_FIT for b in pooled)
-    per_sport_fit_ready = not overall_thin_buckets
+    per_sport_fit_ready = bool(sport_fit_ready) and all(sport_fit_ready.values())
 
     if per_sport_fit_ready:
         print("Every sport has enough data per bucket. Fitting a per-sport")

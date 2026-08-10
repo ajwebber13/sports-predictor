@@ -116,6 +116,13 @@ INJURY_SEVERITY = {
     "Day-To-Day":   0.3,
 }
 
+# When a player has NO row in player_profiles, pos_weight alone
+# assumes they're an average STARTER at that position. That's wrong
+# for bench/rookie/two-way players, who make up most of the
+# "no profile data" cases. Discount the fallback so an unknown
+# player never scores as high as a confirmed real contributor.
+NO_PROFILE_DISCOUNT = 0.3
+
 
 # ─────────────────────────────────────────────
 # DATA STRUCTURES
@@ -154,12 +161,18 @@ class InjuryReport:
             conn.close()
             if row and row["impact_score"] and row["impact_score"] > 0:
                 # Scale: impact 10 = 1.0 adj, impact 15 = 1.5 adj
+                # Trust real profile data over the generic position
+                # guess — max() was overriding legitimately low-impact
+                # role players back up to full starter-level weight,
+                # which defeated the point of having profile data.
                 scaled = round((row["impact_score"] / 10) * sev_weight, 3)
-                return max(scaled, base_impact)
+                return scaled
         except Exception:
             pass
 
-        return base_impact
+        # No confirmed player_profiles row = no evidence this player
+        # is a real difference-maker. Don't score them like a starter.
+        return round(base_impact * NO_PROFILE_DISCOUNT, 3)
 
     def __repr__(self):
         return f"{self.player} ({self.position}) — {self.status}: {self.description}"

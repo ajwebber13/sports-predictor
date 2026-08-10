@@ -73,9 +73,15 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
     the model favored the away team. Pick and line are now derived
     together from the same favored side.
     """
+    from calibration_transform import apply_calibration
+
     bets = []
-    model_home = round(pred["home_win_prob"] * 100, 1)
-    model_away = round(pred["away_win_prob"] * 100, 1)
+    # Apply the fitted calibration curve BEFORE computing edges. This is
+    # your highest-volume market — MLB carries most of the graded picks
+    # calibration_transform.py was fit on, so this should have the
+    # biggest real effect of any of the route patches.
+    model_home = round(apply_calibration(pred["home_win_prob"], "moneyline") * 100, 1)
+    model_away = round(apply_calibration(pred["away_win_prob"], "moneyline") * 100, 1)
 
     # Remove vig: implied_home/implied_away are converted from real odds
     # separately, so raw they sum to ~104-106% (the vig). Renormalize so
@@ -121,23 +127,35 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
     posted_run_line = pred.get("posted_run_line")
     home_cover_prob = pred.get("home_cover_prob")
     away_cover_prob = pred.get("away_cover_prob")
+    if home_cover_prob is not None:
+        home_cover_prob = apply_calibration(home_cover_prob / 100, "spread") * 100
+    if away_cover_prob is not None:
+        away_cover_prob = apply_calibration(away_cover_prob / 100, "spread") * 100
     if posted_run_line is not None and home_cover_prob is not None:
         home_favored_to_cover = pred_margin > -posted_run_line
         rl_pick = pred["home_team"] if home_favored_to_cover else pred["away_team"]
         rl_line = posted_run_line if home_favored_to_cover else -posted_run_line
         rl_prob = home_cover_prob if home_favored_to_cover else away_cover_prob
-        # FIXED 2026-07-21: edge was measured against a flat 52.4%
-        # (BREAKEVEN_PCT, the -110 baseline) instead of the real fetched
-        # odds' actual implied probability — inflating edge whenever the
-        # real run-line price wasn't standard -110 juice (e.g. -191
-        # implies ~65.6%, not 52.4%). Now computes implied_prob from the
-        # real odds, same as moneyline already does via
-        # american_to_implied().
+        # FIXED 2026-07-26: implied_prob was computed from only the
+        # PICKED side's odds (american_to_implied(rl_odds)) — that's
+        # a vig-inclusive one-sided number, not fair probability. Same
+        # bug class as the flat-52.4% issue fixed 2026-07-21, just not
+        # fully carried through to this market. Moneyline already
+        # renormalizes home+away together (see edge_home/edge_away
+        # above); this now does the same using both sides' run-line
+        # odds, which get_run_line_odds() already returns.
         if run_line_odds:
-            rl_odds = run_line_odds["home_odds"] if home_favored_to_cover else run_line_odds["away_odds"]
+            home_rl_odds = run_line_odds["home_odds"]
+            away_rl_odds = run_line_odds["away_odds"]
         else:
-            rl_odds = -110  # get_run_line_odds() returned None for this game — fallback
-        rl_implied_pct = round(american_to_implied(rl_odds) * 100, 1)
+            home_rl_odds = away_rl_odds = -110  # no real odds available — fallback
+        raw_implied_home_rl = american_to_implied(home_rl_odds) * 100
+        raw_implied_away_rl = american_to_implied(away_rl_odds) * 100
+        total_implied_rl = raw_implied_home_rl + raw_implied_away_rl
+        fair_home_rl = raw_implied_home_rl / total_implied_rl * 100
+        fair_away_rl = raw_implied_away_rl / total_implied_rl * 100
+        rl_odds = home_rl_odds if home_favored_to_cover else away_rl_odds
+        rl_implied_pct = round(fair_home_rl if home_favored_to_cover else fair_away_rl, 1)
         rl_edge_pct = round(rl_prob - rl_implied_pct, 2)
         if rl_edge_pct >= min_edge:
             sign = "+" if rl_line > 0 else ""
@@ -153,19 +171,28 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
     posted_total = pred.get("posted_total")
     over_prob = pred.get("over_prob")
     under_prob = pred.get("under_prob")
+    if over_prob is not None:
+        over_prob = apply_calibration(over_prob / 100, "total") * 100
+    if under_prob is not None:
+        under_prob = apply_calibration(under_prob / 100, "total") * 100
     if posted_total is not None and over_prob is not None:
-        # FIXED 2026-07-21: same BREAKEVEN_PCT bug as run line above —
-        # over/under carry different real odds (and therefore different
-        # true implied probabilities), so each needs its own implied_prob
-        # computed from the actual fetched price, not a shared flat 52.4%.
         if total_odds:
             over_odds = total_odds["over_odds"]
             under_odds = total_odds["under_odds"]
         else:
             over_odds = -110  # get_total_odds() returned None for this game — fallback
             under_odds = -110
-        over_implied_pct = round(american_to_implied(over_odds) * 100, 1)
-        under_implied_pct = round(american_to_implied(under_odds) * 100, 1)
+
+        # FIXED 2026-07-26: over_implied_pct/under_implied_pct were each
+        # computed from only their own side's odds — vig-inclusive, same
+        # bug class as run line above (and the flat-52.4% issue fixed
+        # 2026-07-21). Now renormalized against each other, same as
+        # moneyline's edge_home/edge_away.
+        raw_implied_over = american_to_implied(over_odds) * 100
+        raw_implied_under = american_to_implied(under_odds) * 100
+        total_implied_ou = raw_implied_over + raw_implied_under
+        over_implied_pct = round(raw_implied_over / total_implied_ou * 100, 1)
+        under_implied_pct = round(raw_implied_under / total_implied_ou * 100, 1)
         over_edge_pct = round(over_prob - over_implied_pct, 2)
         under_edge_pct = round((under_prob if under_prob is not None else 0) - under_implied_pct, 2)
         if max(over_edge_pct, under_edge_pct) >= min_edge:

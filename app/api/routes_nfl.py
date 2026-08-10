@@ -153,6 +153,20 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     are only included when a real posted line exists AND the model's edge
     clears min_edge, same bar moneyline uses. Shared by /edges and
     /predictions so both stay in sync (previously duplicated verbatim)."""
+    from calibration_transform import apply_calibration
+
+    # Apply the fitted calibration curve BEFORE any edge gets computed.
+    # Same fix already wired into routes_wnba.py — see that patch's
+    # notes for why. NFL/CFB have zero graded picks right now (season
+    # hasn't started), so apply_calibration() safely passes probabilities
+    # through unchanged until enough real data accumulates to fit a curve.
+    pred.home_win_prob = apply_calibration(pred.home_win_prob, "moneyline") * 100
+    pred.away_win_prob = apply_calibration(pred.away_win_prob, "moneyline") * 100
+    pred.home_cover_prob = apply_calibration(pred.home_cover_prob, "spread") * 100
+    pred.away_cover_prob = apply_calibration(pred.away_cover_prob, "spread") * 100
+    pred.over_prob = apply_calibration(pred.over_prob, "total") * 100
+    pred.under_prob = apply_calibration(pred.under_prob, "total") * 100
+
     implied_home, implied_away, real_odds_home, real_odds_away = get_market_implied(events_odds, home, away)
     market = _get_market_details(events_odds, home, away)
 
