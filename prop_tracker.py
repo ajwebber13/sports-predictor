@@ -60,18 +60,18 @@ HEADERS = {
 # picks it up automatically, same pattern as auto_results.py's SPORT_CONFIG.
 PROP_SPORT_CONFIG = {
     "wnba": {
-        "scoreboard_url": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
-        "summary_url":    "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/summary",
+        "scoreboard_url": "https://site.web.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
+        "summary_url":    "https://site.web.api.espn.com/apis/site/v2/sports/basketball/wnba/summary",
         "game_log_table": "wnba_game_log",
     },
     "nba": {
-        "scoreboard_url": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
-        "summary_url":    "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary",
+        "scoreboard_url": "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+        "summary_url":    "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/summary",
         "game_log_table": "nba_game_log",
     },
     "mlb": {
-        "scoreboard_url": "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
-        "summary_url":    "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/summary",
+        "scoreboard_url": "https://site.web.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
+        "summary_url":    "https://site.web.api.espn.com/apis/site/v2/sports/baseball/mlb/summary",
         "game_log_table": "mlb_game_log",
     },
     # MLB's box score shape (batting/pitching split blocks) is handled by a
@@ -166,9 +166,20 @@ def get_player_team(player_name: str, sport: str = "wnba") -> str:
 
 
 # ── Fetch ESPN box score for a date ──────────────────────────────────────────
-def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
+def fetch_espn_box_scores(date_str: str, sport: str = "wnba"):
     """
-    Returns {team_name: {player_name: {stat: value, team_won: bool}}}
+    Returns (results, fetch_ok).
+
+    results: {team_name: {player_name: {stat: value, team_won: bool}}}
+    fetch_ok: True if the ESPN request itself succeeded (real JSON came
+    back, even if zero games that day is a legitimate result). False
+    means the request itself failed (blocked/network/bad response) —
+    callers must NOT treat that the same as "no games," or every prop
+    gets wrongly marked NO_BET during an outage instead of staying
+    retryable. This is the fix for the 8/18-8/20 ScraperAPI outage,
+    where 277 props got permanently marked NO_BET because the code had
+    no way to distinguish "ESPN says no games" from "couldn't reach
+    ESPN at all."
 
     Basketball (wnba/nba): includes single stats (pts, reb, ast, stl, blk)
     and combo stats (pr, pa, ra, pra) since props are logged using combo
@@ -188,7 +199,7 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
     config = PROP_SPORT_CONFIG.get(sport)
     if not config:
         print(f"  No prop config for sport '{sport}' — skipping.")
-        return {}
+        return {}, True  # not a fetch failure, just nothing configured
 
     date_fmt = date_str.replace("-", "")
     url      = f"{config['scoreboard_url']}?dates={date_fmt}"
@@ -200,11 +211,11 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
         if r.status_code != 200 or not r.text.strip():
             print(f"ESPN scoreboard blocked/empty: status={r.status_code} "
                   f"len={len(r.text)} body_start={r.text[:150]!r}")
-            return results
+            return results, False  # real fetch failure — caller must NOT treat this as "no games"
         data = r.json()
     except Exception as e:
         print(f"ESPN scoreboard error: {e}")
-        return results
+        return results, False  # real fetch failure
 
     for event in data.get("events", []):
         completed = event.get("status", {}).get("type", {}).get("completed", False)
@@ -328,7 +339,7 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
             print(f"  Box score error ({game_id}): {e}")
             continue
 
-    return results
+    return results, True
 
 
 # ── Score props for a date ────────────────────────────────────────────────────
@@ -356,9 +367,22 @@ def score_props(date_str: str, sport: str = "wnba", dry_run: bool = False):
         return
 
     print(f"  Found {len(props)} prop(s) — fetching ESPN box scores...")
-    box_scores = fetch_espn_box_scores(date_str, sport=sport)
-    nearby_cache = {}  # nearby_date -> box_scores, avoids refetching the
-                        # same nearby date for every missing team below
+    box_scores, fetch_ok = fetch_espn_box_scores(date_str, sport=sport)
+
+    if not fetch_ok:
+        # Real fetch failure (blocked/network/bad response), not "no games
+        # today." Writing NO_BET here would be exactly the outage bug —
+        # permanently killing props that just need a retry. Skip this date
+        # entirely; rescan_unresolved_props() picks it back up on a future run.
+        print(f"  ESPN fetch failed for {date_str} — skipping this date "
+              f"entirely, will retry via rescan on a future run. "
+              f"No props marked NO_BET.")
+        conn.close()
+        return
+
+    nearby_cache = {}  # nearby_date -> (box_scores, fetch_ok), avoids
+                        # refetching the same nearby date for every
+                        # missing team below
 
     scored = 0
     no_bet = 0
@@ -381,7 +405,7 @@ def score_props(date_str: str, sport: str = "wnba", dry_run: bool = False):
                 nearby_date = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=offset)).strftime("%Y-%m-%d")
                 if nearby_date not in nearby_cache:
                     nearby_cache[nearby_date] = fetch_espn_box_scores(nearby_date, sport=sport)
-                nearby_scores = nearby_cache[nearby_date]
+                nearby_scores, nearby_ok = nearby_cache[nearby_date]
                 if team in nearby_scores:
                     box_scores[team] = nearby_scores[team]
                     print(f"  {team}: matched via {nearby_date} instead of {date_str}")
@@ -391,12 +415,12 @@ def score_props(date_str: str, sport: str = "wnba", dry_run: bool = False):
         team_data   = box_scores.get(team, {})
         player_data = team_data.get(player)
 
-        # score_props() is only ever called for a date that's already
-        # passed (yesterday, or a specific past date via backfill) — so
-        # "not in a completed game's box score" means genuinely
-        # unresolvable (DNP, postponed, name mismatch), not "hasn't
-        # happened yet". Write an explicit NO_BET row instead of
-        # silently skipping, so it stops showing as PENDING forever.
+        # By this point fetch_ok was already True (we return early above
+        # when it's False), so "not in a completed game's box score"
+        # here means genuinely unresolvable (DNP, postponed, name
+        # mismatch), not "ESPN was unreachable." Write an explicit
+        # NO_BET row instead of silently skipping, so it stops showing
+        # as PENDING forever.
         if not player_data:
             print(f"  {player}: no box score data found — NO BET")
             if not dry_run:
@@ -476,6 +500,54 @@ def _write_no_bet(conn, date_str, sport, prop, opponent, home_away, team_won=Non
         datetime.now(timezone.utc).isoformat(),
     ))
     conn.commit()
+
+
+STALE_LOOKBACK_DAYS = 14
+
+
+def rescan_unresolved_props(sport: str = "wnba", dry_run: bool = False):
+    """Catches props that never got scored — almost always because
+    fetch_espn_box_scores() genuinely failed (blocked/network) on the
+    day they were originally attempted, same root cause auto_results.py's
+    rescan already handles for game predictions. Re-attempts any prop
+    from the last STALE_LOOKBACK_DAYS days that still has no matching
+    row in prop_results at all (not even a NO_BET row), so a prop stuck
+    behind a temporary ESPN outage gets picked up automatically within
+    a day or two instead of staying unresolved indefinitely.
+    """
+    if sport not in PROP_SPORT_CONFIG:
+        return 0
+
+    conn = get_conn()
+    ensure_table(conn)
+    c = conn.cursor()
+
+    cutoff = (get_today_ct() - timedelta(days=STALE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    c.execute("""
+        SELECT DISTINCT pp.date FROM player_props pp
+        LEFT JOIN prop_results pr
+          ON pr.date = pp.date AND pr.player_name = pp.player_name AND pr.stat = pp.stat
+        WHERE pp.sport = ?
+          AND pp.date >= ?
+          AND pr.date IS NULL
+        ORDER BY pp.date
+    """, (sport, cutoff))
+    stale_dates = [r[0] for r in c.fetchall()]
+    conn.close()
+
+    if not stale_dates:
+        return 0
+
+    print(f"\n--- {sport.upper()} prop rescan: {len(stale_dates)} date(s) "
+          f"with unresolved props from the last {STALE_LOOKBACK_DAYS} days ---")
+
+    rescanned = 0
+    for stale_date in stale_dates:
+        print(f"  Rescanning {stale_date}...")
+        score_props(stale_date, sport=sport, dry_run=dry_run)
+        rescanned += 1
+
+    return rescanned
 
 
 # ── Report: player prop records ───────────────────────────────────────────────
@@ -617,6 +689,13 @@ if __name__ == "__main__":
         sports_to_score = [args.sport] if args.sport else list(PROP_SPORT_CONFIG.keys())
         for s in sports_to_score:
             score_props(date, sport=s, dry_run=args.dry_run)
+
+        # Always rescan for older unresolved props (temporary ESPN
+        # outages, etc.) regardless of what date was targeted above —
+        # this is what actually stops props from getting stuck
+        # unresolved forever, same pattern auto_results.py uses.
+        for s in sports_to_score:
+            rescan_unresolved_props(sport=s, dry_run=args.dry_run)
 
     elif args.report is not None:
         report_player(args.report if args.report else None, sport=args.sport or "wnba",
