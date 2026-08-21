@@ -33,12 +33,12 @@ CENTRAL_OFFSET = -5
 # One entry per sport. Add a new sport here and auto_results.py picks it up
 # automatically — no other code changes needed.
 SPORT_CONFIG = {
-    "wnba": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
-    "nfl": "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
-    "cfb": "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
-    "ncaab": "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
-    "mlb": "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
-    "nba": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+    "wnba": "https://site.web.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
+    "nfl": "https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard",
+    "cfb": "https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard",
+    "ncaab": "https://site.web.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard",
+    "mlb": "https://site.web.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
+    "nba": "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
 }
 
 HEADERS = {

@@ -29,6 +29,12 @@ import numpy as np
 from datetime import datetime
 from collections import defaultdict
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 # ─────────────────────────────────────────────────────────────
 # CONSTANTS
@@ -248,7 +254,7 @@ def run_backtest(sport=None, season=None, min_edge=0.0,
     conn = get_conn()
     c    = conn.cursor()
 
-    query  = """SELECT * FROM head_to_head
+    query  = """SELECT * FROM team_game_results
                 WHERE home_score IS NOT NULL
                 AND away_score IS NOT NULL
                 AND winner IS NOT NULL"""
@@ -257,9 +263,9 @@ def run_backtest(sport=None, season=None, min_edge=0.0,
     if sport:
         query += " AND sport = ?"
         params.append(sport.lower())
-    if season:
-        query += " AND season = ?"
-        params.append(season)
+    # NOTE: team_game_results has no season column — the `season`
+    # positional arg is accepted for CLI compatibility but has no
+    # effect until a season column exists on this table.
 
     query += " ORDER BY date ASC"
     c.execute(query, params)
@@ -313,7 +319,6 @@ def run_backtest(sport=None, season=None, min_edge=0.0,
             results.append({
                 "date":      date,
                 "sport":     sport_key,
-                "season":    game["season"],
                 "home_team": home_team,
                 "away_team": away_team,
                 "pick":      pred["pick"],
@@ -323,7 +328,6 @@ def run_backtest(sport=None, season=None, min_edge=0.0,
                 "away_elo":  pred["away_elo"],
                 "actual":    actual,
                 "correct":   correct,
-                "game_type": game["game_type"] if game["game_type"] else "regular_season",
             })
 
             if verbose and i % 200 == 0:
@@ -364,18 +368,18 @@ def run_backtest(sport=None, season=None, min_edge=0.0,
             sign = "+" if m["net_units"] >= 0 else ""
             print(f"  {s.upper():<14}  {m['wins']}W-{m['losses']}L ({m['win_pct']}%)  |  {sign}{m['net_units']}u  {sign}{m['roi_pct']}% ROI")
 
-    # By season
-    seasons = sorted(set(r["season"] for r in results if r["season"]))
-    if len(seasons) > 1:
-        print(f"\n  BY SEASON (last 5)")
+    # Game type
+    reg     = [r for r in results if r.get("game_type") == "regular_season"]
+    playoff = [r for r in results if r.get("game_type") == "playoff"]
+    if reg and playoff:
+        print(f"\n  BY GAME TYPE")
         print(f"  {'─'*40}")
-        for s in seasons[-5:]:
-            sr   = [r for r in results if r["season"] == s]
-            m    = calc_roi(sr)
+        for label, subset in [("Regular", reg), ("Playoff", playoff)]:
+            m    = calc_roi(subset)
             sign = "+" if m["net_units"] >= 0 else ""
-            print(f"  {s:<8}  {m['wins']}W-{m['losses']}L ({m['win_pct']}%)  |  {sign}{m['net_units']}u  {sign}{m['roi_pct']}% ROI")
+            print(f"  {label:<10}  {m['wins']}W-{m['losses']}L ({m['win_pct']}%)  |  {sign}{m['net_units']}u")
 
-    # By edge tier
+    # Walk-forward rolling windows
     print(f"\n  BY EDGE TIER")
     print(f"  {'─'*40}")
     for tier in ["★★★ STRONG  (10%+)", "★★ MODERATE (5-10%)", "★ SLIGHT    (<5%)"]:
