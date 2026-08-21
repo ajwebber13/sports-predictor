@@ -30,6 +30,7 @@ Usage:
 
 import os
 import sys
+import time
 import requests
 import argparse
 from datetime import datetime, timezone, timedelta
@@ -193,14 +194,9 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
     url      = f"{config['scoreboard_url']}?dates={date_fmt}"
     results  = {}
 
-    scraperapi_key = os.environ.get("SCRAPERAPI_KEY", "").strip()
-    fetch_url = (
-        f"http://api.scraperapi.com?api_key={scraperapi_key}&url={url}"
-        if scraperapi_key else url
-    )
-
     try:
-        r = requests.get(fetch_url, headers=HEADERS, timeout=30)
+        r = requests.get(url, headers=HEADERS, timeout=30)
+        time.sleep(0.5)  # be polite to ESPN's unofficial endpoint
         if r.status_code != 200 or not r.text.strip():
             print(f"ESPN scoreboard blocked/empty: status={r.status_code} "
                   f"len={len(r.text)} body_start={r.text[:150]!r}")
@@ -231,12 +227,9 @@ def fetch_espn_box_scores(date_str: str, sport: str = "wnba") -> dict:
 
         # Fetch box score
         summary_url = f"{config['summary_url']}?event={game_id}"
-        summary_fetch_url = (
-            f"http://api.scraperapi.com?api_key={scraperapi_key}&url={summary_url}"
-            if scraperapi_key else summary_url
-        )
         try:
-            r2 = requests.get(summary_fetch_url, headers=HEADERS, timeout=30)
+            r2 = requests.get(summary_url, headers=HEADERS, timeout=30)
+            time.sleep(0.5)  # be polite to ESPN's unofficial endpoint
             if r2.status_code != 200 or not r2.text.strip():
                 print(f"  Box score blocked/empty ({game_id}): status={r2.status_code} "
                       f"len={len(r2.text)} body_start={r2.text[:150]!r}")
@@ -364,6 +357,8 @@ def score_props(date_str: str, sport: str = "wnba", dry_run: bool = False):
 
     print(f"  Found {len(props)} prop(s) — fetching ESPN box scores...")
     box_scores = fetch_espn_box_scores(date_str, sport=sport)
+    nearby_cache = {}  # nearby_date -> box_scores, avoids refetching the
+                        # same nearby date for every missing team below
 
     scored = 0
     no_bet = 0
@@ -384,7 +379,9 @@ def score_props(date_str: str, sport: str = "wnba", dry_run: bool = False):
         if team and team not in box_scores:
             for offset in (-1, 1):
                 nearby_date = (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=offset)).strftime("%Y-%m-%d")
-                nearby_scores = fetch_espn_box_scores(nearby_date, sport=sport)
+                if nearby_date not in nearby_cache:
+                    nearby_cache[nearby_date] = fetch_espn_box_scores(nearby_date, sport=sport)
+                nearby_scores = nearby_cache[nearby_date]
                 if team in nearby_scores:
                     box_scores[team] = nearby_scores[team]
                     print(f"  {team}: matched via {nearby_date} instead of {date_str}")
