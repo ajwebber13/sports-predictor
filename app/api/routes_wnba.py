@@ -76,8 +76,12 @@ def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
                         away_pairs.append((prob, price))
     if not home_pairs or not away_pairs:
         # No real odds found — fall back to a true 50/50, not 52.4/52.4
-        # (52.4/52.4 sums to 104.8%, which isn't a valid probability pair)
-        return 50.0, 50.0, -110, -110
+        # (52.4/52.4 sums to 104.8%, which isn't a valid probability pair).
+        # real_odds is None, not a hardcoded -110 (that was quietly
+        # contradicting this function's own docstring promise above —
+        # "never a price synthesized" — and made a missing price
+        # indistinguishable from a real, posted -110 to any caller).
+        return 50.0, 50.0, None, None
     home_pairs.sort(key=lambda x: x[0])
     away_pairs.sort(key=lambda x: x[0])
     h_prob, h_price = home_pairs[len(home_pairs) // 2]
@@ -199,18 +203,28 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     ml_prob = pred.home_win_prob if edge_home >= edge_away else pred.away_win_prob
     ml_odds = real_odds_home if edge_home >= edge_away else real_odds_away
     ml_implied = implied_home if edge_home >= edge_away else implied_away
-    bets.append({
-        "game": label, "market": "moneyline",
-        "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
-        "model_prob": ml_prob, "implied_prob": ml_implied,
-        "home_win_prob": round(pred.home_win_prob, 1), "away_win_prob": round(pred.away_win_prob, 1),
-        "edge": round(best_edge / 100, 4), "odds": ml_odds,
-        "projected": f"{pred.projected_home}-{pred.projected_away}",
-        "projected_home": pred.projected_home, "projected_away": pred.projected_away,
-        "projected_margin": pred_margin, "projected_total": pred.projected_total,
-        "home_record": pred.home_record, "away_record": pred.away_record,
-        "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-    })
+    odds_is_real = ml_odds is not None
+
+    # This route never synthesized a price from model_prob (see
+    # get_market_implied()'s own docstring above), so a missing real price
+    # used to just ship odds=None. A synthesized price would be circular
+    # anyway — "edge" against a number derived from the model's own
+    # probability can only ever mean "the model agrees with itself," never
+    # a real edge against the market. Either way, no real sportsbook price
+    # means no real edge, so this bet is never emitted.
+    if odds_is_real:
+        bets.append({
+            "game": label, "market": "moneyline",
+            "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
+            "model_prob": ml_prob, "implied_prob": ml_implied,
+            "home_win_prob": round(pred.home_win_prob, 1), "away_win_prob": round(pred.away_win_prob, 1),
+            "edge": round(best_edge / 100, 4), "odds": ml_odds, "odds_is_real": odds_is_real,
+            "projected": f"{pred.projected_home}-{pred.projected_away}",
+            "projected_home": pred.projected_home, "projected_away": pred.projected_away,
+            "projected_margin": pred_margin, "projected_total": pred.projected_total,
+            "home_record": pred.home_record, "away_record": pred.away_record,
+            "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
+        })
 
     # ---- Spread ----
     # spread_line is the HOME team's posted number (e.g. -3.5 = home

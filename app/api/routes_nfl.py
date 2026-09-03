@@ -199,17 +199,22 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         ml_odds = synth_odds(ml_prob)
         odds_is_real = False
 
-    bets.append({
-        "game": label, "market": "moneyline",
-        "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
-        "model_prob": ml_prob, "implied_prob": ml_implied,
-        "edge": round(best_edge / 100, 4), "odds": ml_odds, "odds_is_real": odds_is_real,
-        "projected": f"{pred.projected_home}-{pred.projected_away}",
-        "projected_home": pred.projected_home, "projected_away": pred.projected_away,
-        "projected_margin": pred_margin, "projected_total": pred.projected_total,
-        "home_record": pred.home_record, "away_record": pred.away_record,
-        "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-    })
+    # A synthesized price is fair odds derived FROM model_prob, so "edge"
+    # against it is circular — it can only ever mean "the model agrees
+    # with itself," never a real edge against the market. No real
+    # sportsbook price means this bet never gets emitted, full stop.
+    if odds_is_real:
+        bets.append({
+            "game": label, "market": "moneyline",
+            "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
+            "model_prob": ml_prob, "implied_prob": ml_implied,
+            "edge": round(best_edge / 100, 4), "odds": ml_odds, "odds_is_real": odds_is_real,
+            "projected": f"{pred.projected_home}-{pred.projected_away}",
+            "projected_home": pred.projected_home, "projected_away": pred.projected_away,
+            "projected_margin": pred_margin, "projected_total": pred.projected_total,
+            "home_record": pred.home_record, "away_record": pred.away_record,
+            "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
+        })
 
     # ---- Spread ----
     if market["spread_line"] is not None:

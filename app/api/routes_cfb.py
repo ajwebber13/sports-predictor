@@ -234,7 +234,16 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     # a qualifying spread or total bet (the outer len(bets)==1 check in
     # cfb_edges()/cfb_predictions() only caught the case where moneyline
     # was the game's only bet).
-    if best_edge >= min_edge:
+    #
+    # Also gated on odds_is_real: a synthesized price is fair odds derived
+    # FROM model_prob, so "edge" against it is circular — it can never mean
+    # anything but "the model agrees with itself." No real sportsbook price
+    # means no real edge to act on, so it's never worth emitting regardless
+    # of how large that circular edge looks. Common for CFB blowout/G5 buy
+    # games where the odds feed either has no h2h market at all or only
+    # posts a price so extreme it fails the sanity filter in
+    # get_market_implied() (e.g. -100000/+5000).
+    if best_edge >= min_edge and odds_is_real:
         bets.append({
             "game": label, "market": "moneyline",
             "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
