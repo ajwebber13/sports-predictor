@@ -249,14 +249,14 @@ def run():
         f"markets={markets_boundary}",
     ))
 
-    # ---- Blowout-line suppression (2026-09-03) ----
-    print("\nTesting CFB blowout-line spread suppression (|spread_line| >= 21)...")
+    # ---- Blowout-line suppression (2026-09-03, extended to ALL markets) ----
+    print("\nTesting CFB blowout-line suppression (|spread_line| >= 21)...")
 
     pred_blowout = SimpleNamespace(
         home_win_prob=85.0, away_win_prob=15.0,
         projected_home=31.0, projected_away=21.0, projected_total=52.0,  # margin +10
         home_cover_prob=70.0, away_cover_prob=30.0,
-        over_prob=50.0, under_prob=50.0,
+        over_prob=70.0, under_prob=30.0,  # real edge, so a surviving total isn't just "never qualified"
         home_record="5-1", away_record="1-5",
         home_rest_days=7, away_rest_days=7,
     )
@@ -270,25 +270,58 @@ def run():
                     {"name": "BigFavorite", "price": -110, "point": line},
                     {"name": "BigDog", "price": -110, "point": -line},
                 ]},
+                {"key": "totals", "outcomes": [
+                    {"name": "Over", "price": -110, "point": 45.5},
+                    {"name": "Under", "price": -110, "point": 45.5},
+                ]},
             ]}],
         }]
 
-    # Exactly at the threshold -- |line| == 21 must suppress (>=, not >).
-    bets_blowout, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_blowout,
-                                            _events_odds_with_line(-21.0), min_edge=3.0)
+    # Originally scoped to spread only; extended 2026-09-03 to moneyline
+    # and total too (blowout totals are just as garbage-time-driven as
+    # blowout margins). Force the moneyline kill switch on for this check
+    # specifically, so it isolates the blowout gate rather than the
+    # separate CFB_MONEYLINE_ENABLED flag tested above.
+    with patch.object(routes_cfb, "CFB_MONEYLINE_ENABLED", True):
+        bets_blowout, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_blowout,
+                                                _events_odds_with_line(-21.0), min_edge=3.0)
     results.append(_check(
-        "spread suppressed at exactly |line| = 21",
-        "spread" not in [b["market"] for b in bets_blowout],
+        "ALL markets (moneyline, spread, total) suppressed at exactly |line| = 21",
+        bets_blowout == [],
         f"markets={[b['market'] for b in bets_blowout]}",
     ))
 
     # Just under the threshold, everything else equal -- must still emit.
-    bets_not_blowout, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_blowout,
-                                                _events_odds_with_line(-20.0), min_edge=3.0)
+    with patch.object(routes_cfb, "CFB_MONEYLINE_ENABLED", True):
+        bets_not_blowout, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_blowout,
+                                                    _events_odds_with_line(-20.0), min_edge=3.0)
+    markets_not_blowout = [b["market"] for b in bets_not_blowout]
     results.append(_check(
-        "spread still emitted at |line| = 20 (just under the threshold)",
-        "spread" in [b["market"] for b in bets_not_blowout],
-        f"markets={[b['market'] for b in bets_not_blowout]}",
+        "markets still emitted at |line| = 20 (just under the threshold)",
+        len(markets_not_blowout) > 0,
+        f"markets={markets_not_blowout}",
+    ))
+
+    # ---- Low-score floor is a warning, not a suppression (2026-09-03) ----
+    print("\nTesting CFB low-score floor (projected score < 10)...")
+
+    pred_low_score = SimpleNamespace(
+        home_win_prob=85.0, away_win_prob=15.0,
+        projected_home=31.0, projected_away=6.0, projected_total=37.0,  # away under 10
+        home_cover_prob=70.0, away_cover_prob=30.0,
+        over_prob=30.0, under_prob=70.0,
+        home_record="5-1", away_record="1-5",
+        home_rest_days=7, away_rest_days=7,
+    )
+    # A non-blowout line (|line| < 21) so the low-score case is isolated
+    # from the blowout gate above -- proves the floor logs without also
+    # suppressing.
+    bets_low_score, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_low_score,
+                                              _events_odds_with_line(-15.0), min_edge=3.0)
+    results.append(_check(
+        "low projected score (6.0 < 10) does not suppress bets on its own -- it's a log, not a gate",
+        len(bets_low_score) > 0,
+        f"markets={[b['market'] for b in bets_low_score]}",
     ))
 
     print()

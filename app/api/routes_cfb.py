@@ -238,6 +238,36 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
                   f"model margin {pred_margin:+.1f} vs market spread {market['spread_line']:+.1f} "
                   f"disagree by {disagreement:.1f} pts (> 17)")
 
+    # Blowout-line suppression — extended 2026-09-03 to ALL markets, not
+    # just spread. Originally scoped to spread only, on the theory that
+    # total/moneyline weren't specifically about who's favored — but a
+    # buy-game blowout (major program vs. a G5/FCS-tier opponent for a
+    # guaranteed payday) makes garbage-time scoring (backups in by the
+    # third quarter, both sides easing off once it's decided) the
+    # dominant driver of the FINAL total too, which the model has exactly
+    # as little signal on as it does the margin. The market-spread blend
+    # was also producing openly absurd underdog scores on these games
+    # (Ball State projected at 5.2) — not a market this model should be
+    # picking anything in right now.
+    blowout_line = market["spread_line"] is not None and abs(market["spread_line"]) >= 21
+    if blowout_line:
+        print(f"[CFB blowout gate] {label}: suppressing all markets — posted line "
+              f"{market['spread_line']:+.1f} is a buy-game blowout (|line| >= 21), no real "
+              f"signal on backup-heavy, garbage-time-driven scoring")
+
+    # Low-score floor — a warning, not a suppression. A team projected
+    # under 10 points isn't itself against the rules (a bad team facing
+    # an elite defense can legitimately be that low), but it's exactly
+    # the shape of the pts_off/pts_allowed parsing bugs already found and
+    # fixed once this season (see cfb_data.py's schedule-derived scoring
+    # fix) — worth a flag to check by hand rather than silently trusting,
+    # since a future regression in that parsing would look identical.
+    if pred.projected_home < 10 or pred.projected_away < 10:
+        print(f"[CFB low-score floor] {label}: projected {pred.projected_home}-{pred.projected_away} — "
+              f"a projected score under 10 usually means bad or stale inputs for one team, not a "
+              f"real projection. home_record={pred.home_record} away_record={pred.away_record} "
+              f"market_spread={market['spread_line']}")
+
     def synth_odds(prob):
         # Fallback ONLY — used when no real h2h odds exist for this game
         # in the feed. Fair odds derived from the model's own probability.
@@ -276,7 +306,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     # games where the odds feed either has no h2h market at all or only
     # posts a price so extreme it fails the sanity filter in
     # get_market_implied() (e.g. -100000/+5000).
-    if CFB_MONEYLINE_ENABLED and best_edge >= min_edge and odds_is_real and sanity_ok:
+    if CFB_MONEYLINE_ENABLED and best_edge >= min_edge and odds_is_real and sanity_ok and not blowout_line:
         bets.append({
             "game": label, "market": "moneyline",
             "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
@@ -291,23 +321,8 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
 
     # ---- Spread ----
     if market["spread_line"] is not None:
-        # Suppress spread bets on buy-game blowout lines (|spread| >= 21).
-        # These are exactly where the strength-of-schedule gap this model
-        # can't see is worst — a major program vs. a G5/FCS-tier opponent
-        # taken for a guaranteed payday — and where garbage-time scoring
-        # (backups in by the third quarter, both sides easing off) makes
-        # the final margin mostly noise the model has no signal on either.
-        # The 17pt sanity gate and 85% cover-prob cap catch some of this
-        # already, but a model that's simply wrong in a consistent
-        # direction (see cfb_predictor.py's market-spread blend notes) can
-        # still clear both while sitting on a genuinely unpredictable
-        # buy-game number.
-        blowout_line = abs(market["spread_line"]) >= 21
-        if blowout_line:
-            print(f"[CFB spread suppressed] {label}: posted line {market['spread_line']:+.1f} "
-                  f"is a buy-game blowout (|line| >= 21) — no real signal on backup-heavy, "
-                  f"garbage-time-driven margins")
-
+        # blowout_line is computed once, above, and now also gates
+        # moneyline and total — see that block's comment for why.
         # Pick whichever side actually has the higher cover probability
         # against the real spread line — same pattern moneyline (edge_home
         # vs edge_away) and total (over_edge_pct vs under_edge_pct) already
@@ -361,7 +376,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         under_implied_pct = round(100 - over_implied_pct, 1)
         over_edge_pct = pred.over_prob - over_implied_pct
         under_edge_pct = pred.under_prob - under_implied_pct
-        if max(over_edge_pct, under_edge_pct) >= min_edge:
+        if max(over_edge_pct, under_edge_pct) >= min_edge and not blowout_line:
             total_pick = "Over" if over_edge_pct >= under_edge_pct else "Under"
             total_prob = pred.over_prob if total_pick == "Over" else pred.under_prob
             total_odds = market["over_odds"] if total_pick == "Over" else market["under_odds"]
