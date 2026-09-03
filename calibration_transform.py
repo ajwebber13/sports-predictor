@@ -61,13 +61,19 @@ CALIBRATION_FILE = Path(__file__).parent / "calibration_maps.pkl"
 
 MARKETS = ["moneyline", "spread", "total"]
 
+# Sports allowed to fall back to the old market-only curve when no
+# sport-specific curve exists. These are the two sports that curve
+# was actually fit on. Every other sport passes raw prob through
+# until it has its own curve.
+LEGACY_FALLBACK_SPORTS = {"mlb", "wnba"}
+
 # Below this many graded picks in a market, don't trust a fitted curve —
 # fall back to raw model_prob untouched. Isotonic regression with too few
 # points overfits to noise.
 MIN_SAMPLES_PER_MARKET = 40
 
 
-def _fetch_graded(market: str):
+def _fetch_graded(market: str, sport: str = None, start: str = None):
     """
     Pull (model_prob, actual_result) pairs for one market.
     actual_result is 1 if the pick won, 0 if it lost.
@@ -77,17 +83,22 @@ def _fetch_graded(market: str):
     """
     conn = get_conn()
     c = conn.cursor()
-    c.execute(
-        """
+    sql = """
         SELECT p.model_prob, r.correct
         FROM results r
         JOIN predictions p ON r.prediction_id = p.id
         WHERE p.market = ?
           AND p.model_prob IS NOT NULL
           AND r.correct IS NOT NULL
-        """,
-        (market,),
-    )
+    """
+    params = [market]
+    if sport:
+        sql += " AND p.sport = ?"
+        params.append(sport)
+    if start:
+        sql += " AND p.date >= ?"
+        params.append(start)
+    c.execute(sql, tuple(params))
     rows = c.fetchall()
     conn.close()
 
@@ -99,25 +110,41 @@ def _fetch_graded(market: str):
     return probs, outcomes
 
 
-def fit_and_save():
-    """Fit one isotonic curve per market and save to disk."""
-    maps = {}
+def fit_and_save(sport: str = None, start: str = None):
+    """
+    Fit one isotonic curve per market and save to disk.
 
+    sport: if given, curves are stored as "<sport>:<market>" and only
+           that sport's graded picks are used. If None, fits the legacy
+           market-only keys (all sports pooled) — avoid this going forward.
+    start: YYYY-MM-DD. Only graded picks on/after this date are used.
+
+    Existing keys in the pkl are kept. Only the keys fit here are
+    added or replaced.
+    """
+    maps = {}
+    if CALIBRATION_FILE.exists():
+        with open(CALIBRATION_FILE, "rb") as f:
+            maps = pickle.load(f)
+
+    fitted = 0
     for market in MARKETS:
-        probs, outcomes = _fetch_graded(market)
+        key = f"{sport}:{market}" if sport else market
+        probs, outcomes = _fetch_graded(market, sport=sport, start=start)
         n = len(probs)
 
         if n < MIN_SAMPLES_PER_MARKET:
-            print(f"[{market}] only {n} graded picks — need {MIN_SAMPLES_PER_MARKET}+. Skipping, raw prob will pass through unchanged.")
+            print(f"[{key}] only {n} graded picks — need {MIN_SAMPLES_PER_MARKET}+. Skipping, raw prob will pass through unchanged.")
             continue
 
         iso = IsotonicRegression(out_of_bounds="clip", y_min=0.01, y_max=0.99)
         iso.fit(probs, outcomes)
-        maps[market] = iso
+        maps[key] = iso
+        fitted += 1
 
         # Quick before/after sanity print at a few reference points
         checkpoints = [0.5, 0.6, 0.7, 0.8, 0.9]
-        print(f"\n[{market}] fitted on {n} graded picks")
+        print(f"\n[{key}] fitted on {n} graded picks")
         print(f"  {'raw':>6}  ->  {'calibrated':>10}")
         for p in checkpoints:
             fixed = float(iso.predict([p])[0])
@@ -126,18 +153,22 @@ def fit_and_save():
     with open(CALIBRATION_FILE, "wb") as f:
         pickle.dump(maps, f)
 
-    print(f"\nSaved {len(maps)}/{len(MARKETS)} market calibration curves to {CALIBRATION_FILE}")
-    if len(maps) < len(MARKETS):
-        missing = set(MARKETS) - set(maps.keys())
-        print(f"NOTE: {missing} not calibrated yet — raw model_prob passes through untouched for those markets until enough graded picks accumulate.")
+    print(f"\nFit {fitted}/{len(MARKETS)} curves this run. File now holds {len(maps)} keys: {sorted(maps.keys())}")
+    if fitted < len(MARKETS):
+        print("NOTE: markets not fit this run keep their old curve if one exists, otherwise raw model_prob passes through.")
 
 
-def apply_calibration(raw_prob: float, market: str) -> float:
+def apply_calibration(raw_prob: float, market: str, sport: str = None) -> float:
     """
     Apply the fitted correction to a raw model probability.
 
     raw_prob: 0-1 or 0-100, handles either.
     market: "moneyline" | "spread" | "total"
+    sport:  "mlb" | "wnba" | "nfl" | "ncaaf" | "nba" | "ncaab" | None
+            Looks up "<sport>:<market>" first. If missing, mlb/wnba fall
+            back to the legacy market-only curve; every other sport
+            returns raw_prob unchanged. sport=None keeps the old
+            market-only behavior for any call site not yet updated.
 
     Returns a 0-1 probability. If no calibration map exists yet for
     that market (not enough graded data), returns raw_prob unchanged
@@ -152,7 +183,15 @@ def apply_calibration(raw_prob: float, market: str) -> float:
     with open(CALIBRATION_FILE, "rb") as f:
         maps = pickle.load(f)
 
-    iso = maps.get(market)
+    iso = None
+    if sport:
+        iso = maps.get(f"{sport}:{market}")
+        if iso is None and sport in LEGACY_FALLBACK_SPORTS:
+            iso = maps.get(market)
+    else:
+        # No sport given — old call path. Keep old behavior.
+        iso = maps.get(market)
+
     if iso is None:
         return raw_prob
 
@@ -162,10 +201,12 @@ def apply_calibration(raw_prob: float, market: str) -> float:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--fit", action="store_true", help="Fit and save calibration curves from graded history")
+    parser.add_argument("--sport", default=None, help="fit one sport only, stored as <sport>:<market>")
+    parser.add_argument("--start", metavar="YYYY-MM-DD", default=None, help="only use graded picks on/after this date")
     args = parser.parse_args()
 
     if args.fit:
-        fit_and_save()
+        fit_and_save(sport=args.sport, start=args.start)
     else:
         print("Run with --fit to build the calibration maps first.")
         sys.exit(1)
