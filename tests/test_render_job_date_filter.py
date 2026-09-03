@@ -83,7 +83,7 @@ def run():
     print("Testing render_job.run_alerts()'s per-bet flow date filter...")
     with patch.object(render_job, "fetch_edges_with_retry", return_value={"best_bets": bets}), \
          patch.object(render_job, "send_discord_alert", side_effect=fake_send_discord_alert), \
-         patch.object(render_job, "already_alerted_today", return_value=False), \
+         patch.object(render_job, "already_alerted_recently", return_value=False), \
          patch.object(telegram_alerts, "get_game_times", return_value=(game_times, game_times_raw)), \
          patch("services.odds_parser.get_live_odds", return_value=[], create=True), \
          patch("database.log_odds", return_value=None, create=True), \

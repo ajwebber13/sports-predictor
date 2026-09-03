@@ -987,7 +987,7 @@ def model_report(sport: str = None):
     print("-" * 45)
 
 
-def log_prediction(bet: dict, sport: str, market: str = "moneyline"):
+def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: str = None):
     """Recovered from pre-regression database.py (commit b13a88a) —
     render_job.py imports this directly. Column names (bet, model_prob,
     home_record, predicted_winner, etc.) confirmed matching PRODUCTION's
@@ -1022,10 +1022,24 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline"):
     columns: pick, line, projected_home, projected_away,
     projected_margin, projected_total, confidence. All default to
     None/"" if not provided, so old-style bet dicts (moneyline-only,
-    pre-v2 callers) still insert cleanly."""
+    pre-v2 callers) still insert cleanly.
+
+    game_date (added 2026-09-04): the ACTUAL calendar date (Central
+    time, 'YYYY-MM-DD') this game is/was played on — separate from
+    `date`, which is the day this row was inserted. Those two used to
+    be silently assumed identical, which broke the moment CFB started
+    generating picks days before kickoff (see the get_game_times("cfb")
+    fix from earlier today): a Thursday alert for a Saturday game was
+    stamped date='2026-09-03', and auto_results.py's grading query
+    looks up predictions by the date ESPN's scoreboard was fetched for
+    — a Saturday query would never find that row at all. Defaults to
+    `date` (today) when not passed, which is correct for same-day
+    callers (the overwhelming majority) and is exactly the old,
+    unchanged behavior for anyone not passing it yet."""
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
+    game_date = game_date or today
     game  = bet.get("game", "")
     parts = game.split(" @ ")
 
@@ -1049,8 +1063,8 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline"):
              model_prob, implied_prob, edge, home_record, away_record,
              home_rest, away_rest, home_injuries, away_injuries, predicted_winner,
              market, pick, line, projected_home, projected_away,
-             projected_margin, projected_total, confidence)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             projected_margin, projected_total, confidence, game_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (date, sport, game, market) DO UPDATE SET
                 home_team        = EXCLUDED.home_team,
                 away_team        = EXCLUDED.away_team,
@@ -1072,7 +1086,8 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline"):
                 projected_away   = EXCLUDED.projected_away,
                 projected_margin = EXCLUDED.projected_margin,
                 projected_total  = EXCLUDED.projected_total,
-                confidence       = EXCLUDED.confidence
+                confidence       = EXCLUDED.confidence,
+                game_date        = EXCLUDED.game_date
         """, (
             today, sport, game,
             parts[1] if len(parts) == 2 else "",
@@ -1097,9 +1112,10 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline"):
             bet.get("projected_margin"),
             bet.get("projected_total"),
             bet.get("confidence", ""),
+            game_date,
         ))
         conn.commit()
-        print(f"Logged prediction: {game} [{market}]")
+        print(f"Logged prediction: {game} [{market}] (game_date={game_date})")
     except Exception as e:
         conn.rollback()
         print(f"Prediction log error: {e}")

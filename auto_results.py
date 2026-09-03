@@ -146,10 +146,23 @@ def fetch_espn_results(date_str: str, sport: str) -> list:
 
 
 def fetch_predictions(conn, date_str: str, sport: str) -> list:
+    """FIXED 2026-09-04: was `WHERE date = ?`, which is the day the
+    prediction was LOGGED, not the day the game was played. Harmless
+    when those are always the same day (true for every sport until
+    today), but CFB started generating picks days before kickoff (see
+    the get_game_times("cfb") fix earlier today) — a Thursday alert for
+    a Saturday game was stamped date='2026-09-03', so a query for
+    game_date='2026-09-05' (the day this function is actually asked to
+    grade, matching the ESPN scoreboard fetch_espn_results() just
+    pulled for that same date) would never have found it under the old
+    column. game_date is backfilled to `date` for every pre-existing
+    row (correct for the overwhelming majority — everything except the
+    specific CFB rows this bug affected), so this doesn't lose any
+    already-correct predictions."""
     c = conn.cursor()
     c.execute("""
         SELECT * FROM predictions
-        WHERE date = ? AND sport = ?
+        WHERE game_date = ? AND sport = ?
     """, (date_str, sport))
     return [dict(r) for r in c.fetchall()]
 
@@ -271,7 +284,11 @@ def score_prediction(prediction: dict, espn_game: dict) -> dict:
                        actual_winner.lower() in picked_team.lower() else 0
 
     return {
-        "date": prediction["date"],
+        # game_date (the real game day), not date (the day the
+        # prediction was logged) -- results.date should describe the
+        # game, and every prediction row has game_date backfilled to a
+        # real value now (see fetch_predictions()'s docstring).
+        "date": prediction.get("game_date") or prediction["date"],
         "sport": prediction["sport"],
         "game": prediction["game"],
         "home_team": espn_game["home_team"],
@@ -418,6 +435,16 @@ def rescan_unresolved_predictions(conn, sport: str, dry_run: bool = False):
     no matching row in results — so a postponed game gets picked up
     automatically within a day or two of actually being played,
     instead of staying PENDING indefinitely.
+
+    FIXED 2026-09-04: filters and starts its forward search from
+    game_date now, not date. Filtering on `date` (day logged) instead
+    of `date` (day the game is/was played) meant a prediction logged
+    well outside the lookback window for a game that's actually
+    upcoming soon could be excluded (or, working backwards, the
+    forward search started from the wrong day entirely for a
+    pre-emptive CFB pick). Starting the search from the real game_date
+    also means offset=0 finds most games immediately instead of
+    walking forward through empty days first.
     """
     c = conn.cursor()
     cutoff = (get_today_ct() - timedelta(days=STALE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
@@ -426,7 +453,7 @@ def rescan_unresolved_predictions(conn, sport: str, dry_run: bool = False):
         LEFT JOIN results r ON r.prediction_id = p.id
         WHERE r.prediction_id IS NULL
           AND p.sport = ?
-          AND p.date >= ?
+          AND p.game_date >= ?
     """, (sport, cutoff))
     stale = [dict(r) for r in c.fetchall()]
     if not stale:
@@ -441,7 +468,7 @@ def rescan_unresolved_predictions(conn, sport: str, dry_run: bool = False):
     rescanned = 0
 
     for pred in stale:
-        pred_date = pred["date"]
+        pred_date = pred.get("game_date") or pred["date"]
         matched = None
         for offset in range(0, MAKEUP_WINDOW_DAYS + 1):
             check_date = (datetime.strptime(pred_date, "%Y-%m-%d") + timedelta(days=offset)).strftime("%Y-%m-%d")

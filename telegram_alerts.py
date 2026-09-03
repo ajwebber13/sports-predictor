@@ -91,6 +91,26 @@ def is_today_ct(utc_str: str) -> bool:
         return True
 
 
+def raw_time_to_central_date(utc_str: str):
+    """Converts a raw ESPN UTC kickoff timestamp to a 'YYYY-MM-DD'
+    Central-time date string — added 2026-09-04 for
+    database.log_prediction()'s game_date column, so a prediction
+    logged days before kickoff (e.g. a Thursday alert for a Saturday
+    game) is stamped with the game's REAL date, not the day it was
+    logged. Returns None if utc_str is empty/unparseable — callers
+    should fall back to today's date in that case, same as every other
+    raw-time consumer in this file (is_today_ct returns True, not
+    False, on the same kind of failure)."""
+    if not utc_str:
+        return None
+    try:
+        utc_dt     = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
+        central_dt = utc_dt + timedelta(hours=CENTRAL_OFFSET)
+        return central_dt.date().isoformat()
+    except Exception:
+        return None
+
+
 # ─────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────

@@ -15,7 +15,7 @@ import sys
 import requests
 import time
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 
 try:
     from dotenv import load_dotenv
@@ -149,8 +149,8 @@ def fetch_edges_with_retry(sport: str, attempts: int = 3, backoff: int = 15):
 
 
 # ─────────────────────────────────────────────────────────────
-# DEDUP CHECK — prevents noon retry from re-alerting a game
-# already covered by the morning alert.
+# DEDUP CHECK — prevents any run from re-alerting a game that's
+# already been covered by an earlier one.
 #
 # Matches database.py's actual schema: get_conn(), table
 # "predictions", columns date / sport / game / market.
@@ -163,28 +163,41 @@ def fetch_edges_with_retry(sport: str, attempts: int = 3, backoff: int = 15):
 # would skip it entirely, silently. market is optional (defaults to
 # None -> checks ALL markets for the game, old behavior) so any
 # caller not yet passing a market keeps working unchanged.
+#
+# RENAMED + WIDENED 2026-09-04 (was already_alerted_today, and was only
+# ever called when skip_if_already_alerted was True). Neither of those
+# held up once CFB started sending picks days before the actual game
+# (see the get_game_times("cfb") fix earlier today): a Thursday alert
+# for a Saturday game is stamped date='2026-09-03', but the game's own
+# dedicated Saturday-morning cron doesn't pass --retry, so this check
+# never ran at all — and even if it had, an exact `date = today` match
+# would look for '2026-09-05' and never find Thursday's row anyway.
+# Now checked unconditionally on every run, over a 7-day window instead
+# of an exact date match, so a pick logged days before game day is
+# still visible (and correctly blocks a re-send, even at a since-moved
+# line) on a later run for that same game.
 # ─────────────────────────────────────────────────────────────
 
-def already_alerted_today(sport: str, game: str, market: str = None) -> bool:
+def already_alerted_recently(sport: str, game: str, market: str = None) -> bool:
     """
     Returns True if a pick for this game (and, if given, this specific
-    market) was already logged today (e.g. by the morning alert run).
+    market) was already logged within the last 7 days.
     """
     try:
         from database import get_conn
-        today = datetime.now().strftime("%Y-%m-%d")
+        cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         conn  = get_conn()
         if market:
             cur = conn.execute(
                 "SELECT COUNT(*) as cnt FROM predictions "
-                "WHERE sport = ? AND game = ? AND date = ? AND market = ?",
-                (sport, game, today, market),
+                "WHERE sport = ? AND game = ? AND date >= ? AND market = ?",
+                (sport, game, cutoff, market),
             )
         else:
             cur = conn.execute(
                 "SELECT COUNT(*) as cnt FROM predictions "
-                "WHERE sport = ? AND game = ? AND date = ?",
-                (sport, game, today),
+                "WHERE sport = ? AND game = ? AND date >= ?",
+                (sport, game, cutoff),
             )
         row = cur.fetchone()
         conn.close()
@@ -198,7 +211,7 @@ def already_alerted_today(sport: str, game: str, market: str = None) -> bool:
 # ALERT RUNNER
 # ─────────────────────────────────────────────────────────────
 
-def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
+def run_alerts(sport: str) -> bool:
     log(f"Fetching {sport.upper()} edges...")
 
     # 280s inner timeout (was 150s, originally 60s) — 2026-07-22: real
@@ -314,19 +327,19 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
 
             daily_games = get_daily_game_picks(sport, todays_bets)
 
-            if skip_if_already_alerted:
-                # NOTE: this still checks per-game only (no market arg),
-                # since daily_games is grouped by game, not by market —
-                # matches this function's existing granularity. The fix
-                # below (per-bet, in the log_prediction loop) is what
-                # actually prevents a specific market from being silently
-                # skipped on retry; this game-level filter only decides
-                # whether to re-render the Discord message for a game
-                # that's already fully covered.
-                daily_games = [
-                    g for g in daily_games
-                    if not already_alerted_today(sport, g["game"])
-                ]
+            # NOTE: this still checks per-game only (no market arg),
+            # since daily_games is grouped by game, not by market —
+            # matches this function's existing granularity. The fix
+            # below (per-bet, in the log_prediction loop) is what
+            # actually prevents a specific market from being silently
+            # skipped on a later run; this game-level filter only decides
+            # whether to re-render the Discord message for a game
+            # that's already fully covered. Checked unconditionally now
+            # (2026-09-04) — see already_alerted_recently()'s docstring.
+            daily_games = [
+                g for g in daily_games
+                if not already_alerted_recently(sport, g["game"])
+            ]
 
             if not daily_games:
                 log(f"No {sport.upper()} games cleared today's edge threshold.")
@@ -344,12 +357,14 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
                 if bet.get("game") not in qualifying_game_labels:
                     continue
                 bet_market = bet.get("market", "moneyline")
-                if skip_if_already_alerted and already_alerted_today(sport, bet.get("game", ""), market=bet_market):
-                    log(f"Already alerted today, skipping duplicate: {bet.get('game')} [{bet_market}]")
+                if already_alerted_recently(sport, bet.get("game", ""), market=bet_market):
+                    log(f"Already alerted recently, skipping duplicate: {bet.get('game')} [{bet_market}]")
                     continue
                 try:
                     from database import log_prediction
-                    log_prediction(bet, sport, market=bet_market)
+                    from telegram_alerts import raw_time_to_central_date
+                    raw_time = get_raw_time_for_bet(bet, game_times_raw)
+                    log_prediction(bet, sport, market=bet_market, game_date=raw_time_to_central_date(raw_time))
                 except Exception as e:
                     log(f"Prediction log error: {e}")
 
@@ -450,12 +465,13 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
             # dict independently (one alert per bet, not grouped by
             # game), so multiple markets for the same game were never
             # collapsed into one here the way the WNBA/MLB leaner path
-            # was. Still switched to the market-aware dedup check for
-            # consistency — a game with a moneyline pick already sent
-            # this morning can now still pick up a new spread/total
-            # pick on retry instead of the whole game being skipped.
-            if skip_if_already_alerted and already_alerted_today(sport, bet.get("game", ""), market=bet.get("market", "moneyline")):
-                log(f"Already alerted today, skipping duplicate: {bet.get('game')} [{bet.get('market', 'moneyline')}]")
+            # was. Market-aware dedup check for consistency — a game
+            # with a moneyline pick already sent can still pick up a new
+            # spread/total pick on a later run instead of the whole game
+            # being skipped. Checked unconditionally now (2026-09-04) —
+            # see already_alerted_recently()'s docstring.
+            if already_alerted_recently(sport, bet.get("game", ""), market=bet.get("market", "moneyline")):
+                log(f"Already alerted recently, skipping duplicate: {bet.get('game')} [{bet.get('market', 'moneyline')}]")
                 continue
 
             clean_bets.append(bet)
@@ -485,7 +501,10 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
         for bet in clean_bets:
             try:
                 from database import log_prediction
-                log_prediction(bet, sport, market=bet.get("market", "moneyline"))
+                from telegram_alerts import raw_time_to_central_date
+                raw_time = get_raw_time_for_bet(bet, game_times_raw)
+                log_prediction(bet, sport, market=bet.get("market", "moneyline"),
+                                game_date=raw_time_to_central_date(raw_time))
             except Exception as e:
                 log(f"Prediction log error: {e}")
 
@@ -600,7 +619,7 @@ def run(sports: list, retry: bool = False):
                 bets = data.get("best_bets", [])
                 if any(b.get("model_prob", 0) >= 55 for b in bets):
                     log(f"{sport.upper()}: picks found on retry — checking for duplicates")
-                    run_alerts(sport, skip_if_already_alerted=True)
+                    run_alerts(sport)
                 else:
                     log(f"{sport.upper()}: still no edges on retry — skipping")
 
