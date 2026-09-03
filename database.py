@@ -180,6 +180,55 @@ class _DictConnWrapper:
         return getattr(self._conn, name)
 
 
+# Fixed 2026-09-04: log_odds()/update_closing_odds()/log_line_movement()
+# each used to scan every bookmaker's h2h outcomes and keep whichever
+# one was LAST in the list — not a specific, consistent bookmaker.
+# get_live_odds() only ever returns draftkings/fanduel (see
+# services/odds_parser.py's `bookmakers` param), but their order in the
+# API response isn't guaranteed to stay the same call to call. That
+# meant "opening" (captured once, this morning) and "current" (captured
+# again on a later retry) could silently come from TWO DIFFERENT books —
+# a real, live case: DraftKings had Chiefs -110, FanDuel had them -125,
+# and comparing across books produced "home line moved -15 pts" that
+# was never a real market move at all, just book-to-book price
+# variance. All three functions now go through this one helper so
+# opening and current are always the same bookmaker's quote.
+PREFERRED_BOOKMAKERS = ["draftkings", "fanduel"]
+
+
+def _get_h2h_prices(game: dict, home_team: str, away_team: str) -> tuple:
+    """Returns (home_ml, away_ml) from a single, consistently-chosen
+    bookmaker — tries PREFERRED_BOOKMAKERS in order, using the first one
+    that actually posts a complete h2h market for this game. Returns
+    (None, None) if none of them do."""
+    bookmakers = {bm.get("key"): bm for bm in game.get("bookmakers", [])}
+    for book_key in PREFERRED_BOOKMAKERS:
+        bm = bookmakers.get(book_key)
+        if not bm:
+            continue
+        home_ml = away_ml = None
+        for market in bm.get("markets", []):
+            if market.get("key") == "h2h":
+                for o in market.get("outcomes", []):
+                    if o["name"] == home_team:
+                        home_ml = o["price"]
+                    elif o["name"] == away_team:
+                        away_ml = o["price"]
+        if home_ml is not None and away_ml is not None:
+            return home_ml, away_ml
+    return None, None
+
+
+# A single moneyline move bigger than this in one session isn't real
+# sharp action — it's two different quotes, a bad tick, or a stale row
+# getting compared against a fresh one. Logged as a data error instead
+# of surfacing a false "sharp" alert. Sport-specific because CFB's
+# lower-liquidity, more mispriced markets legitimately move further
+# than NFL's. Sports not listed here keep the old flat >=10 sharp-only
+# behavior (unchanged, out of scope of what was reported).
+LINE_MOVEMENT_DATA_ERROR_PTS = {"nfl": 7, "cfb": 10}
+
+
 def log_odds(sport: str, games: list, source: str = "espn"):
     """Recovered from pre-regression database.py (commit b13a88a) —
     render_job.py imports this directly."""
@@ -192,17 +241,7 @@ def log_odds(sport: str, games: list, source: str = "espn"):
     for game in games:
         home_team = game.get("home_team", "")
         away_team = game.get("away_team", "")
-        home_ml   = None
-        away_ml   = None
-
-        for bm in game.get("bookmakers", []):
-            for market in bm.get("markets", []):
-                if market["key"] == "h2h":
-                    for o in market.get("outcomes", []):
-                        if o["name"] == home_team:
-                            home_ml = o["price"]
-                        elif o["name"] == away_team:
-                            away_ml = o["price"]
+        home_ml, away_ml = _get_h2h_prices(game, home_team, away_team)
 
         if not home_ml or not away_ml:
             continue
@@ -239,17 +278,7 @@ def update_closing_odds(sport: str, games: list):
         for game in games:
             home_team = game.get("home_team", "")
             away_team = game.get("away_team", "")
-            home_ml   = None
-            away_ml   = None
-
-            for bm in game.get("bookmakers", []):
-                for market in bm.get("markets", []):
-                    if market["key"] == "h2h":
-                        for o in market.get("outcomes", []):
-                            if o["name"] == home_team:
-                                home_ml = o["price"]
-                            elif o["name"] == away_team:
-                                away_ml = o["price"]
+            home_ml, away_ml = _get_h2h_prices(game, home_team, away_team)
 
             if not home_ml or not away_ml:
                 continue
@@ -277,27 +306,35 @@ def log_line_movement(sport: str, games: list):
     Now also RETURNS the list of sharp-signal hits it detects (game,
     sharp text), instead of only printing them — render_job.py uses
     this to build a real Telegram steam alert. Storage/print behavior
-    unchanged, this is additive."""
+    unchanged, this is additive.
+
+    FIXED 2026-09-04, after a real false alert ("Colts @ Chiefs home
+    line moved -15 pts"):
+      1. Same bookmaker for both readings — see _get_h2h_prices()'s
+         docstring. This alone was the actual cause of that specific
+         alert (DraftKings vs. FanDuel price difference, not a real
+         market move).
+      2. Nothing to compare against on the first observation of a line
+         is already handled below (`if not row: continue` / the
+         opening_home/opening_away None check) — the "opening" columns
+         are only ever set once, on INSERT ... ON CONFLICT DO NOTHING
+         in log_odds(), so there's no reading to diff against until a
+         second (retry) call exists.
+      3. A move bigger than LINE_MOVEMENT_DATA_ERROR_PTS for this sport
+         isn't real sharp action — it's logged as a likely data error
+         instead of an alert. See that constant's comment for why the
+         threshold is sport-specific."""
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
     saved = 0
     sharp_hits = []
+    error_threshold = LINE_MOVEMENT_DATA_ERROR_PTS.get(sport)
 
     for game in games:
         home_team = game.get("home_team", "")
         away_team = game.get("away_team", "")
-        home_ml   = None
-        away_ml   = None
-
-        for bm in game.get("bookmakers", []):
-            for market in bm.get("markets", []):
-                if market["key"] == "h2h":
-                    for o in market.get("outcomes", []):
-                        if o["name"] == home_team:
-                            home_ml = o["price"]
-                        elif o["name"] == away_team:
-                            away_ml = o["price"]
+        home_ml, away_ml = _get_h2h_prices(game, home_team, away_team)
 
         if not home_ml or not away_ml:
             continue
@@ -310,6 +347,8 @@ def log_line_movement(sport: str, games: list):
         """, (today, sport, home_team, away_team))
         row = c.fetchone()
 
+        # Nothing to compare against yet -- this is the first line we've
+        # seen for this game today, not a move.
         if not row:
             continue
 
@@ -323,7 +362,12 @@ def log_line_movement(sport: str, games: list):
         movement_away = away_ml - opening_away
 
         sharp = None
-        if abs(movement_home) >= 10:
+        if error_threshold is not None and (abs(movement_home) > error_threshold
+                                             or abs(movement_away) > error_threshold):
+            print(f"  DATA ERROR: {away_team} @ {home_team} — home moved {movement_home} pts, "
+                  f"away moved {movement_away} pts — implausible for {sport.upper()} "
+                  f"(> {error_threshold} pts in one session), logging only, not alerting")
+        elif abs(movement_home) >= 10:
             direction = "shorter" if home_ml < opening_home else "longer"
             sharp = f"HOME line moved {movement_home} pts ({direction}) - possible sharp action"
         elif abs(movement_away) >= 10:

@@ -112,14 +112,53 @@ def get_game_times(sport: str) -> tuple:
     if not endpoint:
         return {}, {}
 
+    # CFB-only, added 2026-09-04: ESPN's scoreboard endpoint silently
+    # defaults to an arbitrary ~25-event subset when called with no
+    # params — confirmed live, and it does NOT reliably include every
+    # real game (Oklahoma State and Boston College's games were both
+    # missing from it). cfb_data.get_cfb_events() already solved this
+    # for the /cfb/edges path with a 7-day date window + groups=80 (FBS)
+    # + limit=200 — same params here return the full ~90-event slate.
+    # This is why every CFB alert showed "Time TBD" this week: the game
+    # simply wasn't anywhere in the unfiltered response to match against.
+    # NFL/WNBA/etc. aren't touched — their default scoreboard call
+    # already returns a coherent "this week" slate with no group
+    # ambiguity (32 NFL teams, one WNBA division), and nothing reported
+    # them broken.
+    params = {}
+    if sport == "cfb":
+        today = datetime.now()
+        params = {
+            "dates": "-".join([
+                today.strftime("%Y%m%d"),
+                (today + timedelta(days=7)).strftime("%Y%m%d"),
+            ]),
+            "groups": "80",
+            "limit": 200,
+        }
+
     url = f"http://site.api.espn.com/apis/site/v2/sports/{endpoint}/scoreboard"
     try:
-        r = requests.get(url, timeout=10)
+        r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
     except Exception as e:
         print(f"ESPN game times error ({sport}): {e}")
         return {}, {}
+
+    # CFB-only, added 2026-09-04: ESPN's displayName is the full mascot
+    # name ("Oklahoma State Cowboys"), but every bet's "game" string uses
+    # this codebase's canonical short name ("Oklahoma State" — the same
+    # FBS_TEAM_IDS key used everywhere else in the CFB pipeline). Even
+    # with the params fix above returning the right events, an exact
+    # dict lookup on "Oklahoma State" against a "Oklahoma State Cowboys"
+    # key still never matches — a second, compounding cause of the same
+    # "Time TBD" symptom. Resolve by ESPN team ID instead, the same way
+    # cfb_data.get_cfb_events() already does it correctly.
+    id_to_team = {}
+    if sport == "cfb":
+        from cfb_data import ID_TO_TEAM
+        id_to_team = ID_TO_TEAM
 
     times     = {}
     times_raw = {}
@@ -130,8 +169,16 @@ def get_game_times(sport: str) -> tuple:
             continue
         comp        = competitions[0]
         competitors = comp.get("competitors", [])
-        home_team   = next((c["team"]["displayName"] for c in competitors if c.get("homeAway") == "home"), "")
-        away_team   = next((c["team"]["displayName"] for c in competitors if c.get("homeAway") == "away"), "")
+        if id_to_team:
+            home_id   = next((c["team"].get("id", "") for c in competitors if c.get("homeAway") == "home"), "")
+            away_id   = next((c["team"].get("id", "") for c in competitors if c.get("homeAway") == "away"), "")
+            home_team = id_to_team.get(str(home_id), "")
+            away_team = id_to_team.get(str(away_id), "")
+            if not home_team or not away_team:
+                continue  # non-FBS opponent (FCS buy game) — not in our team list, nothing to key on
+        else:
+            home_team = next((c["team"]["displayName"] for c in competitors if c.get("homeAway") == "home"), "")
+            away_team = next((c["team"]["displayName"] for c in competitors if c.get("homeAway") == "away"), "")
         utc_time    = event.get("date", "")
         fmt         = format_game_time(utc_time) if utc_time else "Time TBD"
 
@@ -562,17 +609,17 @@ def format_game_card(bet: dict, sport: str, game_time: str) -> str:
 
     context_lines = []
     rec = []
-    if away_record: rec.append(f"{away_team.split()[-1]} {away_record}")
-    if home_record: rec.append(f"{home_team.split()[-1]} {home_record}")
+    if away_record: rec.append(f"{away_team} {away_record}")
+    if home_record: rec.append(f"{home_team} {home_record}")
     if rec: context_lines.append("📋 " + " | ".join(rec))
 
     rest = []
-    if away_rest is not None: rest.append(f"{away_team.split()[-1]}: {away_rest}d rest")
-    if home_rest is not None: rest.append(f"{home_team.split()[-1]}: {home_rest}d rest")
+    if away_rest is not None: rest.append(f"{away_team}: {away_rest}d rest")
+    if home_rest is not None: rest.append(f"{home_team}: {home_rest}d rest")
     if rest: context_lines.append("🔥 " + " | ".join(rest))
 
-    if away_injuries: context_lines.append(f"🚑 {away_team.split()[-1]}: {away_injuries}")
-    if home_injuries: context_lines.append(f"🚑 {home_team.split()[-1]}: {home_injuries}")
+    if away_injuries: context_lines.append(f"🚑 {away_team}: {away_injuries}")
+    if home_injuries: context_lines.append(f"🚑 {home_team}: {home_injuries}")
 
     if context_lines:
         lines.append("───────────────────")
@@ -642,7 +689,7 @@ def format_game_card(bet: dict, sport: str, game_time: str) -> str:
         # blank/wrong team.
 
     lines.append("───────────────────")
-    lines.append(f"📊 {away_team.split()[-1]} {away_prob}% · {home_team.split()[-1]} {home_prob}%")
+    lines.append(f"📊 {away_team} {away_prob}% · {home_team} {home_prob}%")
 
     if has_edge:
         lines.append(f"✅ <b>Pick: {winner} ({winner_prob}%)</b>{odds_str}")

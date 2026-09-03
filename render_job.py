@@ -283,11 +283,27 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
 
             game_times, game_times_raw = get_game_times(sport)
 
-            # date filter still applies before grouping
+            # date filter still applies before grouping.
+            #
+            # Hard rule, added 2026-09-04: an UNKNOWN kickoff time is held,
+            # not assumed to be today. The old `if raw_time and not
+            # is_today_ct(raw_time)` only ever checked "is this today"
+            # when a real time was already known — an empty raw_time (the
+            # exact CFB failure mode: get_game_times("cfb") was silently
+            # returning nothing) short-circuited the whole check and let
+            # the bet through as if it were today's game. That's how a
+            # future Saturday game reached Discord on a Thursday afternoon
+            # run — the date filter never actually ran on it. WNBA hasn't
+            # shown this specific ESPN-lookup bug, but the same "unknown
+            # time falls through as today" gap exists in this exact code
+            # shape, so it gets the same fix regardless.
             todays_bets = []
             for bet in bets:
                 raw_time = get_raw_time_for_bet(bet, game_times_raw)
-                if raw_time and not is_today_ct(raw_time):
+                if not raw_time:
+                    log(f"held: no game time — {bet.get('game')} [{bet.get('market', 'moneyline')}]")
+                    continue
+                if not is_today_ct(raw_time):
                     log(f"Skipping stale game: {bet.get('game')} — {raw_time}")
                     continue
                 todays_bets.append(bet)
@@ -413,7 +429,15 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
         clean_bets = []
         for bet in bets:
             raw_time = get_raw_time_for_bet(bet, game_times_raw)
-            if raw_time and not is_today_ct(raw_time):
+            # Hard rule, added 2026-09-04: unknown kickoff time is held,
+            # not assumed to be today — see the matching fix in the
+            # WNBA/MLB leaner path above for the full explanation. This
+            # is the exact gap that let a Saturday CFB game reach Discord
+            # on a Thursday afternoon run.
+            if not raw_time:
+                log(f"held: no game time — {bet.get('game')} [{bet.get('market', 'moneyline')}]")
+                continue
+            if not is_today_ct(raw_time):
                 log(f"Skipping stale game: {bet.get('game')} — {raw_time}")
                 continue
 
@@ -472,6 +496,17 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
                 parts = game.split(" @ ")
                 if len(parts) == 2:
                     game_time = game_times.get(parts[0], game_times.get(parts[1], "Time TBD"))
+
+            # Hard rule, added 2026-09-04: never send a pick whose kickoff
+            # time we don't actually know. This is what let CFB alerts for
+            # Saturday games go out Thursday afternoon all showing "Time
+            # TBD" — the card still looked complete enough to send, so
+            # nothing caught it. A held pick isn't lost: it stays logged
+            # (log_prediction() above already ran) and will go out on a
+            # later run once get_game_times() actually resolves it.
+            if game_time == "Time TBD":
+                log(f"held: no game time — {game} [{bet.get('market', 'moneyline')}]")
+                continue
 
             if send_discord_alert(format_game_card(bet, sport, game_time), sport):
                 sent_count += 1

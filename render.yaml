@@ -151,7 +151,7 @@ services:
     runtime: python
     schedule: "0 14 * * 6"   # 9 AM CT Saturdays — full Saturday slate
     buildCommand: pip install -r requirements.txt
-    startCommand: python render_job.py --sport ncaaf
+    startCommand: python render_job.py --sport cfb
     envVars:
       - key: ODDS_API_KEY
         sync: false
@@ -167,7 +167,7 @@ services:
     runtime: python
     schedule: "0 22 * * 2,3,4,5"  # 5 PM CT Tue-Fri — mid-week night games
     buildCommand: pip install -r requirements.txt
-    startCommand: python render_job.py --sport ncaaf
+    startCommand: python render_job.py --sport cfb
     envVars:
       - key: ODDS_API_KEY
         sync: false
