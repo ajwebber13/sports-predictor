@@ -75,6 +75,7 @@ def run():
         mock_get.side_effect = [
             _fake_stats_response(total_points_per_game=32.6),
             _fake_team_response(wins=0, losses=0),
+            {"events": []},  # schedule call added 2026-09-02 for real pts_allowed -- empty means no override
         ]
         parsed = cfb_data._fetch_and_parse("Test Team", "999", season=2025)
     results.append(_check(

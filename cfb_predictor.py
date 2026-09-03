@@ -211,6 +211,7 @@ class CFBPredictionEngine:
         spread_line:  float = 0.0,
         over_under:   float = 52.0,
         simulations:  int   = 10000,
+        market_spread: float = None,
     ) -> CFBPrediction:
 
         situational = _get_situational_row(home_stats.team_name, away_stats.team_name, sport="cfb")
@@ -254,6 +255,29 @@ class CFBPredictionEngine:
             )
         except Exception as e:
             print(f"  [CFB] factor logging failed (non-fatal): {e}")
+
+        # Blend toward the market's own spread as a strength-of-schedule/
+        # roster-quality prior. Neither an Elo rating nor a power ranking
+        # is usable for this yet — elo_ratings only has 6 CFB teams with
+        # any real 2026-relevant history (checked live: everyone else is
+        # the neutral 1500 base, no signal) and ranking_engine's CFB
+        # efficiency component has no data source wired up either. Last
+        # season's raw per-game scoring (the only real signal this model
+        # has) misses this year's roster turnover entirely — a completely
+        # different team can share a name and a stat line. The market
+        # line already prices that in, so blending halfway toward it is a
+        # better prior than the model's isolated number until real 2026
+        # results exist to fit on. Applied here (before the sim) rather
+        # than as a display-only adjustment after, so home_win_prob,
+        # cover_prob, and projected_home/away all stay internally
+        # consistent with each other and with the blended margin.
+        if market_spread is not None:
+            raw_margin = exp_home - exp_away
+            market_margin = -market_spread  # spread_line is home's own number (negative if favored)
+            blended_margin = 0.5 * raw_margin + 0.5 * market_margin
+            total = exp_home + exp_away
+            exp_home = (total + blended_margin) / 2
+            exp_away = (total - blended_margin) / 2
 
         # Monte Carlo
         scores_home = np.maximum(np.random.normal(exp_home, SCORE_STD_DEV, simulations), 0)

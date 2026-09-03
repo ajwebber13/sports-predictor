@@ -205,6 +205,26 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     label = f"{away} @ {home}"
     pred_margin = round(pred.projected_home - pred.projected_away, 1)
 
+    # Sanity gate: the market's own implied home margin is -spread_line
+    # (spread_line is home's own number, negative when favored — same
+    # convention as the cover-probability fix elsewhere in this file), so
+    # pred_margin + spread_line is exactly how far apart the model and the
+    # market are on who wins by how much. A model that disagrees with a
+    # real posted line by three touchdowns isn't finding an edge — with no
+    # real defense/SOS signal for this year yet (see cfb_predictor.py's
+    # market_spread blend), a gap this big means the model is working off
+    # bad or stale inputs for one of these two teams, not that it knows
+    # something Vegas doesn't. Only checked when a real line exists —
+    # nothing to sanity-check a projection against otherwise.
+    sanity_ok = True
+    if market["spread_line"] is not None:
+        disagreement = abs(pred_margin + market["spread_line"])
+        if disagreement > 17:
+            sanity_ok = False
+            print(f"[CFB sanity gate] {label}: suppressing moneyline/spread — "
+                  f"model margin {pred_margin:+.1f} vs market spread {market['spread_line']:+.1f} "
+                  f"disagree by {disagreement:.1f} pts (> 17)")
+
     def synth_odds(prob):
         # Fallback ONLY — used when no real h2h odds exist for this game
         # in the feed. Fair odds derived from the model's own probability.
@@ -243,7 +263,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     # games where the odds feed either has no h2h market at all or only
     # posts a price so extreme it fails the sanity filter in
     # get_market_implied() (e.g. -100000/+5000).
-    if best_edge >= min_edge and odds_is_real:
+    if best_edge >= min_edge and odds_is_real and sanity_ok:
         bets.append({
             "game": label, "market": "moneyline",
             "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
@@ -277,7 +297,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         # actually a fair probability to begin with.
         spread_implied_pct = _fair_two_way_prob(spread_odds, other_spread_odds)
         spread_edge_pct = spread_prob - spread_implied_pct
-        if spread_edge_pct >= min_edge:
+        if spread_edge_pct >= min_edge and sanity_ok:
             sign = "+" if spread_line_for_pick > 0 else ""
             bets.append({
                 "game": label, "market": "spread",
@@ -343,7 +363,7 @@ def cfb_edges(simulations: int = Query(default=50000), min_edge: float = Query(d
         market = _get_market_details(events_odds, home, away)
         spread_line = market["spread_line"] if market["spread_line"] is not None else 0.0
         over_under = market["total_line"] if market["total_line"] is not None else DEFAULT_TOTAL
-        pred = engine.predict(home_stats=home_stats, away_stats=away_stats, spread_line=spread_line, over_under=over_under, simulations=simulations)
+        pred = engine.predict(home_stats=home_stats, away_stats=away_stats, spread_line=spread_line, over_under=over_under, simulations=simulations, market_spread=market["spread_line"])
 
         # min_edge is now enforced per-market inside _build_bets_for_game
         # (moneyline included, as of 2026-09-02) so an empty `bets` here
@@ -395,7 +415,7 @@ def cfb_predictions(simulations: int = Query(default=50000), min_edge: float = Q
         market = _get_market_details(events_odds, home, away)
         spread_line = market["spread_line"] if market["spread_line"] is not None else 0.0
         over_under = market["total_line"] if market["total_line"] is not None else DEFAULT_TOTAL
-        pred = engine.predict(home_stats=home_stats, away_stats=away_stats, spread_line=spread_line, over_under=over_under, simulations=simulations)
+        pred = engine.predict(home_stats=home_stats, away_stats=away_stats, spread_line=spread_line, over_under=over_under, simulations=simulations, market_spread=market["spread_line"])
 
         bets, _ = _build_bets_for_game(home, away, pred, events_odds, min_edge)
         results.extend(bets)

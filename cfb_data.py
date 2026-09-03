@@ -230,6 +230,50 @@ def _get(url: str, params: dict = None) -> dict:
         return {}
 
 
+def _get_scoring_from_schedule(team_id: str, season: int = None) -> tuple:
+    """Derives real points-scored and points-allowed per game from
+    completed games in the team's own schedule. ESPN's CFB /statistics
+    endpoint has no points-allowed field at all (confirmed — no
+    "pointsAgainstPerGame"/"pointsAgainst" stat exists in any of its 11
+    categories), which is why pts_allowed used to always fall through to
+    a flat 28.0 default for every team. The opponent's own final score
+    in each completed game IS the points this team allowed that game, so
+    this reads it straight from /teams/{id}/schedule (already fetched
+    elsewhere in this file for get_rest_days()) instead of a stats field
+    that doesn't exist.
+
+    Returns (pts_scored_avg, pts_allowed_avg, games_counted). Returns
+    (None, None, 0) if no completed games with real scores were found."""
+    params = {"season": season} if season else None
+    data = _get(f"{ESPN_BASE}/teams/{team_id}/schedule", params=params)
+    if not data:
+        return None, None, 0
+
+    scored, allowed = [], []
+    for event in data.get("events", []):
+        competitions = event.get("competitions", [{}])
+        if not competitions:
+            continue
+        competitors = competitions[0].get("competitors", [])
+        if len(competitors) < 2:
+            continue
+        own = next((c for c in competitors if str(c.get("team", {}).get("id")) == str(team_id)), None)
+        opp = next((c for c in competitors if str(c.get("team", {}).get("id")) != str(team_id)), None)
+        if not own or not opp:
+            continue
+        own_score = own.get("score", {}).get("value")
+        opp_score = opp.get("score", {}).get("value")
+        if own_score is None or opp_score is None:
+            continue
+        scored.append(own_score)
+        allowed.append(opp_score)
+
+    if not allowed:
+        return None, None, 0
+
+    return round(sum(scored) / len(scored), 1), round(sum(allowed) / len(allowed), 1), len(allowed)
+
+
 def _fetch_and_parse(team_name: str, team_id: str, season: int = None):
     """
     Fetch + parse team stats for a given season (or current if None).
@@ -339,6 +383,21 @@ def _fetch_and_parse(team_name: str, team_id: str, season: int = None):
     if pts_def < 5 or pts_def > 70:   pts_def = 28.0
     if ypp_off < 2 or ypp_off > 10:   ypp_off = 5.5
     if ypp_def < 2 or ypp_def > 10:   ypp_def = 5.5
+
+    # Real points-allowed from the schedule's completed games, replacing
+    # whatever the clamp above just defaulted to. This is the only real
+    # source for it — see _get_scoring_from_schedule()'s docstring — so
+    # it always wins over the 28.0 fallback when any games are found.
+    # pts_off is cross-checked the same way in case the statistics
+    # endpoint's totalPointsPerGame is ever missing/wrong for a team,
+    # but only overrides when the two disagree by more than rounding
+    # noise, so a good statistics-endpoint reading isn't churned for no
+    # reason.
+    sched_scored, sched_allowed, sched_games = _get_scoring_from_schedule(team_id, season)
+    if sched_games > 0:
+        pts_def = sched_allowed
+        if abs(pts_off - sched_scored) > 0.5:
+            pts_off = sched_scored
 
     return CFBTeamStats(
         team_name          = team_name,
