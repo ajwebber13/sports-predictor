@@ -80,8 +80,8 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
     # your highest-volume market — MLB carries most of the graded picks
     # calibration_transform.py was fit on, so this should have the
     # biggest real effect of any of the route patches.
-    model_home = round(apply_calibration(pred["home_win_prob"], "moneyline") * 100, 1)
-    model_away = round(apply_calibration(pred["away_win_prob"], "moneyline") * 100, 1)
+    model_home = round(apply_calibration(pred["home_win_prob"], "moneyline", sport="mlb") * 100, 1)
+    model_away = round(apply_calibration(pred["away_win_prob"], "moneyline", sport="mlb") * 100, 1)
 
     # Remove vig: implied_home/implied_away are converted from real odds
     # separately, so raw they sum to ~104-106% (the vig). Renormalize so
@@ -128,9 +128,9 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
     home_cover_prob = pred.get("home_cover_prob")
     away_cover_prob = pred.get("away_cover_prob")
     if home_cover_prob is not None:
-        home_cover_prob = apply_calibration(home_cover_prob / 100, "spread") * 100
+        home_cover_prob = apply_calibration(home_cover_prob / 100, "spread", sport="mlb") * 100
     if away_cover_prob is not None:
-        away_cover_prob = apply_calibration(away_cover_prob / 100, "spread") * 100
+        away_cover_prob = apply_calibration(away_cover_prob / 100, "spread", sport="mlb") * 100
     if posted_run_line is not None and home_cover_prob is not None:
         home_favored_to_cover = pred_margin > -posted_run_line
         rl_pick = pred["home_team"] if home_favored_to_cover else pred["away_team"]
@@ -172,9 +172,9 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
     over_prob = pred.get("over_prob")
     under_prob = pred.get("under_prob")
     if over_prob is not None:
-        over_prob = apply_calibration(over_prob / 100, "total") * 100
+        over_prob = apply_calibration(over_prob / 100, "total", sport="mlb") * 100
     if under_prob is not None:
-        under_prob = apply_calibration(under_prob / 100, "total") * 100
+        under_prob = apply_calibration(under_prob / 100, "total", sport="mlb") * 100
     if posted_total is not None and over_prob is not None:
         if total_odds:
             over_odds = total_odds["over_odds"]

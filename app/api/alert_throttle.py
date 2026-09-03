@@ -37,12 +37,12 @@ THROTTLE_CONFIG = {
     },
     "nfl": {
         "max_picks":     2,     # fewer games per week, be selective
-        "min_edge":     10.0,
+        "min_edge":     12.0,   # raised 2026-09-02: uncalibrated until 40 graded picks
         "min_prob":     65.0,
     },
     "ncaaf": {
         "max_picks":     3,
-        "min_edge":      8.0,
+        "min_edge":     10.0,   # raised 2026-09-02: uncalibrated until 40 graded picks
         "min_prob":     65.0,
     },
     "ncaab": {

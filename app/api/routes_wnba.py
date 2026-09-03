@@ -164,12 +164,12 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     # top confidence band). If calibration_maps.pkl doesn't exist yet
     # or a market has too few graded samples, apply_calibration()
     # safely returns the raw probability unchanged — nothing breaks.
-    pred.home_win_prob = apply_calibration(pred.home_win_prob, "moneyline") * 100
-    pred.away_win_prob = apply_calibration(pred.away_win_prob, "moneyline") * 100
-    pred.home_cover_prob = apply_calibration(pred.home_cover_prob, "spread") * 100
-    pred.away_cover_prob = apply_calibration(pred.away_cover_prob, "spread") * 100
-    pred.over_prob = apply_calibration(pred.over_prob, "total") * 100
-    pred.under_prob = apply_calibration(pred.under_prob, "total") * 100
+    pred.home_win_prob = apply_calibration(pred.home_win_prob, "moneyline", sport="wnba") * 100
+    pred.away_win_prob = apply_calibration(pred.away_win_prob, "moneyline", sport="wnba") * 100
+    pred.home_cover_prob = apply_calibration(pred.home_cover_prob, "spread", sport="wnba") * 100
+    pred.away_cover_prob = apply_calibration(pred.away_cover_prob, "spread", sport="wnba") * 100
+    pred.over_prob = apply_calibration(pred.over_prob, "total", sport="wnba") * 100
+    pred.under_prob = apply_calibration(pred.under_prob, "total", sport="wnba") * 100
     """Turns one WNBAPrediction into up to 3 bet dicts — moneyline, spread,
     total — instead of the old single moneyline-only dict. Spread/total are
     only included when a real posted line exists AND the model's edge
