@@ -45,8 +45,17 @@ except ImportError:
 DISCORD_WEBHOOK_RECAPS = os.getenv("DISCORD_WEBHOOK_RECAPS", "")
 CENTRAL_OFFSET   = -5
 
-# Add a sport here and every recap (daily + weekly) picks it up automatically.
-SPORTS = ["wnba", "nfl", "cfb", "ncaab", "mlb"]
+# Derived from render_job.ALL_SPORTS (2026-09-03 fix) rather than a
+# separate hardcoded list. This used to be its own independent
+# ["wnba", "nfl", "cfb", "ncaab", "mlb"] — no connection to render_job.py
+# at all — so a sport shelved there (nba/ncaab/mlb are currently
+# "temporarily disabled" per render_job.py's own comment) kept getting
+# its own daily/weekly recap message anyway, from whatever historical
+# results already existed for it. SPORT_LABELS/CLEAN_DATA_START below
+# intentionally keep entries for every sport this file has ever known
+# about — harmless reference data — but only ALL_SPORTS is actually
+# iterated by run(), so a shelved sport now genuinely stays out of it.
+from render_job import ALL_SPORTS as SPORTS
 
 SPORT_LABELS = {
     "wnba":  "🏀 WNBA",
@@ -120,13 +129,32 @@ def format_result_display(r: dict) -> str:
     Brewers" (a team name is not a result for a bet on combined score).
     Grading itself (auto_results.score_prediction) was already correct —
     it compares actual_total to the line, not who won — this was purely
-    a display bug downstream of correct data. Spread bets keep showing
-    the winner for now (out of scope of the total-display bug reported);
-    that display has its own, smaller version of the same issue (winning
-    outright isn't the same as covering) but isn't what was asked here."""
-    if r.get("market") == "total" and r.get("home_score") is not None and r.get("away_score") is not None:
-        actual_total = r["home_score"] + r["away_score"]
-        return f"{r['home_team']} {r['home_score']} - {r['away_score']} {r['away_team']} (Total: {actual_total})"
+    a display bug downstream of correct data.
+
+    Spread got the same treatment right after: "Auburn -7.5 ->
+    Baylor" (the actual_winner) reads as if the pick lost even when
+    Auburn won by 11 and covered comfortably — same root problem, a team
+    name alone doesn't say what actually happened relative to the bet.
+    Now shows the real final score ordered winner-first, regardless of
+    which side (or neither) was picked, since a backdoor cover means the
+    picked team can lose outright and still win the bet — the score
+    line has to describe the real game, not imply the pick's outcome."""
+    home_score, away_score = r.get("home_score"), r.get("away_score")
+    market = r.get("market")
+
+    if market == "total" and home_score is not None and away_score is not None:
+        actual_total = home_score + away_score
+        return f"{r['home_team']} {home_score} - {away_score} {r['away_team']} (Total: {actual_total})"
+
+    if market == "spread" and home_score is not None and away_score is not None:
+        if home_score == away_score:
+            return f"{r['home_team']} {home_score} - {away_score} {r['away_team']} (tied)"
+        if home_score > away_score:
+            winner, w_score, loser, l_score = r["home_team"], home_score, r["away_team"], away_score
+        else:
+            winner, w_score, loser, l_score = r["away_team"], away_score, r["home_team"], home_score
+        return f"{winner} {w_score} - {l_score} {loser} (won by {w_score - l_score})"
+
     return r["actual_winner"]
 
 
