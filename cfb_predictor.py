@@ -40,7 +40,7 @@ LEAGUE_AVG_PPG     = CFB_CONSTANTS["league_avg_pts"]       # 29.0
 LEAGUE_AVG_YPP     = CFB_CONSTANTS["league_avg_ypp"]       # 5.9
 LEAGUE_AVG_TO      = CFB_CONSTANTS["league_avg_to_given"]  # 1.5
 HOME_FIELD_ADV     = CFB_CONSTANTS["home_adv_pts"]         # 3.0
-SCORE_STD_DEV      = CFB_CONSTANTS["score_std_dev"]        # 10.5
+SCORE_STD_DEV      = CFB_CONSTANTS["score_std_dev"]        # 12.0
 
 BYE_WEEK_THRESHOLD = 10     # days since last game to count as a bye
 BYE_WEEK_BONUS     = 1.5    # pts boost coming off a bye
@@ -265,16 +265,31 @@ class CFBPredictionEngine:
         # season's raw per-game scoring (the only real signal this model
         # has) misses this year's roster turnover entirely — a completely
         # different team can share a name and a stat line. The market
-        # line already prices that in, so blending halfway toward it is a
-        # better prior than the model's isolated number until real 2026
-        # results exist to fit on. Applied here (before the sim) rather
-        # than as a display-only adjustment after, so home_win_prob,
-        # cover_prob, and projected_home/away all stay internally
-        # consistent with each other and with the blended margin.
+        # line already prices that in, so blending toward it is a better
+        # prior than the model's isolated number until real 2026 results
+        # exist to fit on. Applied here (before the sim) rather than as a
+        # display-only adjustment after, so home_win_prob, cover_prob, and
+        # projected_home/away all stay internally consistent with each
+        # other and with the blended margin.
+        #
+        # Weighted 0.3 model / 0.7 market (not 50/50) as of 2026-09-03:
+        # tested directly against this week's live slate (31 games with a
+        # real posted line) and the model's OWN raw margin sat closer to
+        # zero than the market's spread in 25 of 31 games (80.6%) — the
+        # stat-only projection has no strength-of-schedule signal at all,
+        # so it systematically underrates blowouts and overrates
+        # close games, in one consistent direction. That's what was
+        # driving the moneyline dog skew (12 of 13 picks were underdogs)
+        # — a directional bias in the raw model, not a variance/std-dev
+        # problem (SCORE_STD_DEV's implied margin std of ~17pts is already
+        # realistic). A 50/50 blend only closes half that systematic gap;
+        # weighting toward the market (which already prices in
+        # SOS/roster/coaching) closes most of it instead. Revisit once
+        # 2026 has enough graded picks to fit a real correction.
         if market_spread is not None:
             raw_margin = exp_home - exp_away
             market_margin = -market_spread  # spread_line is home's own number (negative if favored)
-            blended_margin = 0.5 * raw_margin + 0.5 * market_margin
+            blended_margin = 0.3 * raw_margin + 0.7 * market_margin
             total = exp_home + exp_away
             exp_home = (total + blended_margin) / 2
             exp_away = (total - blended_margin) / 2

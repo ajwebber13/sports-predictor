@@ -28,7 +28,9 @@ Usage:
 
 import os
 import sys
+from contextlib import nullcontext
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -83,6 +85,7 @@ def run():
         home_rest_days=2, away_rest_days=2,
     )
 
+    import app.api.routes_cfb as routes_cfb
     from app.api.routes_cfb import _build_bets_for_game as cfb_build
     from app.api.routes_nfl import _build_bets_for_game as nfl_build
     from app.api.routes_wnba import _build_bets_for_game as wnba_build
@@ -90,21 +93,37 @@ def run():
     for label, build_fn, pred in [("CFB", cfb_build, pred_football),
                                     ("NFL", nfl_build, pred_football),
                                     ("WNBA", wnba_build, pred_wnba)]:
-        bets_fake, _ = build_fn("BigSchool", "TinySchool", pred, EVENTS_ODDS_FAKE, min_edge=3.0)
-        markets_fake = [b["market"] for b in bets_fake]
-        results.append(_check(
-            f"{label}: no-real-odds moneyline is dropped",
-            "moneyline" not in markets_fake,
-            f"markets={markets_fake}",
-        ))
+        # CFB moneyline is globally disabled as of 2026-09-03
+        # (CFB_MONEYLINE_ENABLED, routes_cfb.py) pending real 2026 data --
+        # the odds_is_real gate underneath it still needs to be proven
+        # separately, so this test forces the flag on for CFB only while
+        # checking that gate specifically.
+        patch_ctx = patch.object(routes_cfb, "CFB_MONEYLINE_ENABLED", True) if label == "CFB" else nullcontext()
+        with patch_ctx:
+            bets_fake, _ = build_fn("BigSchool", "TinySchool", pred, EVENTS_ODDS_FAKE, min_edge=3.0)
+            markets_fake = [b["market"] for b in bets_fake]
+            results.append(_check(
+                f"{label}: no-real-odds moneyline is dropped",
+                "moneyline" not in markets_fake,
+                f"markets={markets_fake}",
+            ))
 
-        bets_real, _ = build_fn("BigSchool", "TinySchool", pred, EVENTS_ODDS_REAL, min_edge=3.0)
-        markets_real = [b["market"] for b in bets_real]
-        results.append(_check(
-            f"{label}: real-odds moneyline still emitted",
-            "moneyline" in markets_real,
-            f"markets={markets_real}",
-        ))
+            bets_real, _ = build_fn("BigSchool", "TinySchool", pred, EVENTS_ODDS_REAL, min_edge=3.0)
+            markets_real = [b["market"] for b in bets_real]
+            results.append(_check(
+                f"{label}: real-odds moneyline still emitted",
+                "moneyline" in markets_real,
+                f"markets={markets_real}",
+            ))
+
+    # And separately: confirm CFB moneyline is off by default (the flag,
+    # not just the odds gate) even with real odds available.
+    bets_cfb_default, _ = cfb_build("BigSchool", "TinySchool", pred_football, EVENTS_ODDS_REAL, min_edge=3.0)
+    results.append(_check(
+        "CFB: moneyline stays off by default (CFB_MONEYLINE_ENABLED = False) even with real odds",
+        "moneyline" not in [b["market"] for b in bets_cfb_default],
+        f"markets={[b['market'] for b in bets_cfb_default]}",
+    ))
 
     print()
     if all(results):

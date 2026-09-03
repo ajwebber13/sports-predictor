@@ -183,9 +183,26 @@ def run():
     bets_ok, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_ok, events_odds, min_edge=3.0)
     markets_ok = [b["market"] for b in bets_ok]
     results.append(_check(
-        "10pt disagreement (within the 17pt gate) still emits bets",
-        "moneyline" in markets_ok or "spread" in markets_ok,
+        "10pt disagreement (within the 17pt gate) still emits a spread bet",
+        "spread" in markets_ok,
         f"markets={markets_ok}",
+    ))
+    results.append(_check(
+        "moneyline never emits for CFB regardless of edge (CFB_MONEYLINE_ENABLED = False)",
+        "moneyline" not in markets_ok,
+        f"markets={markets_ok}",
+    ))
+
+    # Prove the flag is actually gating something real, not vacuously true
+    # because this case never had a qualifying moneyline edge anyway.
+    import app.api.routes_cfb as routes_cfb
+    with patch.object(routes_cfb, "CFB_MONEYLINE_ENABLED", True):
+        bets_flag_on, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_ok, events_odds, min_edge=3.0)
+    markets_flag_on = [b["market"] for b in bets_flag_on]
+    results.append(_check(
+        "...but the same case DOES qualify for moneyline when the flag is True",
+        "moneyline" in markets_flag_on,
+        f"markets={markets_flag_on}",
     ))
 
     # Real boundary case found live: Ohio State -50.5 vs Ball State, model's

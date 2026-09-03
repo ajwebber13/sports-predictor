@@ -10,6 +10,19 @@ router = APIRouter(prefix="/cfb", tags=["CFB"])
 
 DEFAULT_TOTAL = 52.0
 
+# Added 2026-09-03: the raw stat-based model has no strength-of-schedule
+# signal, and directly caused a moneyline dog skew (12 of 13 picks were
+# underdogs this week) — confirmed by testing the model's own pre-blend
+# margin against this week's live slate: it sat closer to zero than the
+# market's spread in 25 of 31 games (80.6%), a one-directional bias, not
+# noise. The market-spread blend in cfb_predictor.py (now weighted 0.3
+# model / 0.7 market) helps, but moneyline is the market most directly
+# exposed to that bias since it's a single win/loss call with no line
+# cushion. Spread and total are left on — the 17pt sanity gate and 85%
+# cover-prob cap already guard those. Flip back to True once 2026 has
+# enough graded picks to fit a real correction instead of a blend guess.
+CFB_MONEYLINE_ENABLED = False
+
 
 def _fair_two_way_prob(picked_side_odds: int, other_side_odds: int) -> float:
     """Converts a two-sided real price into the fair (no-vig)
@@ -263,7 +276,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     # games where the odds feed either has no h2h market at all or only
     # posts a price so extreme it fails the sanity filter in
     # get_market_implied() (e.g. -100000/+5000).
-    if best_edge >= min_edge and odds_is_real and sanity_ok:
+    if CFB_MONEYLINE_ENABLED and best_edge >= min_edge and odds_is_real and sanity_ok:
         bets.append({
             "game": label, "market": "moneyline",
             "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
