@@ -73,14 +73,25 @@ def get_edge_pct(bet: dict) -> float:
 
 
 def get_confidence(bet: dict) -> float:
-    """Get model confidence for the picked team."""
-    model_prob  = bet.get("model_prob", 50)
-    game        = bet.get("game", "")
-    bet_label   = bet.get("bet", "")
-    parts       = game.split(" @ ")
-    home_team   = parts[1] if len(parts) == 2 else ""
-    bet_on_home = home_team.lower() in bet_label.lower()
-    return model_prob if bet_on_home else round(100 - model_prob, 1)
+    """Get model confidence in the picked side actually hitting.
+
+    FIXED 2026-09-03: this used to assume model_prob was always the HOME
+    team's probability and flipped it (100 - model_prob) whenever the
+    picked team's name wasn't found in the bet label. That's the exact
+    bug already fixed in telegram_alerts.get_recommended_prob() weeks
+    ago (see that function's docstring) — every route now computes
+    model_prob as the confidence in the actual recommended pick, for
+    every market, home or away. It was never updated here too. Worse for
+    "total" bets specifically: the label is "Over 50.5"/"Under 50.5",
+    which never contains a team name at all, so bet_on_home was always
+    False and EVERY total bet's confidence got silently inverted — a
+    real 71% confidence Over was read as 29%, well under this module's
+    65% floor, suppressing correct high-confidence picks and potentially
+    letting real low-confidence ones through the edge filter's blind
+    spot instead. Confirmed live on Tulane @ Duke's Over 50.5 pick
+    (model_prob=71.0, cleanly above the bar) getting suppressed as
+    29.0%. Trust model_prob directly — no home/away logic needed."""
+    return round(float(bet.get("model_prob", 50)), 1)
 
 
 def get_game_key(bet: dict) -> str:
