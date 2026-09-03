@@ -297,7 +297,18 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         # actually a fair probability to begin with.
         spread_implied_pct = _fair_two_way_prob(spread_odds, other_spread_odds)
         spread_edge_pct = spread_prob - spread_implied_pct
-        if spread_edge_pct >= min_edge and sanity_ok:
+        # Direct cap on spread_prob itself, separate from the margin-
+        # disagreement sanity gate above. That gate only bounds how far
+        # apart the model and market are on the MARGIN — it doesn't bound
+        # the resulting cover PROBABILITY, since that also depends on
+        # SCORE_STD_DEV. A 17-point disagreement can still simulate out to
+        # a near-certain cover prob (confirmed: Ohio State -50.5 vs a
+        # blended model margin of +33.5 is exactly a 17.0pt disagreement —
+        # right at, not over, the gate's threshold — yet still simulates
+        # to 88% for Ball State covering). No model here has enough real
+        # signal this season to justify claiming near-certainty on a
+        # spread; 85% is that ceiling.
+        if spread_edge_pct >= min_edge and sanity_ok and spread_prob <= 85:
             sign = "+" if spread_line_for_pick > 0 else ""
             bets.append({
                 "game": label, "market": "spread",

@@ -188,6 +188,37 @@ def run():
         f"markets={markets_ok}",
     ))
 
+    # Real boundary case found live: Ohio State -50.5 vs Ball State, model's
+    # blended margin +33.5 -> disagreement = |33.5 + (-50.5)| = 17.0, which
+    # is NOT > 17, so the margin-disagreement gate alone lets it through --
+    # yet it still simulates to 88% for Ball State covering. The separate
+    # spread_prob <= 85 cap exists specifically to catch this.
+    events_odds_boundary = [{
+        "home_team": "BigFavorite", "away_team": "BigDog",
+        "bookmakers": [{"markets": [
+            {"key": "h2h", "outcomes": [{"name": "BigFavorite", "price": -1500}, {"name": "BigDog", "price": 800}]},
+            {"key": "spreads", "outcomes": [
+                {"name": "BigFavorite", "price": -110, "point": -50.5},
+                {"name": "BigDog", "price": -110, "point": 50.5},
+            ]},
+        ]}],
+    }]
+    pred_boundary = SimpleNamespace(
+        home_win_prob=99.0, away_win_prob=1.0,
+        projected_home=40.3, projected_away=6.8, projected_total=47.1,  # margin +33.5
+        home_cover_prob=11.8, away_cover_prob=88.2,
+        over_prob=50.0, under_prob=50.0,
+        home_record="6-0", away_record="0-6",
+        home_rest_days=7, away_rest_days=7,
+    )
+    bets_boundary, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_boundary, events_odds_boundary, min_edge=3.0)
+    markets_boundary = [b["market"] for b in bets_boundary]
+    results.append(_check(
+        "88% spread cover prob is suppressed even though margin disagreement is exactly 17.0 (not > 17)",
+        "spread" not in markets_boundary,
+        f"markets={markets_boundary}",
+    ))
+
     print()
     if all(results):
         print(f"All {len(results)} tests passed.")
