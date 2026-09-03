@@ -213,7 +213,14 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
 
     # ---- Spread ----
     if market["spread_line"] is not None:
-        home_favored_to_cover = pred_margin > 0
+        # Pick whichever side actually has the higher cover probability
+        # against the real spread line — same pattern moneyline (edge_home
+        # vs edge_away) and total (over_edge_pct vs under_edge_pct) already
+        # use below. This used to be `pred_margin > 0`, which only reflects
+        # who's projected to win outright and disagrees with cover_prob
+        # any time the spread line isn't ~0 (a big favorite projected to
+        # win by a little was picked to cover instead of the underdog).
+        home_favored_to_cover = pred.home_cover_prob >= pred.away_cover_prob
         spread_pick = home if home_favored_to_cover else away
         spread_line_for_pick = market["spread_line"] if home_favored_to_cover else -market["spread_line"]
         spread_prob = pred.home_cover_prob if home_favored_to_cover else pred.away_cover_prob

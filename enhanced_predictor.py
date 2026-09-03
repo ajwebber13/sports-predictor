@@ -332,8 +332,12 @@ class EnhancedPredictionEngine:
 
         win_a   = np.sum(scores_a > scores_b) / n * 100
         win_b   = np.sum(scores_b > scores_a) / n * 100
-        cover_a = np.sum(margin > spread_line) / n * 100
-        cover_b = np.sum(margin < spread_line) / n * 100
+        # Cover condition is margin + spread_line > 0 (see auto_results.py's
+        # actual grading formula and mlb_predictor.py's run_line handling)
+        # — spread_line is negative for the favorite, so a team laying 14
+        # needs margin > 14, not margin > -14.
+        cover_a = np.sum(margin > -spread_line) / n * 100
+        cover_b = np.sum(margin < -spread_line) / n * 100
         over_p  = np.sum((scores_a + scores_b) > over_under) / n * 100
         under_p = np.sum((scores_a + scores_b) < over_under) / n * 100
 

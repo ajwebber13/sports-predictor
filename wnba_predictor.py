@@ -270,8 +270,12 @@ class WNBAPredictionEngine:
 
         home_win  = round(float(np.sum(scores_home > scores_away) / n * 100), 1)
         away_win  = round(float(np.sum(scores_away > scores_home) / n * 100), 1)
-        home_cov  = round(float(np.sum(margin > spread_line) / n * 100), 1)
-        away_cov  = round(float(np.sum(margin < spread_line) / n * 100), 1)
+        # Cover condition is margin + spread_line > 0 (see auto_results.py's
+        # actual grading formula and mlb_predictor.py's run_line handling)
+        # — spread_line is negative for the favorite, so a team laying 14
+        # needs margin > 14, not margin > -14.
+        home_cov  = round(float(np.sum(margin > -spread_line) / n * 100), 1)
+        away_cov  = round(float(np.sum(margin < -spread_line) / n * 100), 1)
         over_p    = round(float(np.sum((scores_home + scores_away) > over_under) / n * 100), 1)
         under_p   = round(float(np.sum((scores_home + scores_away) < over_under) / n * 100), 1)
 
