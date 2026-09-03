@@ -42,6 +42,16 @@ SPORT_ENDPOINTS = {
     "mlb":   f"{API_BASE}/mlb/edges",
 }
 
+# nba has no dedicated predictor module yet (no routes_nba.py either) —
+# nothing to check for it here.
+SPORT_PREDICTOR_MODULES = {
+    "wnba":  "wnba_predictor",
+    "nfl":   "nfl_predictor",
+    "cfb":   "cfb_predictor",
+    "ncaab": "ncaab_predictor",
+    "mlb":   "mlb_predictor",
+}
+
 
 # ─────────────────────────────────────────────────────────────
 # HELPERS
@@ -61,6 +71,30 @@ def wake_api():
         log("API awake.")
     except Exception as e:
         log(f"Wake ping failed: {e}")
+
+
+def check_predictor_imports():
+    """Import every sport's predictor module and warn that sport's
+    Discord channel if the import fails. Added 2026-09-02 after
+    nfl_predictor.py was silently reduced to a single stray character
+    by commit 073e8c3 and stayed that way for weeks — /nfl/edges 500'd
+    on every call, but nothing surfaced it because the failure happened
+    on the API service, not here. Runs against this same repo checkout
+    (render_job.py and the API service deploy from the same code), so
+    a wiped/corrupted predictor file gets caught here even for a sport
+    that isn't in this run's `sports` list."""
+    import importlib
+    for sport, module_name in SPORT_PREDICTOR_MODULES.items():
+        try:
+            importlib.import_module(module_name)
+        except Exception as e:
+            log(f"STARTUP CHECK FAILED: {module_name}.py ({sport}) — {e}")
+            send_discord_alert(
+                f"⚠️ <b>{sport.upper()} predictor import failed</b>\n"
+                f"<code>{module_name}.py</code>: {e}\n"
+                f"{sport.upper()} edges will not run until this is fixed.",
+                sport,
+            )
 
 
 def send_discord_alert(text: str, sport: str = None) -> bool:
@@ -406,6 +440,23 @@ def run_alerts(sport: str, skip_if_already_alerted: bool = False) -> bool:
             log(f"No {sport.upper()} bets met confidence threshold.")
             return False
 
+        # ── THROTTLE: per-sport edge/confidence floor, one pick per
+        # game, and a max-picks cap (see alert_throttle.THROTTLE_CONFIG)
+        # — same filter the WNBA/MLB leaner path gets via
+        # game_pick_selector, now applied here too so NFL/CFB/etc. can't
+        # blow past the min_edge floor set for them.
+        try:
+            from alert_throttle import throttle_bets
+            clean_bets, suppressed, throttle_log = throttle_bets(clean_bets, sport)
+            log(throttle_log)
+        except Exception as e:
+            log(f"Throttle error — falling back to confidence filter: {e}")
+            clean_bets = [b for b in clean_bets if get_recommended_prob(b) >= 55]
+
+        if not clean_bets:
+            log(f"No {sport.upper()} bets survived throttle.")
+            return False
+
         sent_count = 0
         for bet in clean_bets:
             try:
@@ -465,6 +516,8 @@ def run(sports: list, retry: bool = False):
     log(f"Culture & Pulse — {label} — {datetime.now().strftime('%A %B %d, %Y')}")
     log(f"Sports: {', '.join(s.upper() for s in sports)}")
     log("══════════════════════════════════════════════")
+
+    check_predictor_imports()
 
     wake_api()
 
