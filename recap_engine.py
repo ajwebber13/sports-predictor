@@ -97,7 +97,8 @@ def get_results(sport: str, start_date: str, end_date: str) -> list:
     c = conn.cursor()
     c.execute("""
         SELECT r.date, r.sport, r.game, r.actual_winner, r.correct,
-               p.bet, p.edge, p.odds, p.predicted_winner
+               r.home_team, r.away_team, r.home_score, r.away_score,
+               p.bet, p.edge, p.odds, p.predicted_winner, p.market, p.line
         FROM results r
         JOIN predictions p ON r.prediction_id = p.id
         WHERE r.sport = ?
@@ -108,6 +109,25 @@ def get_results(sport: str, start_date: str, end_date: str) -> list:
     rows = [dict(row) for row in c.fetchall()]
     conn.close()
     return rows
+
+
+def format_result_display(r: dict) -> str:
+    """What actually happened, for the recap's "Pick: ... -> result" line.
+
+    FIXED 2026-09-03: this used to always show r['actual_winner'] (a
+    team name) regardless of market — meaningless for a total pick like
+    "Over 8.5", which produced results like "Over 8.5 -> Milwaukee
+    Brewers" (a team name is not a result for a bet on combined score).
+    Grading itself (auto_results.score_prediction) was already correct —
+    it compares actual_total to the line, not who won — this was purely
+    a display bug downstream of correct data. Spread bets keep showing
+    the winner for now (out of scope of the total-display bug reported);
+    that display has its own, smaller version of the same issue (winning
+    outright isn't the same as covering) but isn't what was asked here."""
+    if r.get("market") == "total" and r.get("home_score") is not None and r.get("away_score") is not None:
+        actual_total = r["home_score"] + r["away_score"]
+        return f"{r['home_team']} {r['home_score']} - {r['away_score']} {r['away_team']} (Total: {actual_total})"
+    return r["actual_winner"]
 
 
 def parse_odds(odds_str):
@@ -153,7 +173,7 @@ def sport_daily_block(sport: str, date_str: str):
         icon = "✅" if r["correct"] == 1 else "❌"
         edge_str = f" | Edge +{r['edge']}%" if r["edge"] and r["edge"] >= 10 else ""
         lines.append(f"  {icon} {r['game']}")
-        lines.append(f"     Pick: {r['bet']}{edge_str} → <b>{r['actual_winner']}</b>")
+        lines.append(f"     Pick: {r['bet']}{edge_str} → <b>{format_result_display(r)}</b>")
 
     return "\n".join(lines), wins, len(rows)
 
