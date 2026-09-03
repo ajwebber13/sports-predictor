@@ -270,7 +270,16 @@ def _fetch_and_parse(team_name: str, team_id: str, season: int = None):
     for cat in categories:
         for stat in cat.get("stats", []):
             name = stat["name"]
-            val  = stat.get("perGameValue", stat.get("value", 0.0))
+            if name.endswith("PerGame"):
+                # ESPN's own perGameValue for an already-per-game stat is
+                # unreliable — confirmed on Georgia 2024: totalPointsPerGame
+                # had value=32.6 (real, matches totalPoints/gamesPlayed) but
+                # perGameValue=7.1 (garbage). value is already the correct
+                # per-game number for these, so use it directly instead of
+                # re-deriving from a second, ESPN-computed per-game field.
+                val = stat.get("value", 0.0)
+            else:
+                val = stat.get("perGameValue", stat.get("value", 0.0))
             all_stats[name] = float(val)
 
     # No stat categories at all — genuinely nothing available for this
@@ -386,8 +395,17 @@ def get_team_stats(team_name: str):
     if current and (current.wins + current.losses) > 0:
         return current
 
+    # This fallback only runs when `current` has zero games recorded for
+    # the season labeled with today's calendar year — by definition that
+    # means this year's season hasn't produced any real games yet, so the
+    # most recently completed season is always last calendar year's,
+    # regardless of month. (The old month<8 check got this backwards for
+    # September-before-kickoff: month=9 >= 8 resolved to the CURRENT
+    # (empty) year instead of last year's real, finished season, so this
+    # request 404'd and the function fell all the way back to `current`'s
+    # near-empty stub stats instead of ever finding real prior data.)
     from datetime import datetime
-    last_year = datetime.now().year - 1 if datetime.now().month < 8 else datetime.now().year
+    last_year = datetime.now().year - 1
     prior = _fetch_and_parse(team_name, team_id, season=last_year)
     if prior is not None:
         prior.wins = prior.losses = 0
