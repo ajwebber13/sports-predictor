@@ -44,7 +44,7 @@ CENTRAL_OFFSET   = -5  # CDT
 
 ESPN_SCHEDULE_ENDPOINTS = {
     "nfl":   "football/nfl",
-    "ncaaf": "football/college-football",
+    "cfb":   "football/college-football",
     "nba":   "basketball/nba",
     "ncaab": "basketball/mens-college-basketball",
     "ncaaw": "basketball/womens-college-basketball",
@@ -54,7 +54,7 @@ ESPN_SCHEDULE_ENDPOINTS = {
 
 SEASON_WINDOWS = {
     "nfl":   (9, 2),
-    "ncaaf": (8, 1),
+    "cfb":   (8, 1),
     "ncaab": (11, 4),
     "ncaaw": (11, 4),
     "wnba":  (5, 10),
@@ -146,15 +146,17 @@ def get_game_times(sport: str) -> tuple:
 def _webhook_for(sport: str) -> str:
     """Routes to the sport's own Discord channel, added 2026-07-23 —
     Discord is now organized per sport instead of by content type.
-    'ncaaf' is mapped to 'cfb' since that's this file's internal key
-    for college football, but the actual channel/env var is
-    DISCORD_WEBHOOK_CFB. Falls back to the old DISCORD_WEBHOOK_GAME_PICKS
-    constant for any sport without its own channel yet (nba, ncaaw) or
-    if the sport-specific env var isn't set — never silently drops a
-    message just because a channel doesn't exist yet."""
+    College football's key is 'cfb' throughout this file (standardized
+    2026-09-02 — it used to be 'ncaaf' here while render_job.py and the
+    API routes already used 'cfb', which meant ESPN schedule lookups,
+    season gates, and throttle config silently no-op'd for CFB). The
+    actual channel/env var is DISCORD_WEBHOOK_CFB. Falls back to the
+    old DISCORD_WEBHOOK_GAME_PICKS constant for any sport without its
+    own channel yet (nba, ncaaw) or if the sport-specific env var isn't
+    set — never silently drops a message just because a channel
+    doesn't exist yet."""
     from discord_alerts import get_webhook_for_sport
-    sport_key = "cfb" if sport == "ncaaf" else sport
-    return get_webhook_for_sport(sport_key) or DISCORD_WEBHOOK_GAME_PICKS
+    return get_webhook_for_sport(sport) or DISCORD_WEBHOOK_GAME_PICKS
 
 
 def send_message(text: str, sport: str = None):
@@ -163,12 +165,12 @@ def send_message(text: str, sport: str = None):
     send_discord_message(html_to_discord_markdown(text), webhook_url=webhook)
 
 def sport_emoji(sport: str) -> str:
-    return "🏈" if sport in ["ncaaf", "nfl"] else "⚾" if sport == "mlb" else "🏀"
+    return "🏈" if sport in ["cfb", "nfl"] else "⚾" if sport == "mlb" else "🏀"
 
 
 def sport_label(sport: str) -> str:
     labels = {
-        "ncaaf": "College Football",
+        "cfb":   "College Football",
         "nfl":   "NFL",
         "ncaab": "College Basketball (Men)",
         "ncaaw": "College Basketball (Women)",
@@ -380,7 +382,7 @@ def format_no_games(sport: str) -> str:
 def get_edges_url(sport: str, simulations: int) -> str:
     endpoints = {
         "nfl":   f"{API_BASE}/nfl/edges",
-        "ncaaf": f"{API_BASE}/ncaaf/edges",
+        "cfb":   f"{API_BASE}/cfb/edges",
         "ncaab": f"{API_BASE}/ncaab/edges",
         "ncaaw": f"{API_BASE}/ncaaw/edges",
         "wnba":  f"{API_BASE}/wnba/edges",
@@ -397,7 +399,7 @@ def get_edges_url(sport: str, simulations: int) -> str:
 # MAIN
 # ─────────────────────────────────────────────────────────────
 
-def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
+def run_alerts(sport: str = "cfb", simulations: int = 10000):
     emoji       = sport_emoji(sport)
     label       = sport_label(sport)
     today_label = get_today_ct().strftime("%B %d, %Y")
@@ -511,7 +513,7 @@ def run_alerts(sport: str = "ncaaf", simulations: int = 10000):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sport", default="ncaaf")
+    parser.add_argument("--sport", default="cfb")
     parser.add_argument("--sims", type=int, default=10000)
     args = parser.parse_args()
     run_alerts(sport=args.sport, simulations=args.sims)
