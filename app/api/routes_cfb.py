@@ -291,6 +291,23 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
 
     # ---- Spread ----
     if market["spread_line"] is not None:
+        # Suppress spread bets on buy-game blowout lines (|spread| >= 21).
+        # These are exactly where the strength-of-schedule gap this model
+        # can't see is worst — a major program vs. a G5/FCS-tier opponent
+        # taken for a guaranteed payday — and where garbage-time scoring
+        # (backups in by the third quarter, both sides easing off) makes
+        # the final margin mostly noise the model has no signal on either.
+        # The 17pt sanity gate and 85% cover-prob cap catch some of this
+        # already, but a model that's simply wrong in a consistent
+        # direction (see cfb_predictor.py's market-spread blend notes) can
+        # still clear both while sitting on a genuinely unpredictable
+        # buy-game number.
+        blowout_line = abs(market["spread_line"]) >= 21
+        if blowout_line:
+            print(f"[CFB spread suppressed] {label}: posted line {market['spread_line']:+.1f} "
+                  f"is a buy-game blowout (|line| >= 21) — no real signal on backup-heavy, "
+                  f"garbage-time-driven margins")
+
         # Pick whichever side actually has the higher cover probability
         # against the real spread line — same pattern moneyline (edge_home
         # vs edge_away) and total (over_edge_pct vs under_edge_pct) already
@@ -321,7 +338,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         # to 88% for Ball State covering). No model here has enough real
         # signal this season to justify claiming near-certainty on a
         # spread; 85% is that ceiling.
-        if spread_edge_pct >= min_edge and sanity_ok and spread_prob <= 85:
+        if spread_edge_pct >= min_edge and sanity_ok and spread_prob <= 85 and not blowout_line:
             sign = "+" if spread_line_for_pick > 0 else ""
             bets.append({
                 "game": label, "market": "spread",

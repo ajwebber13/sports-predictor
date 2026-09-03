@@ -172,15 +172,28 @@ def run():
         f"markets={markets_bad}",
     ))
 
+    # Own odds fixture with a non-blowout line (|line| < 21) so this case
+    # isolates the margin-disagreement gate specifically, unaffected by
+    # the separate blowout-line suppression tested further below.
+    events_odds_moderate = [{
+        "home_team": "BigFavorite", "away_team": "BigDog",
+        "bookmakers": [{"markets": [
+            {"key": "h2h", "outcomes": [{"name": "BigFavorite", "price": -300}, {"name": "BigDog", "price": 250}]},
+            {"key": "spreads", "outcomes": [
+                {"name": "BigFavorite", "price": -110, "point": -18.0},
+                {"name": "BigDog", "price": -110, "point": 18.0},
+            ]},
+        ]}],
+    }]
     pred_ok = SimpleNamespace(
-        home_win_prob=95.0, away_win_prob=5.0,
-        projected_home=42.0, projected_away=12.0, projected_total=54.0,  # margin +30, market wants +40
-        home_cover_prob=35.0, away_cover_prob=65.0,
+        home_win_prob=90.0, away_win_prob=10.0,
+        projected_home=44.0, projected_away=16.0, projected_total=60.0,  # margin +28, market wants +18
+        home_cover_prob=65.0, away_cover_prob=35.0,
         over_prob=50.0, under_prob=50.0,
         home_record="6-0", away_record="0-6",
         home_rest_days=7, away_rest_days=7,
     )
-    bets_ok, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_ok, events_odds, min_edge=3.0)
+    bets_ok, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_ok, events_odds_moderate, min_edge=3.0)
     markets_ok = [b["market"] for b in bets_ok]
     results.append(_check(
         "10pt disagreement (within the 17pt gate) still emits a spread bet",
@@ -197,7 +210,7 @@ def run():
     # because this case never had a qualifying moneyline edge anyway.
     import app.api.routes_cfb as routes_cfb
     with patch.object(routes_cfb, "CFB_MONEYLINE_ENABLED", True):
-        bets_flag_on, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_ok, events_odds, min_edge=3.0)
+        bets_flag_on, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_ok, events_odds_moderate, min_edge=3.0)
     markets_flag_on = [b["market"] for b in bets_flag_on]
     results.append(_check(
         "...but the same case DOES qualify for moneyline when the flag is True",
@@ -234,6 +247,48 @@ def run():
         "88% spread cover prob is suppressed even though margin disagreement is exactly 17.0 (not > 17)",
         "spread" not in markets_boundary,
         f"markets={markets_boundary}",
+    ))
+
+    # ---- Blowout-line suppression (2026-09-03) ----
+    print("\nTesting CFB blowout-line spread suppression (|spread_line| >= 21)...")
+
+    pred_blowout = SimpleNamespace(
+        home_win_prob=85.0, away_win_prob=15.0,
+        projected_home=31.0, projected_away=21.0, projected_total=52.0,  # margin +10
+        home_cover_prob=70.0, away_cover_prob=30.0,
+        over_prob=50.0, under_prob=50.0,
+        home_record="5-1", away_record="1-5",
+        home_rest_days=7, away_rest_days=7,
+    )
+
+    def _events_odds_with_line(line: float) -> list:
+        return [{
+            "home_team": "BigFavorite", "away_team": "BigDog",
+            "bookmakers": [{"markets": [
+                {"key": "h2h", "outcomes": [{"name": "BigFavorite", "price": -300}, {"name": "BigDog", "price": 250}]},
+                {"key": "spreads", "outcomes": [
+                    {"name": "BigFavorite", "price": -110, "point": line},
+                    {"name": "BigDog", "price": -110, "point": -line},
+                ]},
+            ]}],
+        }]
+
+    # Exactly at the threshold -- |line| == 21 must suppress (>=, not >).
+    bets_blowout, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_blowout,
+                                            _events_odds_with_line(-21.0), min_edge=3.0)
+    results.append(_check(
+        "spread suppressed at exactly |line| = 21",
+        "spread" not in [b["market"] for b in bets_blowout],
+        f"markets={[b['market'] for b in bets_blowout]}",
+    ))
+
+    # Just under the threshold, everything else equal -- must still emit.
+    bets_not_blowout, _ = _build_bets_for_game("BigFavorite", "BigDog", pred_blowout,
+                                                _events_odds_with_line(-20.0), min_edge=3.0)
+    results.append(_check(
+        "spread still emitted at |line| = 20 (just under the threshold)",
+        "spread" in [b["market"] for b in bets_not_blowout],
+        f"markets={[b['market'] for b in bets_not_blowout]}",
     ))
 
     print()
