@@ -40,6 +40,33 @@ def _fair_two_way_prob(picked_side_odds: int, other_side_odds: int) -> float:
         return 50.0
 
 
+def _match_team_side(name: str, home: str, away: str) -> str | None:
+    """Decides whether an odds-feed outcome name belongs to the home or
+    away team. Exact match is tried first and wins outright — only when
+    neither side matches exactly does this fall back to substring
+    containment. Added 2026-09-02: plain `if home in name` / `elif away
+    in name` silently misfiled real odds any time one team's name is a
+    substring of the other's, which is common in CFB (Ohio/Ohio State,
+    Texas/Texas A&M, Michigan/Michigan State, Washington/Washington
+    State, ...). For an "Ohio State" outcome with home="Ohio", the old
+    code matched home first (`"ohio" in "ohio state"`) and never let
+    away get a chance — both outcomes ended up filed under home, away's
+    list stayed empty, and the whole game silently fell back to a fake
+    50/50 with no real price at all."""
+    name_l, home_l, away_l = name.lower(), home.lower(), away.lower()
+    if name_l == home_l:
+        return "home"
+    if name_l == away_l:
+        return "away"
+    home_hit = home_l in name_l
+    away_hit = away_l in name_l
+    if home_hit and not away_hit:
+        return "home"
+    if away_hit and not home_hit:
+        return "away"
+    return None
+
+
 def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
     """Returns (implied_home_pct, implied_away_pct, real_home_odds, real_away_odds).
     implied_*_pct are NO-VIG (fair) probabilities, renormalized to sum to
@@ -63,13 +90,14 @@ def get_market_implied(events_odds: list, home: str, away: str) -> tuple:
                     continue
                 for o in market.get("outcomes", []):
                     price = o.get("price", 0)
-                    name = (o.get("name") or "").lower()
+                    name = (o.get("name") or "")
                     if abs(price) > 2000:
                         continue
                     prob = round(american_to_implied(price) * 100, 1)
-                    if home.lower() in name:
+                    side = _match_team_side(name, home, away)
+                    if side == "home":
                         home_pairs.append((prob, price))
-                    elif away.lower() in name:
+                    elif side == "away":
                         away_pairs.append((prob, price))
     if not home_pairs or not away_pairs:
         return 50.0, 50.0, None, None
@@ -117,14 +145,15 @@ def _get_market_details(events_odds: list, home: str, away: str) -> dict:
                 key = market.get("key")
                 if key == "spreads":
                     for o in market.get("outcomes", []):
-                        name = (o.get("name") or "").lower()
+                        name = (o.get("name") or "")
                         price = o.get("price", -110)
                         point = o.get("point")
-                        if home.lower() in name:
+                        side = _match_team_side(name, home, away)
+                        if side == "home":
                             if out["spread_line"] is None:
                                 out["spread_line"] = point
                             out["home_spread_odds"] = price
-                        elif away.lower() in name:
+                        elif side == "away":
                             out["away_spread_odds"] = price
                 elif key == "totals":
                     for o in market.get("outcomes", []):
@@ -185,17 +214,24 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         ml_odds = synth_odds(ml_prob)
         odds_is_real = False
 
-    bets.append({
-        "game": label, "market": "moneyline",
-        "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
-        "model_prob": ml_prob, "implied_prob": ml_implied,
-        "edge": round(best_edge / 100, 4), "odds": ml_odds, "odds_is_real": odds_is_real,
-        "projected": f"{pred.projected_home}-{pred.projected_away}",
-        "projected_home": pred.projected_home, "projected_away": pred.projected_away,
-        "projected_margin": pred_margin, "projected_total": pred.projected_total,
-        "home_record": pred.home_record, "away_record": pred.away_record,
-        "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
-    })
+    # Gated by min_edge same as spread/total below — this used to append
+    # unconditionally, so a moneyline pick with edge under the floor (even
+    # negative) still rode into `results` whenever the SAME GAME also had
+    # a qualifying spread or total bet (the outer len(bets)==1 check in
+    # cfb_edges()/cfb_predictions() only caught the case where moneyline
+    # was the game's only bet).
+    if best_edge >= min_edge:
+        bets.append({
+            "game": label, "market": "moneyline",
+            "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
+            "model_prob": ml_prob, "implied_prob": ml_implied,
+            "edge": round(best_edge / 100, 4), "odds": ml_odds, "odds_is_real": odds_is_real,
+            "projected": f"{pred.projected_home}-{pred.projected_away}",
+            "projected_home": pred.projected_home, "projected_away": pred.projected_away,
+            "projected_margin": pred_margin, "projected_total": pred.projected_total,
+            "home_record": pred.home_record, "away_record": pred.away_record,
+            "home_rest": pred.home_rest_days, "away_rest": pred.away_rest_days,
+        })
 
     # ---- Spread ----
     if market["spread_line"] is not None:
@@ -286,8 +322,11 @@ def cfb_edges(simulations: int = Query(default=50000), min_edge: float = Query(d
         over_under = market["total_line"] if market["total_line"] is not None else DEFAULT_TOTAL
         pred = engine.predict(home_stats=home_stats, away_stats=away_stats, spread_line=spread_line, over_under=over_under, simulations=simulations)
 
+        # min_edge is now enforced per-market inside _build_bets_for_game
+        # (moneyline included, as of 2026-09-02) so an empty `bets` here
+        # already means nothing in this game cleared the floor.
         bets, best_edge = _build_bets_for_game(home, away, pred, events_odds, min_edge)
-        if best_edge < min_edge and len(bets) == 1:
+        if not bets:
             continue
         results.extend(bets)
     results.sort(key=lambda x: x["edge"], reverse=True)
