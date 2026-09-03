@@ -263,8 +263,14 @@ class CFBPredictionEngine:
 
         home_win  = round(float(np.sum(scores_home > scores_away) / n * 100), 1)
         away_win  = round(float(np.sum(scores_away > scores_home) / n * 100), 1)
-        home_cov  = round(float(np.sum(margin > spread_line) / n * 100), 1)
-        away_cov  = round(float(np.sum(margin < spread_line) / n * 100), 1)
+        # Cover condition is margin + spread_line > 0 (matches the real
+        # grading formula in auto_results.py and mlb_predictor.py's
+        # run_line handling) — spread_line is negative for the favorite
+        # (e.g. -14), so a team laying 14 needs margin > 14, not > -14.
+        # The un-negated form here previously showed a big favorite
+        # projected to win by only a few points as a near-lock to cover.
+        home_cov  = round(float(np.sum(margin > -spread_line) / n * 100), 1)
+        away_cov  = round(float(np.sum(margin < -spread_line) / n * 100), 1)
         over_p    = round(float(np.sum((scores_home + scores_away) > over_under) / n * 100), 1)
         under_p   = round(float(np.sum((scores_home + scores_away) < over_under) / n * 100), 1)
 
