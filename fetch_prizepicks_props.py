@@ -408,9 +408,13 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
         # the wrong event (e.g. Luis Arraez (SF) listed under ATL @ PHI).
         # If we know the player's real team and it isn't in this game,
         # the prop is mis-assigned — skip it rather than post it.
+        # Compare on the last word, lowercased ("New York Yankees" vs
+        # "NY Yankees" vs "Yankees" all match) — the audit on 9/4 showed
+        # PropLine and the game log don't always use the same team format.
+        def _tk(t): return (t or "").strip().split()[-1].lower() if (t or "").strip() else ""
         _home = prop.get("home_team", "")
         _away = prop.get("away_team", "")
-        if player_team and _home and _away and player_team not in (_home, _away):
+        if player_team and _home and _away and _tk(player_team) not in (_tk(_home), _tk(_away)):
             print(f"      SKIP: {player} resolves to {player_team}, not in {_away} @ {_home} — wrong game")
             continue
 
