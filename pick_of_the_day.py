@@ -60,8 +60,11 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
+from active_sports import ALL_SPORTS
+from prop_edge import evaluate_prop
 
 CENTRAL_OFFSET = -5
+PROP_MIN_EDGE_PTS = 5.0        # Prop of the Day must beat its own breakeven by this much (Wilson-adjusted) — stricter than the daily alert's 3
 # Fallback webhook, kept from the old content-type migration — used
 # only for a sport with no dedicated channel yet.
 DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
@@ -214,29 +217,49 @@ def get_prop_of_the_day(date_str: str):
     """
     conn = get_conn()
     c = conn.cursor()
-    c.execute("""
+    if not ALL_SPORTS:
+        conn.close()
+        return None
+    placeholders = ",".join("?" for _ in ALL_SPORTS)
+    c.execute(f"""
         SELECT sport, player_name, stat, line, hit_rate_overall, games_overall,
                over_odds, under_odds
         FROM player_props
         WHERE date = ?
+          AND sport IN ({placeholders})
           AND hit_rate_overall IS NOT NULL
           AND games_overall >= ?
           AND (hit_rate_overall >= ? OR hit_rate_overall <= ?)
-    """, (date_str, MIN_GAMES, PROP_CONFIDENCE_FLOOR, 100 - PROP_CONFIDENCE_FLOOR))
+    """, (date_str, *ALL_SPORTS, MIN_GAMES, PROP_CONFIDENCE_FLOOR, 100 - PROP_CONFIDENCE_FLOOR))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
 
     if not rows:
         return None
 
-    # Distance from 50% — furthest wins, regardless of sport or over/fade side
-    best = max(rows, key=lambda r: abs(r["hit_rate_overall"] - 50))
-    is_fade = best["hit_rate_overall"] <= 50
-    best["side"] = "FADE (under)" if is_fade else "OVER"
-    best["display_pct"] = round(100 - best["hit_rate_overall"], 1) if is_fade else round(best["hit_rate_overall"], 1)
-    # under_odds applies to a FADE (under) pick, over_odds to an OVER pick
-    best["prop_odds"] = best.get("under_odds") if is_fade else best.get("over_odds")
-    return best
+    # 2026-09-04: rank by edge vs the book's breakeven using the
+    # Wilson-adjusted rate, not raw distance from 50%. A 15-for-15
+    # streak no longer auto-wins over a 40-game 85%, and a prop with
+    # no stored price can't be the Lock at all.
+    candidates = []
+    for r in rows:
+        is_fade = r["hit_rate_overall"] <= 50
+        ev = evaluate_prop(r["hit_rate_overall"], r["games_overall"],
+                           r.get("over_odds"), r.get("under_odds"),
+                           "under" if is_fade else "over",
+                           min_edge_pts=PROP_MIN_EDGE_PTS)
+        if not ev["qualifies"]:
+            continue
+        r.update(ev)
+        r["side"] = "FADE (under)" if is_fade else "OVER"
+        r["raw_pct"] = ev["raw_pct"]
+        r["display_pct"] = ev["adj_pct"]          # adjusted rate drives the grade
+        r["prop_odds"] = r.get("under_odds") if is_fade else r.get("over_odds")
+        candidates.append(r)
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda r: r["edge_pts"])
 
 
 def build_parlay_section(game_picks: dict, prop_pick: dict) -> list:
@@ -330,7 +353,10 @@ def export_daily_intelligence(date_str: str, game_picks: dict, model_projections
             "stat": STAT_LABELS.get(prop_pick["stat"], prop_pick["stat"].upper()),
             "line": prop_pick["line"],
             "side": prop_pick["side"],
-            "historical_hit_rate_pct": prop_pick["display_pct"],
+            "historical_hit_rate_pct": prop_pick["raw_pct"],
+            "adjusted_hit_rate_pct": prop_pick["display_pct"],
+            "breakeven_pct": prop_pick["breakeven_pct"],
+            "edge_pts": prop_pick["edge_pts"],
             "games_sampled": prop_pick["games_overall"],
             "confidence_tier": get_confidence_tier(prop_pick["display_pct"]),
             "confidence_grade": get_confidence_grade(prop_pick["display_pct"]),
@@ -399,7 +425,8 @@ def build_messages(date_str: str, game_picks: dict, prop_pick: dict, model_proje
         block = [
             "\U0001f3af <b>PROP OF THE DAY</b>",
             f"{prop_pick['player_name']} \u2014 {prop_pick['side']} {stat_label} {prop_pick['line']:g}",
-            f"\U0001f4ca {prop_pick['display_pct']}% historical rate ({prop_pick['games_overall']} games)",
+            f"\U0001f4ca {prop_pick['raw_pct']}% raw / {prop_pick['display_pct']}% adjusted ({prop_pick['games_overall']} games)",
+            f"\U0001f4b0 Book breakeven {prop_pick['breakeven_pct']}% \u2014 edge +{prop_pick['edge_pts']} pts",
             f"\U0001f525 Confidence: {get_confidence_grade(prop_pick['display_pct'])}",
         ]
         add(sport, block)
@@ -432,7 +459,7 @@ def run(dry_run: bool = False):
     date_str = str(get_today_ct())
     print(f"Building Pick of the Day for {date_str}...")
 
-    active_sports = ["nfl", "cfb", "ncaab", "wnba", "nba", "mlb"]
+    active_sports = list(ALL_SPORTS)   # shared shelf — see active_sports.py
     game_picks = {}
     for sport in active_sports:
         pick = get_game_pick_of_the_day(sport, date_str)

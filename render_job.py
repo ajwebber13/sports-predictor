@@ -31,7 +31,7 @@ API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 # context is available at all (shouldn't normally happen).
 DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 
-ALL_SPORTS = ["wnba", "nfl", "cfb"]  # nba, ncaab, mlb temporarily disabled
+from active_sports import ALL_SPORTS  # single shelf list — edit active_sports.py, not here
 
 SPORT_ENDPOINTS = {
     "nba":   f"{API_BASE}/nba/edges",

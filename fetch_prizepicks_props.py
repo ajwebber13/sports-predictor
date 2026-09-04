@@ -404,6 +404,16 @@ def run(sport: str = "wnba", dry_run: bool = False, top_n: int = 3, all_players:
                       f"({projection['direction']} {projection['edge_pct']}%){df_str} "
                       f"{ {'green': '✅', 'yellow': '⚠️', 'red': '❌'}.get(projection['confidence_tier'], '') }")
 
+        # 2026-09-04: guard against PropLine handing us a player under
+        # the wrong event (e.g. Luis Arraez (SF) listed under ATL @ PHI).
+        # If we know the player's real team and it isn't in this game,
+        # the prop is mis-assigned — skip it rather than post it.
+        _home = prop.get("home_team", "")
+        _away = prop.get("away_team", "")
+        if player_team and _home and _away and player_team not in (_home, _away):
+            print(f"      SKIP: {player} resolves to {player_team}, not in {_away} @ {_home} — wrong game")
+            continue
+
         if not dry_run:
             save_prop_with_hit_rates(
                 date        = today,

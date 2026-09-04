@@ -39,6 +39,8 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 from prop_hit_rates import setup_props_table
+from active_sports import is_active
+from prop_edge import evaluate_prop
 
 CENTRAL_OFFSET = -5
 
@@ -50,6 +52,11 @@ STRONG_THRESHOLD = 70  # hit_rate_overall >= this -> shown as a strong 'over' pl
 FADE_THRESHOLD = 30    # hit_rate_overall <= this -> under_rate >= 70 -> fade candidate
 MIN_GAMES = 5
 MIN_GAMES_COLUMN = "games_overall"
+# 2026-09-04: hit rate alone is not an edge. Every prop must beat the
+# breakeven implied by its own stored price (over_odds/under_odds) by
+# this many points, using the Wilson-adjusted rate (see prop_edge.py).
+# Props with no stored price never qualify.
+MIN_EDGE_PTS = 3.0
 
 STAT_LABELS = {
     "hits": "HITS",
@@ -101,7 +108,7 @@ def fetch_today_props(date_str: str):
     c = conn.cursor()
     c.execute(f"""
         SELECT player_name, stat, line, hit_rate_overall, confidence_tier,
-               game_home_team, game_away_team
+               game_home_team, game_away_team, games_overall, over_odds, under_odds
         FROM player_props
         WHERE date = ? AND sport = 'mlb'
           AND confidence_tier = 'green'
@@ -120,7 +127,7 @@ def fetch_fade_props(date_str: str):
     c = conn.cursor()
     c.execute(f"""
         SELECT player_name, stat, line, hit_rate_overall,
-               game_home_team, game_away_team
+               game_home_team, game_away_team, games_overall, over_odds, under_odds
         FROM player_props
         WHERE date = ? AND sport = 'mlb'
           AND hit_rate_overall IS NOT NULL
@@ -134,6 +141,21 @@ def fetch_fade_props(date_str: str):
     return rows
 
 
+def filter_by_edge(rows: list, side: str) -> list:
+    """Keep only props whose Wilson-adjusted rate beats the book's
+    breakeven by MIN_EDGE_PTS. Attaches adj_pct/breakeven_pct/edge_pts
+    to each surviving row and sorts by edge, biggest first."""
+    kept = []
+    for r in rows:
+        ev = evaluate_prop(r.get("hit_rate_overall"), r.get("games_overall"),
+                           r.get("over_odds"), r.get("under_odds"), side,
+                           min_edge_pts=MIN_EDGE_PTS)
+        if ev["qualifies"]:
+            r.update(ev)
+            kept.append(r)
+    return sorted(kept, key=lambda x: x["edge_pts"], reverse=True)
+
+
 def format_line(prop: dict, team: str, emoji: str) -> str:
     stat_label = STAT_LABELS.get(prop["stat"], prop["stat"].upper())
     pct        = prop["hit_rate_overall"]
@@ -142,7 +164,9 @@ def format_line(prop: dict, team: str, emoji: str) -> str:
     team_str   = f" ({abbr(team)})" if team else ""
     # "o" prefix matches format_fade_line()'s existing "u" prefix — every
     # line now shows its direction instead of only unders being labeled.
-    return f"{emoji} {name}{team_str}\u2014 o{stat_label} {prop['line']:g} \u2014 {pct_str}%"
+    return (f"{emoji} {name}{team_str} \u2014 o{stat_label} {prop['line']:g} \u2014 "
+            f"{pct_str}% ({prop.get('games_overall', 0)}G) \u00b7 "
+            f"BE {prop.get('breakeven_pct')}% \u00b7 edge +{prop.get('edge_pts')}")
 
 
 def format_fade_line(prop: dict, team: str) -> str:
@@ -152,7 +176,9 @@ def format_fade_line(prop: dict, team: str) -> str:
     pct_str    = f"{under_pct:.1f}".rstrip("0").rstrip(".") if under_pct % 1 else f"{int(under_pct)}"
     name       = prop["player_name"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     team_str   = f" ({abbr(team)})" if team else ""
-    return f"\U0001f53b {name}{team_str} \u2014 u{stat_label} {prop['line']:g} \u2014 {pct_str}%"
+    return (f"\U0001f53b {name}{team_str} \u2014 u{stat_label} {prop['line']:g} \u2014 "
+            f"{pct_str}% ({prop.get('games_overall', 0)}G) \u00b7 "
+            f"BE {prop.get('breakeven_pct')}% \u00b7 edge +{prop.get('edge_pts')}")
 
 
 def build_message(date_str: str, props: list, fades: list = None) -> str:
@@ -188,7 +214,7 @@ def build_message(date_str: str, props: list, fades: list = None) -> str:
         lines.append(f"\u26be <b>{abbr(away)} @ {abbr(home)}</b>")
         lines.append("")
 
-        for p in sorted(bucket["props"], key=lambda x: x.get("hit_rate_overall", 0), reverse=True):
+        for p in sorted(bucket["props"], key=lambda x: x.get("edge_pts", 0), reverse=True):
             team = get_player_team(p["player_name"])
             lines.append(format_line(p, team, "\U0001f7e2"))
 
@@ -216,6 +242,9 @@ def send_message(text: str):
 
 
 def run(dry_run: bool = False, date_override: str = None):
+    if not is_active("mlb"):
+        print("MLB is shelved in active_sports.py — no props alert sent.")
+        return
     setup_props_table()
 
     if date_override:
@@ -229,10 +258,14 @@ def run(dry_run: bool = False, date_override: str = None):
         date_str = str(get_today_ct())
     print(f"Building MLB props alert for {date_str}...")
 
-    props = fetch_today_props(date_str)
-    fades = fetch_fade_props(date_str)
+    raw_props = fetch_today_props(date_str)
+    raw_fades = fetch_fade_props(date_str)
+    props = filter_by_edge(raw_props, "over")
+    fades = filter_by_edge(raw_fades, "under")
+    print(f"  {len(raw_props)} overs / {len(raw_fades)} fades cleared the hit-rate bar; "
+          f"{len(props)} / {len(fades)} survive the +{MIN_EDGE_PTS} edge-vs-breakeven filter")
     if not props and not fades:
-        print(f"No props/fades met the {MIN_GAMES}-game minimum for today. No alert sent.")
+        print(f"No props/fades cleared the {MIN_GAMES}-game minimum AND the edge filter today. No alert sent.")
         return
 
     message = build_message(date_str, props, fades)
