@@ -80,6 +80,7 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 from prop_hit_rates import setup_props_table
+from active_sports import props_active
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CENTRAL_OFFSET = -5
@@ -88,8 +89,22 @@ CENTRAL_OFFSET = -5
 # only if get_webhook_for_sport("wnba") can't find DISCORD_WEBHOOK_WNBA.
 DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 
-STRONG_THRESHOLD = 80  # hit_rate_overall >= this -> shown as a strong 'over' play
-FADE_THRESHOLD = 20    # hit_rate_overall <= this -> under_rate >= 80 -> fade candidate
+# ── Selector (rewritten 2026-09-04) ──────────────────────────────────────────
+# The old rule picked by historical hit rate (>=80 over / <=20 under).
+# Backtest on 3,241 graded WNBA props: that rule LOST money, and making
+# the projection engine "agree" with history made it worse (-22% ROI).
+# Past hit rate is not a signal on lines the book already prices.
+#
+# What actually held up: projection engine tier = green, OVERS only,
+# on combo/points stats (PA +13.5%, PRA +5.7%, PTS ~flat on 100-170
+# picks each). Rebounds/assists alone lost, and every UNDER category
+# lost across the board. So:
+PROJECTION_TIER = "green"
+ALLOWED_STATS = ("pa", "pra", "pts")   # add "pr" once it backtests positive
+MIN_EDGE_PCT = 20.0                    # projection_edge_pct floor; raise to 20-35 for a shorter, sharper list
+MAX_PICKS = 8                          # never post more than this — a long list is noise, not value
+STRONG_THRESHOLD = 80  # kept for prop_tracker.py --picks-only compatibility; NOT used to pick anymore
+FADE_THRESHOLD = 20    # same — fades are no longer posted (they lose)
 
 # Minimum games behind a hit rate before it's trusted enough to alert on.
 # 1-2 games can only produce 0% or 100%, which looks like a strong signal
@@ -163,51 +178,47 @@ def get_player_team(player_name: str) -> str:
 
 
 def fetch_today_props(date_str: str):
-    """Pull today's Green/Yellow (over) props, sorted by tier then hit rate descending.
-    Excludes anything below MIN_GAMES sample size."""
+    """Today's OVER plays chosen by the projection engine: tier green,
+    direction over, stat in ALLOWED_STATS, ranked by projection edge.
+    Hit-rate history is carried along for display only."""
     conn = get_conn()
     c = conn.cursor()
+    placeholders = ",".join("?" for _ in ALLOWED_STATS)
     c.execute(f"""
-        SELECT player_name, stat, line, hit_rate_overall, confidence_tier, injury_status,
-               game_home_team, game_away_team
+        SELECT player_name, stat, line, hit_rate_overall, games_overall, confidence_tier,
+               injury_status, game_home_team, game_away_team, over_odds,
+               projected_stat, projection_edge_pct, projection_direction, projection_tier
         FROM player_props
         WHERE date = ? AND sport = 'wnba'
-          AND confidence_tier = 'green'
-          AND hit_rate_overall IS NOT NULL
-          AND hit_rate_overall >= ?
-          AND {MIN_GAMES_COLUMN} >= ?
-        ORDER BY hit_rate_overall DESC
-    """, (date_str, STRONG_THRESHOLD, MIN_GAMES))
+          AND projection_tier = ?
+          AND projection_direction = 'over'
+          AND stat IN ({placeholders})
+          AND projection_edge_pct IS NOT NULL
+          AND projection_edge_pct >= ?
+        ORDER BY projection_edge_pct DESC
+    """, (date_str, PROJECTION_TIER, *ALLOWED_STATS, MIN_EDGE_PCT))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
-    return rows
+    # One prop per player: keep the biggest-edge stat so we never post
+    # PTS, PA and PRA on the same player (they're the same bet three ways).
+    best_by_player = {}
+    for r in rows:
+        if r["player_name"] not in best_by_player:
+            best_by_player[r["player_name"]] = r
+    return list(best_by_player.values())[:MAX_PICKS]
 
 
 def fetch_fade_props(date_str: str):
-    """Pull today's fade (under) candidates — low over hit rate = high under rate.
-    Excludes anything below MIN_GAMES sample size."""
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute(f"""
-        SELECT player_name, stat, line, hit_rate_overall, injury_status,
-               game_home_team, game_away_team
-        FROM player_props
-        WHERE date = ? AND sport = 'wnba'
-          AND hit_rate_overall IS NOT NULL
-          AND hit_rate_overall <= ?
-          AND confidence_tier != 'insufficient'
-          AND {MIN_GAMES_COLUMN} >= ?
-        ORDER BY hit_rate_overall ASC
-    """, (date_str, FADE_THRESHOLD, MIN_GAMES))
-    rows = [dict(r) for r in c.fetchall()]
-    conn.close()
-    return rows
+    """Fades (unders) are no longer posted. Every under category lost in
+    the 2026-09-04 backtest (green-tier unders -8.6% ROI, hit-rate
+    unders far worse). Kept as a stub so nothing that imports it breaks."""
+    return []
 
 
 def format_line(prop: dict, team: str, emoji: str, seen_players: set) -> str:
     stat_label = STAT_LABELS.get(prop["stat"], prop["stat"].upper())
-    pct        = prop["hit_rate_overall"]
-    pct_str    = f"{pct:.1f}".rstrip("0").rstrip(".") if pct % 1 else f"{int(pct)}"
+    pct        = prop.get("hit_rate_overall")
+    pct_str    = (f"{pct:.1f}".rstrip("0").rstrip(".") if pct % 1 else f"{int(pct)}") if pct is not None else ""
     name       = (prop["player_name"]
                   .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
     team_str   = f" ({abbr(team)})" if team else ""
@@ -220,7 +231,13 @@ def format_line(prop: dict, team: str, emoji: str, seen_players: set) -> str:
     seen_players.add(prop["player_name"])
     # "o" prefix matches format_fade_line()'s existing "u" prefix — every
     # line now shows its direction instead of only unders being labeled.
-    return f"{emoji} {name}{team_str}\u2014 o{stat_label} {prop['line']:g} \u2014 {pct_str}%{flag}"
+    proj = prop.get("projected_stat")
+    edge = prop.get("projection_edge_pct")
+    proj_str = f"proj {float(proj):.1f}" if proj is not None else ""
+    edge_str = f" (+{float(edge):.0f}%)" if edge is not None else ""
+    hist_str = f" \u00b7 hist {pct_str}% ({prop.get('games_overall') or 0}G)" if pct is not None else ""
+    return (f"{emoji} {name}{team_str} \u2014 o{stat_label} {prop['line']:g} \u2014 "
+            f"{proj_str}{edge_str}{hist_str}{flag}")
 
 
 def format_fade_line(prop: dict, team: str, seen_players: set) -> str:
@@ -279,9 +296,8 @@ def build_message(date_str: str, props: list, fades: list = None) -> str:
         lines.append(f"\U0001f3c0 <b>{abbr(away)} @ {abbr(home)}</b>")
         lines.append("")
 
-        for p in sorted(bucket["props"], key=lambda x: x.get("hit_rate_overall", 0), reverse=True):
-            tier  = p.get("confidence_tier", "yellow")
-            emoji = "\U0001f7e2" if tier == "green" else "\U0001f7e1"
+        for p in sorted(bucket["props"], key=lambda x: float(x.get("projection_edge_pct") or 0), reverse=True):
+            emoji = "\U0001f7e2"  # every pick here is projection-tier green by construction
             team  = get_player_team(p["player_name"])
             lines.append(format_line(p, team, emoji, seen))
 
@@ -309,6 +325,9 @@ def send_message(text: str):
 
 
 def run(dry_run: bool = False, date_override: str = None):
+    if not props_active("wnba"):
+        print("WNBA props are shelved in active_sports.py (PROPS_SPORTS) — no alert sent.")
+        return
     setup_props_table()
 
     if date_override:
@@ -325,8 +344,9 @@ def run(dry_run: bool = False, date_override: str = None):
     props = fetch_today_props(date_str)
     fades = fetch_fade_props(date_str)
     if not props and not fades:
-        print(f"No props/fades met the {MIN_GAMES}-game minimum for today. No alert sent.")
+        print(f"No projection-green OVER on {ALLOWED_STATS} with edge >= {MIN_EDGE_PCT}% today. No alert sent.")
         return
+    print(f"  {len(props)} pick(s) selected (max {MAX_PICKS})")
 
     message = build_message(date_str, props, fades)
     print("\n" + "\u2500" * 40)
