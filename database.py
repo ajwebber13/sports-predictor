@@ -1060,17 +1060,18 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: 
         c.execute("""
             INSERT INTO predictions
             (date, sport, game, home_team, away_team, bet, odds,
-             model_prob, implied_prob, edge, home_record, away_record,
+             model_prob, raw_model_prob, implied_prob, edge, home_record, away_record,
              home_rest, away_rest, home_injuries, away_injuries, predicted_winner,
              market, pick, line, projected_home, projected_away,
              projected_margin, projected_total, confidence, game_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (date, sport, game, market) DO UPDATE SET
                 home_team        = EXCLUDED.home_team,
                 away_team        = EXCLUDED.away_team,
                 bet              = EXCLUDED.bet,
                 odds             = EXCLUDED.odds,
                 model_prob       = EXCLUDED.model_prob,
+                raw_model_prob   = EXCLUDED.raw_model_prob,
                 implied_prob     = EXCLUDED.implied_prob,
                 edge             = EXCLUDED.edge,
                 home_record      = EXCLUDED.home_record,
@@ -1095,6 +1096,7 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: 
             bet.get("bet", ""),
             bet.get("odds"),
             bet.get("model_prob", 0),
+            bet.get("raw_model_prob"),
             bet.get("implied_prob", 0) if bet.get("implied_prob") is not None else None,
             round(bet["edge"] * 100, 2) if bet.get("edge") is not None else None,
             bet.get("home_record", ""),
