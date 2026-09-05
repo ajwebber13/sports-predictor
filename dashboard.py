@@ -780,6 +780,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+from market_status import is_visible, show_confidence
+
 tab_games, tab_props, tab_edge, tab_players, tab_rankings, tab_betting = st.tabs(
     ["Game Picks", "Player Props", "Edge Finder", "Player Profiles", "Power Rankings", "Betting Analytics"]
 )
@@ -974,6 +976,11 @@ with tab_games:
             & df["market"].isin(market_filter)
             & df["status"].isin(status_filter)
         ].copy()
+        # market_status.py gate: never show a sport+market combo marked OFF
+        # (e.g. MLB), regardless of what the Sport/Market filters above allow.
+        filtered = filtered[
+            filtered.apply(lambda r: is_visible(r["sport"], r["market"]), axis=1)
+        ]
         filtered["edge"] = pd.to_numeric(filtered["edge"], errors="coerce")
         filtered = filtered[(filtered["edge"].abs() >= min_edge_g) | filtered["edge"].isna()]
         if search_g:
@@ -1008,7 +1015,10 @@ with tab_games:
                 return ""
             team_guess = row["pick"] or row["bet"].replace(" ML", "")
             return team_logo_url(row["sport"], team_guess.strip())
-        filtered["pick_logo"] = filtered.apply(pick_logo, axis=1)
+        if filtered.empty:
+            filtered["pick_logo"] = pd.Series(dtype=str)
+        else:
+            filtered["pick_logo"] = filtered.apply(pick_logo, axis=1)
 
         sorted_full = filtered.sort_values("date", ascending=False).reset_index(drop=True)
         st.write(f"**{len(sorted_full)} picks**")
@@ -1047,7 +1057,10 @@ with tab_games:
                     "WIN" if m["correct"] == 1 else "LOSS" if m["correct"] == 0 else "PENDING"
                 )
                 m_color = {"WIN": "#3ecf8e", "LOSS": "#ff5c5c", "PUSH": "#D4AF37", "PENDING": "#8a7d55"}.get(m_status, "#8a7d55")
-                m_prob = f"{m['model_prob']:.1f}%" if pd.notna(m["model_prob"]) else "—"
+                if show_confidence(m["sport"], m["market"]):
+                    m_prob = f"{m['model_prob']:.1f}%" if pd.notna(m["model_prob"]) else "—"
+                else:
+                    m_prob = "Beta"
                 market_cards.append(f"""
 <div style="background:rgba(19,18,9,0.5);border:1px solid rgba(212,175,55,0.12);border-radius:10px;padding:12px 16px;min-width:150px;">
 <div class="label" style="margin-bottom:4px;">{market_label(m['market'])}</div>
