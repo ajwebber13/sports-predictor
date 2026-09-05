@@ -155,6 +155,18 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     /predictions so both stay in sync (previously duplicated verbatim)."""
     from calibration_transform import apply_calibration
 
+    # Capture raw (pre-calibration) probabilities BEFORE apply_calibration()
+    # overwrites pred's attributes in place — same reasoning as
+    # routes_wnba.py's patch. Needed so log_prediction() can save both the
+    # calibrated model_prob and the raw value; refitting the curve later
+    # must train on raw values, never already-calibrated ones.
+    raw_home_win_prob = pred.home_win_prob
+    raw_away_win_prob = pred.away_win_prob
+    raw_home_cover_prob = pred.home_cover_prob
+    raw_away_cover_prob = pred.away_cover_prob
+    raw_over_prob = pred.over_prob
+    raw_under_prob = pred.under_prob
+
     # Apply the fitted calibration curve BEFORE any edge gets computed.
     # Same fix already wired into routes_wnba.py — see that patch's
     # notes for why. NFL/CFB have zero graded picks right now (season
@@ -189,6 +201,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
     # ---- Moneyline ----
     ml_pick = home if edge_home >= edge_away else away
     ml_prob = pred.home_win_prob if edge_home >= edge_away else pred.away_win_prob
+    raw_ml_prob = raw_home_win_prob if edge_home >= edge_away else raw_away_win_prob
     ml_implied = implied_home if edge_home >= edge_away else implied_away
     real_odds_for_pick = real_odds_home if edge_home >= edge_away else real_odds_away
 
@@ -207,7 +220,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         bets.append({
             "game": label, "market": "moneyline",
             "bet": f"{ml_pick} ML", "pick": ml_pick, "line": None,
-            "model_prob": ml_prob, "implied_prob": ml_implied,
+            "model_prob": ml_prob, "raw_model_prob": raw_ml_prob, "implied_prob": ml_implied,
             "edge": round(best_edge / 100, 4), "odds": ml_odds, "odds_is_real": odds_is_real,
             "projected": f"{pred.projected_home}-{pred.projected_away}",
             "projected_home": pred.projected_home, "projected_away": pred.projected_away,
@@ -229,6 +242,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         spread_pick = home if home_favored_to_cover else away
         spread_line_for_pick = market["spread_line"] if home_favored_to_cover else -market["spread_line"]
         spread_prob = pred.home_cover_prob if home_favored_to_cover else pred.away_cover_prob
+        raw_spread_prob = raw_home_cover_prob if home_favored_to_cover else raw_away_cover_prob
         spread_odds = market["home_spread_odds"] if home_favored_to_cover else market["away_spread_odds"]
         other_spread_odds = market["away_spread_odds"] if home_favored_to_cover else market["home_spread_odds"]
         # Real fair (no-vig) probability from both sides of the spread
@@ -243,7 +257,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
                 "game": label, "market": "spread",
                 "bet": f"{spread_pick} {sign}{spread_line_for_pick}",
                 "pick": spread_pick, "line": spread_line_for_pick,
-                "model_prob": spread_prob, "implied_prob": spread_implied_pct,
+                "model_prob": spread_prob, "raw_model_prob": raw_spread_prob, "implied_prob": spread_implied_pct,
                 "edge": round(spread_edge_pct / 100, 4), "odds": spread_odds,
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "projected_home": pred.projected_home, "projected_away": pred.projected_away,
@@ -263,6 +277,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
         if max(over_edge_pct, under_edge_pct) >= min_edge:
             total_pick = "Over" if over_edge_pct >= under_edge_pct else "Under"
             total_prob = pred.over_prob if total_pick == "Over" else pred.under_prob
+            raw_total_prob = raw_over_prob if total_pick == "Over" else raw_under_prob
             total_odds = market["over_odds"] if total_pick == "Over" else market["under_odds"]
             total_implied_pct = over_implied_pct if total_pick == "Over" else under_implied_pct
             total_edge_pct = max(over_edge_pct, under_edge_pct)
@@ -270,7 +285,7 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
                 "game": label, "market": "total",
                 "bet": f"{total_pick} {market['total_line']}",
                 "pick": total_pick, "line": market["total_line"],
-                "model_prob": total_prob, "implied_prob": total_implied_pct,
+                "model_prob": total_prob, "raw_model_prob": raw_total_prob, "implied_prob": total_implied_pct,
                 "edge": round(total_edge_pct / 100, 4), "odds": total_odds,
                 "projected": f"{pred.projected_home}-{pred.projected_away}",
                 "projected_home": pred.projected_home, "projected_away": pred.projected_away,
