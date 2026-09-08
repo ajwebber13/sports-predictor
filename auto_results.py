@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import requests
 from datetime import datetime, timezone, timedelta
 
@@ -177,6 +178,47 @@ def _parse_dh_game_number(game_label: str):
     return int(m.group(1)) if m else None
 
 
+def _normalize_team_name(name: str) -> str:
+    """Strips diacritics and punctuation before comparison so ESPN's own
+    display-name formatting can't defeat a substring match the way it
+    silently did for three CFB teams found in the 2026-09-08 audit:
+    Hawai'i (apostrophe), San José State (accent), Miami (OH)
+    (parens) — each had every prediction against them go permanently
+    ungraded because `"hawaii" in "hawai'i rainbow warriors"` etc. is
+    False. NFKD-decomposes accented characters (é -> e + combining
+    mark) then drops combining marks and a fixed set of punctuation.
+
+    NOT a fix for a genuinely different name/abbreviation choice, only
+    for punctuation/diacritic drift on an otherwise-matching name —
+    Louisiana Monroe vs ESPN's "UL Monroe" is a different name
+    entirely (also found orphaned this audit) and needs its own alias,
+    not normalization; flagged, not silently left broken."""
+    if not name:
+        return ""
+    name = unicodedata.normalize("NFKD", name)
+    name = "".join(c for c in name if not unicodedata.combining(c))
+    name = re.sub(r"[’'\"().\-]", "", name)
+    return name.lower().strip()
+
+
+# Genuinely different name/abbreviation choices that no amount of
+# punctuation/diacritic stripping fixes — ESPN's displayName just uses
+# a different word. Added alongside the 2026-09-08 normalization fix
+# after Louisiana Monroe @ Mississippi State turned up orphaned the
+# same way Hawaii was, but for a different reason (ESPN calls them
+# "UL Monroe", not a name we already have from cfb_data.FBS_TEAM_IDS).
+TEAM_NAME_ALIASES = {
+    "louisiana monroe": "ul monroe",
+}
+
+
+def _match_team(pred_name: str, espn_name: str) -> bool:
+    """pred_name is already normalized/alias-resolved by the caller;
+    espn_name is the raw ESPN displayName and gets normalized here."""
+    espn_norm = _normalize_team_name(espn_name)
+    return pred_name in espn_norm or espn_norm in pred_name
+
+
 def match_game(prediction: dict, espn_games: list):
     """Match a prediction to an ESPN result by team name.
 
@@ -192,14 +234,21 @@ def match_game(prediction: dict, espn_games: list):
     start_time, and picks the Nth one when a DH marker is present.
     Non-doubleheader games are unaffected (only one candidate either
     way); an out-of-range or missing DH number falls back to the
-    earliest game, the same behavior this function always had."""
-    pred_home = prediction.get("home_team", "")
-    pred_away = prediction.get("away_team", "")
+    earliest game, the same behavior this function always had.
+
+    FIXED 2026-09-08: matches now run through _normalize_team_name()
+    (strip diacritics/apostrophes/parens) plus a small explicit alias
+    table for the handful of ESPN display names that use a genuinely
+    different word — see both for the real games this was silently
+    dropping."""
+    pred_home = _normalize_team_name(prediction.get("home_team", ""))
+    pred_away = _normalize_team_name(prediction.get("away_team", ""))
+    pred_home = TEAM_NAME_ALIASES.get(pred_home, pred_home)
+    pred_away = TEAM_NAME_ALIASES.get(pred_away, pred_away)
 
     candidates = [
         g for g in espn_games
-        if (pred_home.lower() in g["home_team"].lower() or g["home_team"].lower() in pred_home.lower())
-        and (pred_away.lower() in g["away_team"].lower() or g["away_team"].lower() in pred_away.lower())
+        if _match_team(pred_home, g["home_team"]) and _match_team(pred_away, g["away_team"])
     ]
     if not candidates:
         return None
@@ -272,16 +321,25 @@ def score_prediction(prediction: dict, espn_game: dict) -> dict:
         if line is None or not pick:
             correct = 0
         else:
-            pick_is_home = pick.lower() in home_team.lower() or home_team.lower() in pick.lower()
+            # FIXED 2026-09-08: same raw-substring bug as match_game()
+            # had — a spread pick on Hawaii/San Jose State/Miami OH
+            # would find the right game (now) but still grade wrong
+            # here, since `home_team` is ESPN's own punctuation-heavy
+            # displayName. Normalize both sides the same way.
+            pick_norm = _normalize_team_name(pick)
+            pick_norm = TEAM_NAME_ALIASES.get(pick_norm, pick_norm)
+            pick_is_home = _match_team(pick_norm, home_team)
             margin = (home_score - away_score) if pick_is_home else (away_score - home_score)
             correct = 1 if margin + line > 0 else 0
 
     else:
-        # moneyline — original logic, unchanged.
+        # moneyline — original logic, unchanged except for the same
+        # 2026-09-08 normalization fix as the spread branch above.
         bet = prediction.get("bet", "")
         picked_team = bet.replace(" ML", "").replace(" ml", "").strip()
-        correct = 1 if picked_team.lower() in actual_winner.lower() or \
-                       actual_winner.lower() in picked_team.lower() else 0
+        picked_norm = _normalize_team_name(picked_team)
+        picked_norm = TEAM_NAME_ALIASES.get(picked_norm, picked_norm)
+        correct = 1 if _match_team(picked_norm, actual_winner) else 0
 
     return {
         # game_date (the real game day), not date (the day the

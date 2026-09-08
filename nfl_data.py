@@ -229,6 +229,20 @@ def _flat_defaults(team_name: str, team_id: str) -> NFLTeamStats:
     )
 
 
+# Cache for session — added 2026-09-08, matching cfb_data.py's
+# _stats_cache pattern (there, applied one layer up on get_profile();
+# here applied directly on get_team_stats() since that's the function
+# routes_nfl.py's nfl_edges() actually calls). Unlike cfb_data.py, this
+# was never wired in at all: every /nfl/edges call re-fetched all ~32
+# teams live and uncached, and every retry within the same
+# render_job.py run paid that full cost again — a contributing factor
+# to /nfl/edges' intermittent 280s timeouts (see the 2026-09-08 audit).
+# Does NOT change what gets fetched or how the offseason fallback below
+# decides between current/prior season — only avoids re-fetching a team
+# already resolved once in this process.
+_stats_cache: Dict[str, NFLTeamStats] = {}
+
+
 def get_team_stats(team_name: str) -> Optional[NFLTeamStats]:
     """
     Fetch live NFL team stats from ESPN.
@@ -238,6 +252,9 @@ def get_team_stats(team_name: str) -> Optional[NFLTeamStats]:
     instead of flat defaults for every team. Record still correctly
     shows 0-0 for the current season either way.
     """
+    if team_name in _stats_cache:
+        return _stats_cache[team_name]
+
     team_id = NFL_TEAM_IDS.get(team_name)
     if not team_id:
         print(f"Unknown team: {team_name}")
@@ -245,6 +262,7 @@ def get_team_stats(team_name: str) -> Optional[NFLTeamStats]:
 
     current = _fetch_and_parse(team_name, team_id)
     if current and (current.wins + current.losses) > 0:
+        _stats_cache[team_name] = current
         return current
 
     from datetime import datetime
@@ -257,12 +275,16 @@ def get_team_stats(team_name: str) -> Optional[NFLTeamStats]:
         prior.wins = prior.losses = 0
         prior.home_wins = prior.home_losses = 0
         prior.away_wins = prior.away_losses = 0
+        _stats_cache[team_name] = prior
         return prior
 
     if current is not None:
+        _stats_cache[team_name] = current
         return current
 
-    return _flat_defaults(team_name, team_id)
+    result = _flat_defaults(team_name, team_id)
+    _stats_cache[team_name] = result
+    return result
 
 
 def get_rest_days(team_name: str) -> int:
