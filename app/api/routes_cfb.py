@@ -420,7 +420,7 @@ def cfb_edges(simulations: int = Query(default=50000), min_edge: float = Query(d
     from services.odds_parser import get_live_odds
     engine = CFBPredictionEngine()
     events = get_cfb_events()
-    events_odds = get_live_odds("ncaaf")
+    events_odds = get_live_odds("cfb")
     results = []
     for event in events:
         home = event.get("home_team", "")
@@ -472,7 +472,7 @@ def cfb_predictions(simulations: int = Query(default=50000), min_edge: float = Q
     from services.odds_parser import get_live_odds
     engine = CFBPredictionEngine()
     events = get_cfb_events()
-    events_odds = get_live_odds("ncaaf")
+    events_odds = get_live_odds("cfb")
     results = []
     for event in events:
         home = event.get("home_team", "")

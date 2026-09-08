@@ -47,6 +47,18 @@ BYE_WEEK_BONUS     = 1.5    # pts boost coming off a bye
 SHORT_WEEK_PEN     = -1.0   # pts penalty for a short week (<6 days — Tue/Wed MACtion)
 SHORT_WEEK_DAYS    = 6
 
+# Sanity cap on situational_factors' stored rest-days, added 2026-09-08.
+# _get_rest_days() (database.py) computes "days since this team's last
+# cfb_game_log entry" — if that table hasn't been fed this season's games
+# yet, the last entry on record is last season's finale, and the lookup
+# comes back in the hundreds of days instead of NULL. A raw hundreds-of-
+# days value isn't None, so it was silently overriding predict()'s own
+# correct get_rest_days() fallback below and handing every game a bogus
+# BYE_WEEK_BONUS. 21 days is a generous real-world upper bound (longest
+# real bye is ~14 days); anything past that is treated as "no data",
+# same as an actual NULL.
+MAX_PLAUSIBLE_REST_DAYS = 21
+
 
 
 
@@ -214,10 +226,17 @@ class CFBPredictionEngine:
         market_spread: float = None,
     ) -> CFBPrediction:
 
+        def _sane_rest(stored_value, team_name):
+            # Treat a missing OR implausible stored rest value as "no
+            # data" — see MAX_PLAUSIBLE_REST_DAYS above.
+            if stored_value is None or stored_value > MAX_PLAUSIBLE_REST_DAYS:
+                return get_rest_days(team_name)
+            return stored_value
+
         situational = _get_situational_row(home_stats.team_name, away_stats.team_name, sport="cfb")
         if situational:
-            home_rest = situational["home_rest_days"] if situational["home_rest_days"] is not None else get_rest_days(home_stats.team_name)
-            away_rest = situational["away_rest_days"] if situational["away_rest_days"] is not None else get_rest_days(away_stats.team_name)
+            home_rest = _sane_rest(situational["home_rest_days"], home_stats.team_name)
+            away_rest = _sane_rest(situational["away_rest_days"], away_stats.team_name)
             total_adj = situational["total_adj"] if situational["total_adj"] is not None else 0.0
         else:
             home_rest = get_rest_days(home_stats.team_name)

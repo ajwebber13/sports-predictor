@@ -15,6 +15,7 @@ ODDS_API_BASE  = "https://api.the-odds-api.com/v4"
 ODDS_API_SPORT_KEYS = {
     "nfl":   "americanfootball_nfl",
     "ncaaf": "americanfootball_ncaaf",
+    "cfb":   "americanfootball_ncaaf",
     "nba":   "basketball_nba",
     "ncaab": "basketball_ncaab",
     "ncaaw": "basketball_wncaab",
@@ -24,6 +25,7 @@ ODDS_API_SPORT_KEYS = {
 ESPN_ENDPOINTS = {
     "nfl":   "football/nfl",
     "ncaaf": "football/college-football",
+    "cfb":   "football/college-football",
     "nba":   "basketball/nba",
     "ncaab": "basketball/mens-college-basketball",
     "ncaaw": "basketball/womens-college-basketball",

@@ -620,6 +620,7 @@ SITUATIONAL_GAME_LOG_TABLES = {
     "nba":  "nba_game_log",
     "mlb":  "mlb_game_log",
     "nfl":  "nfl_game_log",
+    "cfb":  "cfb_game_log",
 }
 
 
