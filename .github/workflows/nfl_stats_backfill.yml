@@ -1,6 +1,19 @@
 name: NFL Stats Backfill
 
 on:
+  # Added 2026-09-08 — this workflow was workflow_dispatch-only, so
+  # nfl_game_log never updated on its own (same gap CFB had before
+  # today's fix, but worse for NFL: unlike cfb_player_game_logs.py,
+  # nfl_player_game_logs.py also had no render_job.py hook at all — see
+  # that fix in the same commit). Runs shortly after morning_run.yml's
+  # daily alert cron (14:07 UTC) so it doesn't race it for ESPN calls.
+  # `mode` has no value on a schedule trigger (inputs only exist for
+  # workflow_dispatch), so the run step's `= "backfill"` check below is
+  # false and it falls through to the `update` (last 7 days) branch —
+  # exactly the lightweight daily behavior wanted here, not a full
+  # season backfill every day.
+  schedule:
+    - cron: '35 14 * * *'
   workflow_dispatch:
     inputs:
       mode:

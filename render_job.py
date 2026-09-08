@@ -273,6 +273,27 @@ def run_alerts(sport: str) -> bool:
             except Exception as e:
                 log(f"CFB player game logs error: {e}")
 
+        if sport == "nfl":
+            try:
+                # Added 2026-09-08 — nfl_game_log had no automatic
+                # refresh at all before this: nfl_stats_backfill.yml was
+                # workflow_dispatch-only (fixed the same day, see its
+                # `schedule:` addition) AND, unlike every other sport,
+                # there was no hook here either. Games start tomorrow;
+                # nfl_defense_ratings.py/nfl_projections.py/prop_hit_rates.py
+                # all read this table and would otherwise silently keep
+                # running on last season's data indefinitely.
+                # nfl_player_game_logs.py lives at backfill/nfl/, not the
+                # repo root like cfb_player_game_logs.py does — needs its
+                # own directory on sys.path first, unlike the cfb block
+                # above.
+                sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "backfill", "nfl"))
+                from nfl_player_game_logs import update_recent
+                update_recent(days=7)
+                log("NFL player game logs updated")
+            except Exception as e:
+                log(f"NFL player game logs error: {e}")
+
         log_situational_factors(sport, games)
         log(f"Situational factors logged for {sport}")
     except Exception as e:
