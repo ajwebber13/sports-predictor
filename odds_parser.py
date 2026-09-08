@@ -6,11 +6,36 @@ Same output format for all downstream code.
 """
 import requests
 import os
+import time
 from datetime import datetime, timezone, timedelta
 
 CENTRAL_OFFSET = -5  # CDT
 API_KEY        = os.getenv("ODDS_API_KEY", "")
 ODDS_API_BASE  = "https://api.the-odds-api.com/v4"
+
+# In-process cache for get_live_odds() — added 2026-09-08 after the
+# Odds API's 500-credit/month cap got burned through in days. Traced
+# the actual redundancy: a single render_job.py run for one sport calls
+# get_live_odds() directly (once in run_alerts() for log_odds(), again
+# for line-movement tracking on a --retry run) AND the /edges route
+# calls it again internally when render_job.py hits that endpoint over
+# HTTP — and if fetch_edges_with_retry() has to retry a failed attempt,
+# the route's internal odds call fires again too, even when the odds
+# data itself didn't need refetching.
+#
+# TTL, not a run-scoped flag: this module can't know when one
+# render_job.py "run" starts or ends — it's a stateless function, and
+# the /edges route runs in a completely separate deployed process from
+# render_job.py (reached over HTTP, no shared memory), so there's no
+# single process boundary to hang a "this run" cache on either. 600s
+# (10 min) comfortably spans one run's full length, including
+# worst-case 3x-retry backoffs, while staying far short of the
+# multi-hour gap between scheduled runs (morning vs noon vs 3pm retry)
+# — so the cross-run staleness line-movement tracking specifically
+# depends on not having can't happen; each new scheduled run is hours
+# past any previous cache entry's TTL and always misses.
+_odds_cache: dict = {}
+_ODDS_CACHE_TTL_SECONDS = 600
 
 ODDS_API_SPORT_KEYS = {
     "nfl":   "americanfootball_nfl",
@@ -208,16 +233,34 @@ def get_live_odds(sport: str = "nba") -> list:
     """
     Primary: The Odds API (real DraftKings/FanDuel lines)
     Fallback: ESPN free API
+
+    CACHED — see _ODDS_CACHE_TTL_SECONDS above. Every call for this
+    sport within the TTL window reuses the same result, whether it
+    comes from render_job.py's own direct calls or the /edges route's
+    internal call (including across fetch_edges_with_retry()'s retry
+    attempts) — same data, no reason to hit the network twice. A
+    quota-exhausted/empty result is cached too, deliberately: if the
+    Odds API is out of credits, retrying it seconds later within the
+    same run won't get a different answer, so there's nothing to gain
+    from hitting it again before the TTL expires.
     """
+    now = time.time()
+    cached = _odds_cache.get(sport)
+    if cached is not None and (now - cached[0]) < _ODDS_CACHE_TTL_SECONDS:
+        return cached[1]
+
     # Try Odds API first
     if API_KEY:
         games = get_odds_api(sport)
         if games:
+            _odds_cache[sport] = (now, games)
             return games
         print(f"  Odds API empty for {sport} — falling back to ESPN")
 
     # Fall back to ESPN
-    return get_espn_odds(sport)
+    games = get_espn_odds(sport)
+    _odds_cache[sport] = (now, games)
+    return games
 
 
 # ── HELPERS ──────────────────────────────────────────────────────────────
