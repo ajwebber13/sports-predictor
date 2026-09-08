@@ -85,6 +85,29 @@ import player_profile
 # caches its own copy.
 from active_sports import ALL_SPORTS
 
+# ── SHARED THEME TOKENS ──────────────────────────────────────
+# Single source of truth for the palette, added 2026-09-08. There are
+# two separate <style> blocks in this file — the main app's (below) and
+# build_props_html()'s (further down) — and they can't be merged into
+# one literal <style> tag: build_props_html() returns a full standalone
+# HTML document rendered via st.components.v1.html() in its own iframe,
+# which can't see the parent page's CSS custom properties (:root vars
+# don't cross an iframe boundary), so it genuinely needs its own <style>.
+# Both blocks now build their colors from these same constants instead
+# of hardcoding hex values independently — that's what actually stops
+# a palette change from meaning "hunt through two places," not merging
+# the tags themselves. This closed a real (if small) drift: the
+# sparkline panel's background/border had quietly settled on
+# #14171B/#23272C instead of matching CP_PANEL/CP_LINE exactly.
+CP_INK   = "#0A0C0F"
+CP_PANEL = "#171B20"
+CP_LINE  = "#2A2F36"
+CP_EMBER = "#E3A339"
+CP_WIN   = "#4CAF7D"
+CP_LOSS  = "#E1615A"
+CP_TEXT  = "#ECECE6"
+CP_MUTE  = "#8B8F94"
+
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
 
 # ---------- PASSWORD GATE ----------
@@ -401,8 +424,8 @@ def build_props_html(rows: list) -> str:
   @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
   html, body {{ height:100%; margin:0; background:transparent; font-family:'Inter',sans-serif; }}
   .cp-glass-wrap {{
-    background: #14171B;
-    border: 1px solid #23272C; border-radius: 8px;
+    background: {CP_PANEL};
+    border: 1px solid {CP_LINE}; border-radius: 8px;
     height: 100%;
   }}
   /* FIXED 2026-07-20: this used to be overflow:hidden on the same
@@ -426,13 +449,13 @@ def build_props_html(rows: list) -> str:
   }}
   table {{ width:100%; min-width:900px; border-collapse:collapse; font-size:13px; }}
   thead th {{
-    background: #14171B; color:#8B8F94; font-family:'Oswald',sans-serif; font-weight:600;
+    background: {CP_PANEL}; color:{CP_MUTE}; font-family:'Oswald',sans-serif; font-weight:600;
     font-size:10px; letter-spacing:1px; text-transform:uppercase; text-align:left;
-    padding:12px 14px; border-bottom:1px solid #23272C; position:sticky; top:0; z-index:2;
+    padding:12px 14px; border-bottom:1px solid {CP_LINE}; position:sticky; top:0; z-index:2;
     transition: color 0.15s ease;
   }}
-  thead th:hover {{ color:#E3A339; }}
-  tbody td {{ padding:10px 14px; border-bottom:1px solid #1A1D21; color:#ECECE6; white-space:nowrap; }}
+  thead th:hover {{ color:{CP_EMBER}; }}
+  tbody td {{ padding:10px 14px; border-bottom:1px solid #1A1D21; color:{CP_TEXT}; white-space:nowrap; }}
   tbody tr {{ transition: background 0.15s ease; }}
   tbody tr:hover {{ background: rgba(227,163,57,0.05); }}
 </style></head>
@@ -470,21 +493,25 @@ function cpSort(colIndex, type) {{
 
 
 # ---------- STYLE: Culture & Pulse Boardroom/ESPN brand — glass-card sportsbook aesthetic ----------
-st.markdown("""
+# Only this :root block is an f-string pulling from the CP_* constants
+# above — the rest of the CSS below is unchanged, still a plain string,
+# so nothing here risks a brace-escaping mistake in the ~200 lines of
+# CSS that didn't need to change for this pass.
+st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
-:root {
-    --cp-ink: #0A0C0F;
-    --cp-panel: #171B20;
-    --cp-line: #2A2F36;
-    --cp-ember: #E3A339;
-    --cp-win: #4CAF7D;
-    --cp-loss: #E1615A;
-    --cp-text: #ECECE6;
-    --cp-mute: #8B8F94;
-}
-
+:root {{
+    --cp-ink: {CP_INK};
+    --cp-panel: {CP_PANEL};
+    --cp-line: {CP_LINE};
+    --cp-ember: {CP_EMBER};
+    --cp-win: {CP_WIN};
+    --cp-loss: {CP_LOSS};
+    --cp-text: {CP_TEXT};
+    --cp-mute: {CP_MUTE};
+}}
+""" + """
 div[data-testid="stExpander"] {
     background: var(--cp-panel) !important;
     border: 1px solid var(--cp-line) !important;
@@ -636,6 +663,54 @@ section[data-testid="stDataFrame"] {
     border-color: rgba(212,175,55,0.6) !important;
 }
 .stTextInput input { color: #ffffff !important; }
+
+/* Multiselect dropdown popover + date-picker calendar popover — added
+   2026-09-08. Both are BaseWeb "popover" portals: attached to the main
+   document (not an iframe, unlike the sparkline table), so the app's
+   own CSS custom properties already reach them — but neither had an
+   explicit rule, so they were falling back to Streamlit's own default
+   dark theme (#0E1117 background, Source Sans font) instead of this
+   app's actual palette. Verified via computed styles before writing
+   this: menu background was rgb(14,17,23), option font was
+   '"Source Sans", sans-serif' — genuinely stock, not close enough to
+   assume "already fine." !important matches the convention already
+   used everywhere else in this block for overriding BaseWeb's own
+   equally-specific defaults.
+
+   NOTE: this BaseWeb version has no [data-baseweb="menu"] element at
+   all (checked the live DOM — the option list is a bare <ul>, no
+   baseweb marker) — an earlier version of this rule targeted that
+   attribute and silently matched nothing. Targeting the popover's own
+   <ul>/<li role="option"> directly instead, confirmed against the
+   real rendered DOM before landing this. */
+[data-baseweb="popover"] ul,
+[data-baseweb="popover"] [data-baseweb="calendar"] {
+    background-color: var(--cp-panel) !important;
+    border: 1px solid var(--cp-line) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
+}
+[data-baseweb="popover"] li[role="option"],
+[data-baseweb="popover"] li[role="option"] * {
+    font-family: 'Inter', sans-serif !important;
+    color: var(--cp-text) !important;
+}
+[data-baseweb="popover"] li[role="option"]:hover {
+    background-color: rgba(227,163,57,0.1) !important;
+}
+[data-baseweb="calendar"] * {
+    font-family: 'Inter', sans-serif !important;
+}
+[data-baseweb="calendar"] [role="gridcell"] {
+    color: var(--cp-mute) !important;
+}
+[data-baseweb="calendar"] [role="gridcell"]:hover div {
+    background-color: rgba(227,163,57,0.15) !important;
+}
+[data-baseweb="calendar"] [aria-selected="true"] div {
+    background-color: var(--cp-ember) !important;
+    color: var(--cp-ink) !important;
+}
 div[data-testid="stSlider"] [data-baseweb="slider"] { background: var(--cp-line) !important; }
 div[data-testid="stSlider"] [data-baseweb="slider"] > div { background: var(--cp-line) !important; }
 div[data-testid="stSlider"] [data-baseweb="slider"] > div > div { background: var(--cp-ember) !important; }
