@@ -39,7 +39,8 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn, rows_to_dicts
 
-GAME_LOG_TABLES = {"wnba": "wnba_game_log", "mlb": "mlb_game_log", "nba": "nba_game_log", "nfl": "nfl_game_log"}
+GAME_LOG_TABLES = {"wnba": "wnba_game_log", "mlb": "mlb_game_log", "nba": "nba_game_log", "nfl": "nfl_game_log",
+                    "cfb": "cfb_game_log"}
 
 # Mirrors dashboard.py's STAT_COLS exactly — kept as a local copy rather
 # than importing dashboard.py, since that file pulls in streamlit as a
@@ -52,6 +53,15 @@ STAT_COLS = {
              "pra": ("pts", "reb", "ast"), "pr": ("pts", "reb"), "pa": ("pts", "ast"), "ra": ("reb", "ast")},
     "mlb":  {"hits": "hits", "runs": "runs", "rbis": "rbis", "hr": "hrs"},
     "nfl":  {
+        "passing_completions": "passing_completions", "passing_attempts": "passing_attempts",
+        "passing_yards": "passing_yards", "passing_tds": "passing_tds", "interceptions": "interceptions",
+        "rushing_attempts": "rushing_attempts", "rushing_yards": "rushing_yards", "rushing_tds": "rushing_tds",
+        "receptions": "receptions", "receiving_yards": "receiving_yards", "receiving_tds": "receiving_tds",
+    },
+    # cfb_game_log has the identical schema to nfl_game_log (confirmed
+    # 2026-09-08 — same ESPN box-score shape, see cfb_player_game_logs.py's
+    # own docstring), so this is a straight copy of the nfl entry above.
+    "cfb":  {
         "passing_completions": "passing_completions", "passing_attempts": "passing_attempts",
         "passing_yards": "passing_yards", "passing_tds": "passing_tds", "interceptions": "interceptions",
         "rushing_attempts": "rushing_attempts", "rushing_yards": "rushing_yards", "rushing_tds": "rushing_tds",
@@ -243,7 +253,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--player", required=True)
-    parser.add_argument("--sport", default="wnba", choices=["wnba", "mlb", "nba", "nfl"])
+    parser.add_argument("--sport", default="wnba", choices=["wnba", "mlb", "nba", "nfl", "cfb"])
     parser.add_argument("--games", type=int, default=10)
     args = parser.parse_args()
     print_profile_report(args.player, args.sport, n_games=args.games)

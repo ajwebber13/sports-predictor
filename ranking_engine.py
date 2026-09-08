@@ -82,6 +82,14 @@ from team_form_engine import get_team_form
 EFFICIENCY_STAT_MAP = {
     "wnba": "pts",
     "nba": "pts",
+    # cfb_defense_ratings.py exists and works (added earlier, confirmed
+    # 2026-09-08) but was never wired in here. Its STAT_SQL only offers
+    # single offense-category columns, no combined "total yards"/"points
+    # allowed" the way wnba/nba's "pts" is — passing_yards picked as the
+    # single-stat proxy: more predictive of CFB outcomes than rushing
+    # volume alone, which is skewed by game-script (leading teams run
+    # more late to kill clock).
+    "cfb": "passing_yards",
 }
 
 RELIABILITY_SEASON_FRACTION = 0.35  # full confidence (100%) around this fraction of a full season,

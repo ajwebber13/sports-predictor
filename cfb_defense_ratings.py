@@ -95,7 +95,13 @@ def get_defense_factors(stat: str, use_cache: bool = True) -> dict:
         if (r["games"] or 0) < MIN_GAMES_FOR_DEFENSE:
             continue
         team_rate = (r["stat_total"] or 0) / r["games"]
-        factors[r["team"]] = round(team_rate / league_rate, 3)
+        # FIXED 2026-09-08: Postgres SUM() returns a Decimal, not a
+        # float, for these columns — found live-testing ranking_engine.py's
+        # new EFFICIENCY_STAT_MAP["cfb"] wiring: `eff_score * 0.20`
+        # downstream raised TypeError mixing Decimal and float. Cast
+        # before round() so this actually returns the float its own
+        # signature already promised, not just for this new caller.
+        factors[r["team"]] = round(float(team_rate / league_rate), 3)
 
     if use_cache:
         _cache[stat] = factors

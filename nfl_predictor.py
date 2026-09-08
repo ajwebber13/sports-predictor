@@ -205,6 +205,30 @@ class NFLPredictionEngine:
         exp_away, away_factors = self._expected_score(away_stats, home_stats, is_home=False, rest_days=away_rest,
                                         situational_adj=total_adj, injury_adj=away_inj_adj, line_adj=away_line_adj)
 
+        # Weather adjustment (added 2026-09-08) — mirrors
+        # enhanced_predictor.py's existing NFL/CFB block. Applied here,
+        # before save_prediction_factors() below, so the logged/
+        # displayed projected score already reflects it rather than a
+        # pre-adjustment number. CFB intentionally NOT given this same
+        # treatment yet — weather_model.py's NCAAF_STADIUMS only covers
+        # 14 of ~122 FBS teams, and under a different naming convention
+        # (full mascot names) than cfb_predictor.py's team_name (short
+        # names) — see the 2026-09-08 audit. Home team only: outdoor/
+        # dome status and forecast location are keyed on the stadium
+        # the game is played at.
+        try:
+            from weather_model import get_game_weather_impact
+            weather = get_game_weather_impact(home_stats.team_name, "nfl")
+            if not weather.get("is_dome"):
+                pts_adj  = weather.get("total_pts_adj", 0.0)
+                pass_pen = weather.get("passing_penalty", 0.0)
+                exp_home += pts_adj / 2
+                exp_away += pts_adj / 2
+                exp_home *= (1.0 + pass_pen)
+                exp_away *= (1.0 + pass_pen)
+        except Exception as e:
+            print(f"  [NFL] weather adj fetch failed, defaulting to 0: {e}")
+
         try:
             from database import save_prediction_factors
             today = datetime.now().strftime("%Y-%m-%d")
