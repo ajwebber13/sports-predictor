@@ -757,7 +757,18 @@ def load_picks():
     performance_tracker.py groups on), rows still pending use the live
     predictions.edge since results.edge_at_pick doesn't exist yet for
     those. p.id is selected only to break a tie on lowest prediction
-    id — not otherwise displayed."""
+    id — not otherwise displayed.
+
+    SECOND PASS (2026-09-08): grouping used to key on p.date — the day
+    a pick was LOGGED, not the day the game is/was played. Harmless for
+    every sport except CFB, which re-predicts the same real game daily
+    ahead of kickoff; that made this table (and the Season ticker,
+    which reads it) show the same real game as several separate "best
+    picks." Now groups on grouping_date instead: results.date when
+    graded (backfilled to the real game date — see
+    migrate_backfill_cfb_game_dates_v2.py), else predictions.game_date
+    for a still-pending pick. Not otherwise displayed — the visible
+    `date` column stays p.date (when the pick was made), unchanged."""
     conn = get_conn()
 
     query = """
@@ -768,14 +779,15 @@ def load_picks():
                p.projected_margin, p.projected_total, p.confidence,
                r.home_team AS result_home_team, r.away_team AS result_away_team,
                r.home_score, r.away_score, r.correct, r.push,
-               COALESCE(r.edge_at_pick, p.edge) AS edge_at_pick
+               COALESCE(r.edge_at_pick, p.edge) AS edge_at_pick,
+               COALESCE(r.date, p.game_date) AS grouping_date
         FROM predictions p
         LEFT JOIN results r ON r.prediction_id = p.id
         ORDER BY p.date DESC
     """
     cur = conn.execute(query)
     rows = rows_to_dicts(cur, cur.fetchall())
-    rows = best_pick_per_game(rows, edge_key="edge_at_pick", id_key="id")
+    rows = best_pick_per_game(rows, edge_key="edge_at_pick", id_key="id", date_key="grouping_date")
 
     cols = ["date", "sport", "game", "bet", "odds", "edge",
             "model_prob", "implied_prob", "home_record", "away_record",

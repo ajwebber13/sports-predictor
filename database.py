@@ -1434,15 +1434,16 @@ def rows_to_dicts(cursor, rows):
     return [dict(zip(columns, row)) for row in rows]
 
 
-def best_pick_per_game(rows: list, edge_key: str = "edge_at_pick", id_key: str = "id") -> list:
+def best_pick_per_game(rows: list, edge_key: str = "edge_at_pick", id_key: str = "id",
+                        date_key: str = "date") -> list:
     """Added 2026-09-08 — single source of truth for the "one pick per
     game" rule, shared by performance_tracker.py's calculate_record()/
     calculate_roi()/calculate_record_by_sport() and dashboard.py's
     load_picks(), so the Game Picks table and the Season record can't
     drift apart the same way the sport-list selectors did before.
 
-    Groups rows by (date, sport, game) and keeps exactly one row per
-    group: the highest `edge_key` value. Ties are broken by lowest
+    Groups rows by (date_key, sport, game) and keeps exactly one row
+    per group: the highest `edge_key` value. Ties are broken by lowest
     `id_key` — deterministic regardless of DB fetch order, which is
     NOT guaranteed without an explicit ORDER BY (confirmed: 3 real
     ties exist in production, all moneyline-vs-spread pairs on the
@@ -1454,18 +1455,34 @@ def best_pick_per_game(rows: list, edge_key: str = "edge_at_pick", id_key: str =
     column names `edge_at_pick`/`prediction_id`), while dashboard.py's
     load_picks() keeps its existing `edge` column name for backward
     compatibility with everything else in that file that already
-    references df["edge"] — it passes edge_key="edge" instead of
-    renaming its own column.
+    references df["edge"] — it passes edge_key="edge_at_pick" (its own
+    COALESCE'd column, see load_picks()) instead of renaming.
+
+    date_key (added 2026-09-08, second pass): grouping by the day a
+    prediction was LOGGED is wrong for CFB, which re-predicts the same
+    real game daily in the run-up to kickoff — 24 real CFB games were
+    found counted as up to 7 separate "wins" each this way (see the
+    2026-09-08 CFB game_date backfill audit and
+    migrate_backfill_cfb_game_dates_v2.py). Callers should pass a field
+    that identifies the real game day (results.date, or predictions'
+    game_date/a COALESCE of both) — not the logged day — once one is
+    available. A NULL date_key value falls back to grouping by
+    (sport, game) alone, no date at all, so a still-missing date can't
+    silently un-collapse a group the way a wrong-but-present one did
+    before the backfill; a wrong-but-present value (the actual failure
+    mode this session found) isn't detectable from here and has to be
+    fixed at the data layer instead, same as the backfill just did.
 
     A row missing edge_key (None) is treated as losing every tiebreak
     — it only "wins" its group if it's the sole row in that group,
     same as today's implicit behavior for a game with just one market.
-    Rows missing date/sport/game entirely are passed through as their
-    own singleton groups rather than silently dropped."""
+    Rows missing sport/game entirely are passed through as their own
+    singleton groups rather than silently dropped."""
     groups = {}
     order = []
     for r in rows:
-        key = (r.get("date"), r.get("sport"), r.get("game"))
+        game_date = r.get(date_key)
+        key = (r.get("sport"), r.get("game"), game_date) if game_date else (r.get("sport"), r.get("game"))
         if key not in groups:
             groups[key] = []
             order.append(key)
