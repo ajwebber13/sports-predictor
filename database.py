@@ -1433,6 +1433,58 @@ def rows_to_dicts(cursor, rows):
     columns = [d[0] for d in cursor.description]
     return [dict(zip(columns, row)) for row in rows]
 
+
+def best_pick_per_game(rows: list, edge_key: str = "edge_at_pick", id_key: str = "id") -> list:
+    """Added 2026-09-08 — single source of truth for the "one pick per
+    game" rule, shared by performance_tracker.py's calculate_record()/
+    calculate_roi()/calculate_record_by_sport() and dashboard.py's
+    load_picks(), so the Game Picks table and the Season record can't
+    drift apart the same way the sport-list selectors did before.
+
+    Groups rows by (date, sport, game) and keeps exactly one row per
+    group: the highest `edge_key` value. Ties are broken by lowest
+    `id_key` — deterministic regardless of DB fetch order, which is
+    NOT guaranteed without an explicit ORDER BY (confirmed: 3 real
+    ties exist in production, all moneyline-vs-spread pairs on the
+    same game with identical edge — see the 2026-09-08 audit).
+
+    edge_key/id_key are parameterized rather than hardcoded because
+    the two callers don't share a column-naming convention:
+    performance_tracker.py's queries read `results` directly (real
+    column names `edge_at_pick`/`prediction_id`), while dashboard.py's
+    load_picks() keeps its existing `edge` column name for backward
+    compatibility with everything else in that file that already
+    references df["edge"] — it passes edge_key="edge" instead of
+    renaming its own column.
+
+    A row missing edge_key (None) is treated as losing every tiebreak
+    — it only "wins" its group if it's the sole row in that group,
+    same as today's implicit behavior for a game with just one market.
+    Rows missing date/sport/game entirely are passed through as their
+    own singleton groups rather than silently dropped."""
+    groups = {}
+    order = []
+    for r in rows:
+        key = (r.get("date"), r.get("sport"), r.get("game"))
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(r)
+
+    best = []
+    for key in order:
+        grp = groups[key]
+        grp_sorted = sorted(
+            grp,
+            key=lambda r: (
+                -(r.get(edge_key)) if r.get(edge_key) is not None else float("inf"),
+                r.get(id_key) if r.get(id_key) is not None else float("inf"),
+            ),
+        )
+        best.append(grp_sorted[0])
+    return best
+
+
 def get_conn():
 
     if SUPABASE_DB_URL:

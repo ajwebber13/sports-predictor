@@ -61,7 +61,7 @@ import os
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
-from database import get_conn as _get_conn_raw
+from database import get_conn as _get_conn_raw, rows_to_dicts, best_pick_per_game
 
 @st.cache_resource
 def get_conn():
@@ -745,29 +745,45 @@ def load_picks():
     market, pick, line, and the projected-score columns alongside the
     existing fields. Rows logged before v2 will have market defaulted
     to 'moneyline' and pick/line/projected_* as NULL — the UI below
-    falls back to the old `bet` text field for those."""
+    falls back to the old `bet` text field for those.
+
+    ONE ROW PER GAME (2026-09-08): a game can still have up to 3 logged
+    markets, but only the single best one (highest edge) is returned
+    here now — same database.best_pick_per_game() grouping
+    performance_tracker.py's calculate_record()/calculate_roi() use, so
+    this table and the Season ticker can't show different numbers for
+    the same underlying picks. edge_at_pick is COALESCE'd: graded rows
+    use the immutable snapshot from results (matches what
+    performance_tracker.py groups on), rows still pending use the live
+    predictions.edge since results.edge_at_pick doesn't exist yet for
+    those. p.id is selected only to break a tie on lowest prediction
+    id — not otherwise displayed."""
     conn = get_conn()
 
     query = """
-        SELECT p.date, p.sport, p.game, p.bet, p.odds, p.edge,
+        SELECT p.id, p.date, p.sport, p.game, p.bet, p.odds, p.edge,
                p.model_prob, p.implied_prob, p.home_record, p.away_record,
                p.home_rest, p.away_rest, p.home_injuries, p.away_injuries,
                p.market, p.pick, p.line, p.projected_home, p.projected_away,
                p.projected_margin, p.projected_total, p.confidence,
-               r.home_team, r.away_team, r.home_score, r.away_score, r.correct, r.push
+               r.home_team AS result_home_team, r.away_team AS result_away_team,
+               r.home_score, r.away_score, r.correct, r.push,
+               COALESCE(r.edge_at_pick, p.edge) AS edge_at_pick
         FROM predictions p
         LEFT JOIN results r ON r.prediction_id = p.id
         ORDER BY p.date DESC
     """
     cur = conn.execute(query)
-    rows = cur.fetchall()
+    rows = rows_to_dicts(cur, cur.fetchall())
+    rows = best_pick_per_game(rows, edge_key="edge_at_pick", id_key="id")
+
     cols = ["date", "sport", "game", "bet", "odds", "edge",
             "model_prob", "implied_prob", "home_record", "away_record",
             "home_rest", "away_rest", "home_injuries", "away_injuries",
             "market", "pick", "line", "projected_home", "projected_away",
             "projected_margin", "projected_total", "confidence",
             "result_home_team", "result_away_team", "home_score", "away_score", "correct", "push"]
-    df = pd.DataFrame(rows, columns=cols)
+    df = pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
     # Old rows logged before v2 have market=NULL in the DB only if they
     # predate the DEFAULT 'moneyline' on the column — normalize here too
     # so filters/grouping never see a blank market.

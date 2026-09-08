@@ -37,7 +37,7 @@ import argparse
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import get_conn
+from database import get_conn, rows_to_dicts, best_pick_per_game
 from services.odds_parser import american_to_implied
 
 
@@ -159,7 +159,16 @@ def calculate_clv(date: str = None, date_range: tuple = None, sport: str = None)
 def calculate_record(date: str = None, date_range: tuple = None, sport: str = None) -> dict:
     """Wins/losses/win_rate. Excludes rows where correct IS NULL (no
     result yet, or no ESPN match found by auto_results.py). Pass
-    neither date nor date_range for an all-time (season) total."""
+    neither date nor date_range for an all-time (season) total.
+
+    ONE ROW PER GAME (2026-09-08): a game logged up to 3 markets
+    (moneyline/spread/total) under Prediction Engine v2, and this used
+    to count every graded market as its own independent W/L — a single
+    game could contribute 2-3 results. Now grouped via database.py's
+    best_pick_per_game() (shared with calculate_roi()/
+    calculate_record_by_sport() and dashboard.py's load_picks(), so
+    this can't drift from what the Game Picks table itself shows) —
+    keeps only the highest-edge_at_pick market per (date, sport, game)."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
@@ -167,16 +176,16 @@ def calculate_record(date: str = None, date_range: tuple = None, sport: str = No
         where += " AND sport = ?"
         params.append(sport)
     c.execute(f"""
-        SELECT COUNT(*) as total,
-               SUM(CASE WHEN correct = 1 THEN 1 ELSE 0 END) as wins
+        SELECT date, sport, game, prediction_id as id, edge_at_pick, correct
         FROM results
         WHERE {where} AND correct IS NOT NULL
     """, params)
-    row = c.fetchone()
+    rows = rows_to_dicts(c, c.fetchall())
     conn.close()
 
-    total = row["total"] or 0
-    wins = row["wins"] or 0
+    best = best_pick_per_game(rows)
+    total = len(best)
+    wins = sum(1 for r in best if r["correct"] == 1)
     losses = total - wins
     win_rate = round(wins / total * 100, 1) if total else None
 
@@ -192,7 +201,12 @@ def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None)
 
     Returns "profit_units" (not "units") deliberately — once unit_size/
     stake_amount/bankroll exist, "units" alone would be ambiguous
-    between "units risked" and "units profited"."""
+    between "units risked" and "units profited".
+
+    ONE ROW PER GAME (2026-09-08): same grouping as calculate_record()
+    — see that function's docstring. Applied here too so ROI reflects
+    the same picks the win/loss record and the Game Picks table do,
+    via the shared database.best_pick_per_game()."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
@@ -200,15 +214,17 @@ def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None)
         where += " AND sport = ?"
         params.append(sport)
     c.execute(f"""
-        SELECT correct, odds_at_pick
+        SELECT date, sport, game, prediction_id as id, edge_at_pick, correct, odds_at_pick
         FROM results
         WHERE {where} AND correct IS NOT NULL
     """, params)
-    rows = c.fetchall()
+    rows = rows_to_dicts(c, c.fetchall())
     conn.close()
 
-    graded_with_odds = [r for r in rows if r["odds_at_pick"] is not None]
-    skipped_no_odds = len(rows) - len(graded_with_odds)
+    best = best_pick_per_game(rows)
+
+    graded_with_odds = [r for r in best if r["odds_at_pick"] is not None]
+    skipped_no_odds = len(best) - len(graded_with_odds)
 
     clv = calculate_clv(date=date, date_range=date_range, sport=sport)
 
@@ -235,33 +251,41 @@ def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None)
 
 def calculate_record_by_sport(date: str = None, date_range: tuple = None) -> list:
     """Same as calculate_record but broken out per sport, for the
-    recap's by-sport section."""
+    recap's by-sport section.
+
+    ONE ROW PER GAME (2026-09-08): grouping now happens in Python via
+    the shared database.best_pick_per_game() before the per-sport
+    breakdown, instead of a plain SQL GROUP BY sport over every graded
+    market row — see calculate_record()'s docstring for why."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
     c.execute(f"""
-        SELECT sport,
-               COUNT(*) as total,
-               SUM(CASE WHEN correct = 1 THEN 1 ELSE 0 END) as wins
+        SELECT date, sport, game, prediction_id as id, edge_at_pick, correct
         FROM results
         WHERE {where} AND correct IS NOT NULL
-        GROUP BY sport
-        ORDER BY total DESC
     """, params)
-    rows = c.fetchall()
+    rows = rows_to_dicts(c, c.fetchall())
     conn.close()
 
+    best = best_pick_per_game(rows)
+
+    by_sport = {}
+    for r in best:
+        by_sport.setdefault(r["sport"], []).append(r)
+
     out = []
-    for r in rows:
-        total = r["total"] or 0
-        wins = r["wins"] or 0
+    for sport, grp in by_sport.items():
+        total = len(grp)
+        wins = sum(1 for r in grp if r["correct"] == 1)
         out.append({
-            "sport": r["sport"],
+            "sport": sport,
             "total": total,
             "wins": wins,
             "losses": total - wins,
             "win_rate": round(wins / total * 100, 1) if total else None,
         })
+    out.sort(key=lambda x: -x["total"])
     return out
 
 
