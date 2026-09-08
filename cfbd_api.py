@@ -26,6 +26,7 @@ plugs directly into the live, working cfb_predictor.py.
 import os
 from typing import Optional
 import cfbd
+import requests
 from cfb_data import CFBTeamStats, FBS_TEAM_IDS
 from predictor import CFB_CONSTANTS
 
@@ -44,14 +45,25 @@ class CFBDClient:
                 "  Then run: setx CFBD_API_KEY \"your_key_here\"  (Windows)\n"
                 "  Or pass directly: CFBDClient(api_key='your_key')\n"
             )
-        config = cfbd.Configuration(access_token=key)
+        # FIXED 2026-09-08: cfbd 4.5.2's Configuration() takes no
+        # constructor args at all — access_token=key raised TypeError,
+        # meaning this client had never actually connected. Auth is now
+        # set as a default header on the ApiClient instead (confirmed
+        # live: 401 without the "Bearer " prefix — the SDK doesn't add
+        # it for you the way older versions apparently did).
+        config = cfbd.Configuration()
         client = cfbd.ApiClient(config)
+        client.default_headers["Authorization"] = f"Bearer {key}"
 
         self.games   = cfbd.GamesApi(client)
         self.stats   = cfbd.StatsApi(client)
         self.betting = cfbd.BettingApi(client)
         self.ratings = cfbd.RatingsApi(client)
         self.teams   = cfbd.TeamsApi(client)
+        # Kept on the instance for load_season_games() below, which
+        # bypasses the SDK entirely for /games (see its own docstring)
+        # and needs the raw key for its own Authorization header.
+        self.api_key = key
 
     def test_connection(self) -> bool:
         try:
@@ -73,14 +85,36 @@ _sp_ratings_cache   = {}
 
 
 def load_season_games(client: CFBDClient, year: int) -> list:
+    """Returns a list of dicts (camelCase keys, straight from CFBD's raw
+    JSON — homePoints, awayPoints, homeTeam, awayTeam, etc.), not SDK
+    model objects.
+
+    FIXED 2026-09-08: cfbd 4.5.2's GamesApi.get_games() deserializes to
+    a broken model for this endpoint — every game came back with
+    completed=True but home_points/away_points/home_team/away_team all
+    None. Cross-checked against CFBD's raw REST response directly: the
+    real JSON has every field populated correctly (homePoints: 21,
+    homeTeam: "Kansas State", etc.), so this is an SDK bug isolated to
+    the Game model, not a missing param or a real data gap — ratings
+    and stats endpoints deserialize fine via the SDK, only this one
+    doesn't. Bypasses the SDK for this call only, hitting the REST
+    endpoint directly with `requests` instead. _calc_game_stats() below
+    reads these as dicts (g["homePoints"], not g.home_points) to match."""
     if year in _season_games_cache:
         return _season_games_cache[year]
     print(f"  Loading {year} season game results (one-time fetch)...")
     try:
-        raw = client.games.get_games(year=year)
+        r = requests.get(
+            "https://api.collegefootballdata.com/games",
+            params={"year": year},
+            headers={"Authorization": f"Bearer {client.api_key}"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        raw = r.json()
         completed = [
             g for g in raw
-            if g.home_points is not None and g.away_points is not None
+            if g.get("homePoints") is not None and g.get("awayPoints") is not None
         ]
         _season_games_cache[year] = completed
         print(f"  ✓ {len(completed)} completed games loaded for {year}")
@@ -96,7 +130,10 @@ def load_season_stats(client: CFBDClient, year: int) -> dict:
         return _season_stats_cache[year]
     print(f"  Loading {year} season stats (one-time fetch)...")
     try:
-        raw = client.stats.get_team_stats(year=year)
+        # RENAMED 2026-09-08: get_team_stats -> get_team_season_stats in
+        # cfbd 4.5.2 (confirmed same response shape/field names live —
+        # stat_name/stat_value/team unchanged, only the method name moved).
+        raw = client.stats.get_team_season_stats(year=year)
         lookup = {}
         for s in raw:
             if s.team not in lookup:
@@ -122,7 +159,9 @@ def load_sp_ratings(client: CFBDClient, year: int) -> dict:
     if year in _sp_ratings_cache:
         return _sp_ratings_cache[year]
     try:
-        raw = client.ratings.get_sp(year=year)
+        # RENAMED 2026-09-08: get_sp -> get_sp_ratings in cfbd 4.5.2
+        # (confirmed live — response shape/field names unchanged).
+        raw = client.ratings.get_sp_ratings(year=year)
         lookup = {r.team: r for r in raw if r.team}
         _sp_ratings_cache[year] = lookup
         return lookup
@@ -144,16 +183,18 @@ def _safe(d: dict, *keys, default: float = 0.0) -> float:
 
 
 def _calc_game_stats(all_games: list, team_name: str) -> dict:
-    """Per-game scoring averages for a team from the full season game list."""
+    """Per-game scoring averages for a team from the full season game
+    list. all_games is a list of dicts (camelCase keys) now, not SDK
+    model objects — see load_season_games()'s 2026-09-08 fix."""
     home_scored = []; home_allowed = []
     away_scored = []; away_allowed = []
 
     for g in all_games:
-        hp = float(g.home_points)
-        ap = float(g.away_points)
-        if g.home_team == team_name:
+        hp = float(g["homePoints"])
+        ap = float(g["awayPoints"])
+        if g.get("homeTeam") == team_name:
             home_scored.append(hp); home_allowed.append(ap)
-        elif g.away_team == team_name:
+        elif g.get("awayTeam") == team_name:
             away_scored.append(ap); away_allowed.append(hp)
 
     all_scored  = home_scored + away_scored

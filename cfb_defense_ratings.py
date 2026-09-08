@@ -108,11 +108,93 @@ def get_defense_factors(stat: str, use_cache: bool = True) -> dict:
     return factors
 
 
+def _resolve_sp_team(mascot_name: str, sp: dict):
+    """Maps a full mascot-style name (e.g. 'Ohio State Buckeyes' — the
+    convention elo_ratings.team_name and cfb_game_log.opponent both
+    use, and what ranking_engine.py actually passes as team_name here)
+    to an entry in CFBD SP+'s own dict.
+
+    FOUND live-testing ranking_engine.py's actual output (not just
+    calling get_defense_factor directly with a short name, which
+    masked this): SP+ turns out to use a THIRD naming convention, not
+    matching either elo_ratings' mascot names OR cfb_data.FBS_TEAM_IDS'
+    short names — confirmed live: SP+'s own keys are "Hawai'i" (with
+    the apostrophe) and "Miami (OH)" (with parens), while FBS_TEAM_IDS
+    has "Hawaii" and "Miami OH". An earlier version of this function
+    matched mascot names against FBS_TEAM_IDS' short names (correctly)
+    but then looked those short names up in `sp` verbatim — "Miami OH"
+    is not a key in `sp`, only "Miami (OH)" is, so that silently fell
+    through to the wrong team ("Miami" i.e. Miami FL) for Miami OH, and
+    matched nothing at all for Hawaii. Now matches directly against
+    SP+'s own keys instead, both sides run through the same normalizer
+    already used for exactly this class of naming drift (see the
+    Hawaii/Miami OH grading fix). Longest normalized key wins, so
+    'Ohio State Buckeyes' can't match SP+'s 'Ohio' before its 'Ohio
+    State' gets a chance."""
+    from auto_results import _normalize_team_name
+    normalized = _normalize_team_name(mascot_name)
+    candidates = sorted(sp.keys(), key=lambda k: len(_normalize_team_name(k)), reverse=True)
+    for sp_key in candidates:
+        if normalized.startswith(_normalize_team_name(sp_key)):
+            return sp[sp_key]
+    return None
+
+
 def get_defense_factor(team_name: str, stat: str) -> float:
     """Single-team lookup. Returns 1.0 (neutral) if unavailable — never
-    blocks a projection just because a rating isn't ready yet."""
+    blocks a projection just because a rating isn't ready yet.
+
+    ENHANCED 2026-09-08: tries CFBD SP+ first, now that cfbd_api.py's
+    client actually connects (see its 2026-09-08 fixes). SP+'s
+    defense.rating is a real, externally-computed power rating that
+    doesn't need MIN_GAMES_FOR_DEFENSE games to stabilize the way the
+    raw game-log calculation below does — useful this early in a
+    season. team_name here arrives in elo_ratings'/cfb_game_log's
+    mascot-name convention ('Ohio State Buckeyes'), not CFBD's short
+    names — see _resolve_sp_team() for that translation. Falls back to
+    the raw-stat calculation if CFBD isn't configured, the team can't
+    be resolved to an SP+ entry, or anything else goes wrong; must
+    never raise or block a projection.
+
+    SIGN NOTE: got this backwards on the first pass — assumed SP+'s
+    defense.rating was "higher = better" from seeing Ohio State's #1
+    defense paired with rating=10.1, without checking it against
+    anything else. Live-tracing ranking_engine.get_rankings('cfb')'s
+    actual output caught it: Ohio State (elite, real-world #1-ish
+    defense) came out DEAD LAST on the efficiency component, UL Monroe
+    (a real bottom-tier team) came out FIRST. Direct comparison: Ohio
+    State's defense.rating is 10.1, UL Monroe's is 42.9 — SP+'s
+    defense.rating is actually "LOWER = better defense" (reads like an
+    expected-points-allowed cost, not a quality score), the SAME
+    polarity as this function's own raw-stat return value below (>1.0
+    = weak defense, <1.0 = tough) — NOT the opposite, despite looking
+    that way from a single data point. ranking_engine.py's
+    _get_efficiency_proxy() (the only caller) unconditionally negates
+    whatever this function returns to convert that "lower = better"
+    convention into its own "higher = better" one for min-max
+    normalization — so def_rating is returned AS-IS here, unmodified,
+    same as the raw-stat path returns its own factor as-is. Re-verified
+    end-to-end through ranking_engine.get_rankings('cfb') itself after
+    this fix, not just this function in isolation or a single team's
+    number: Ohio State now ranks near the top of the efficiency
+    component and UL Monroe near the bottom."""
     if not team_name:
         return 1.0
+
+    try:
+        from datetime import datetime
+        from cfbd_api import _get_client, load_sp_ratings
+        client = _get_client()
+        if client:
+            year = datetime.now().year if datetime.now().month >= 8 else datetime.now().year - 1
+            sp = load_sp_ratings(client, year)
+            rating = _resolve_sp_team(team_name, sp)
+            def_rating = getattr(getattr(rating, "defense", None), "rating", None) if rating else None
+            if def_rating is not None:
+                return float(def_rating)
+    except Exception:
+        pass
+
     factors = get_defense_factors(stat)
     return factors.get(team_name, 1.0)
 
