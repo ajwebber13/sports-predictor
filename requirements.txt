@@ -3,7 +3,7 @@ uvicorn
 requests
 numpy
 pandas
-streamlit
+streamlit==1.58.0
 python-dotenv
 pydantic
 httptools

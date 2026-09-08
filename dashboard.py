@@ -940,7 +940,17 @@ with tab_games:
         for sport, group in df[df["status"].isin(["WIN", "LOSS"])].groupby("sport"):
             streaks[sport] = current_streak(group)
 
-        settled = df[df["status"].isin(["WIN", "LOSS"])]
+        # Scoped to ALL_SPORTS (2026-09-08) — this feeds both the streak
+        # pills below and the Best/Worst Pick highlight cards, and until
+        # now it read raw `df` (date-range-filtered only), so a shelved
+        # sport's historical picks could still surface as a pill or win
+        # the Best/Worst Pick slot on the exact same page where the
+        # Sport multiselect further down correctly hides it. Deliberately
+        # scoped to the ALL_SPORTS shelf itself, not to whatever the user
+        # has currently picked in that multiselect — that widget renders
+        # later in this function and is a further, independent narrowing
+        # on top of this.
+        settled = df[df["status"].isin(["WIN", "LOSS"]) & df["sport"].isin(ALL_SPORTS)]
         summary = settled.groupby("sport")["status"].value_counts().unstack(fill_value=0)
 
         if not summary.empty:
