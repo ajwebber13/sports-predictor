@@ -209,13 +209,15 @@ class NFLPredictionEngine:
         # enhanced_predictor.py's existing NFL/CFB block. Applied here,
         # before save_prediction_factors() below, so the logged/
         # displayed projected score already reflects it rather than a
-        # pre-adjustment number. CFB intentionally NOT given this same
-        # treatment yet — weather_model.py's NCAAF_STADIUMS only covers
-        # 14 of ~122 FBS teams, and under a different naming convention
-        # (full mascot names) than cfb_predictor.py's team_name (short
-        # names) — see the 2026-09-08 audit. Home team only: outdoor/
-        # dome status and forecast location are keyed on the stadium
-        # the game is played at.
+        # pre-adjustment number. cfb_predictor.py got the same block
+        # the same day, once weather_model.py's NCAAF_STADIUMS was
+        # rebuilt to cover all ~121 FBS teams (cfb_data.FBS_TEAM_IDS'
+        # count as of the 2026-09-08 Wichita State cleanup — was 122
+        # until that removal) under cfb_predictor.py's own short-name
+        # convention, instead of the original 14-team/mascot-name
+        # version this comment used to describe as a blocker. Home
+        # team only: outdoor/dome status and forecast location are
+        # keyed on the stadium the game is played at.
         try:
             from weather_model import get_game_weather_impact
             weather = get_game_weather_impact(home_stats.team_name, "nfl")

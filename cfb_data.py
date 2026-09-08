@@ -96,6 +96,11 @@ FBS_TEAM_IDS = {
     "West Virginia":     "277",
 
     # Group of 5 - AAC
+    # Wichita State REMOVED 2026-09-08 -- discontinued their football
+    # program in 1986, so it shouldn't have been in an FBS list at all.
+    # Found because its ESPN schedule call returned zero 2026 events
+    # while auditing CFB weather stadium data; confirmed via ESPN's own
+    # groups=80 FBS teams listing, which doesn't include them either.
     "Charlotte":         "2429",
     "East Carolina":     "151",
     "Florida Atlantic":  "2226",
@@ -108,7 +113,6 @@ FBS_TEAM_IDS = {
     "Tulane":            "2655",
     "Tulsa":             "202",
     "UTSA":              "2636",
-    "Wichita State":     "2724",
 
     # Mountain West
     "Air Force":         "2005",
@@ -130,7 +134,7 @@ FBS_TEAM_IDS = {
     "Coastal Carolina":  "324",
     "Georgia Southern":  "290",
     "Georgia State":     "2247",
-    "James Madison":     "2253",
+    "James Madison":     "256",   # FIXED 2026-09-08 -- was "2253", 400'd on ESPN's schedule endpoint (stale/wrong id)
     "Louisiana":         "309",
     "Louisiana Monroe":  "2433",
     "Marshall":          "276",
@@ -157,7 +161,7 @@ FBS_TEAM_IDS = {
     # Independents
     "Notre Dame":        "87",
     "Liberty":           "2335",
-    "New Mexico State":  "2443",
+    "New Mexico State":  "166",   # FIXED 2026-09-08 -- was "2443", 400'd on ESPN's schedule endpoint (stale/wrong id)
     "UConn":             "41",
 }
 
