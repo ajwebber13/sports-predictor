@@ -28,14 +28,23 @@ jobs:
         run: pip install -r requirements.txt
       - name: Run CFB stats backfill
         run: |
+          # NOTE 2026-09-08: unlike every other sport, this script was
+          # never moved into backfill/cfb/ (that directory doesn't exist)
+          # — this workflow pointed at a path that didn't exist and would
+          # have failed on the first manual run. Fixed to the script's
+          # real location (repo root) instead of creating the directory,
+          # since render_job.py now does a plain `from
+          # cfb_player_game_logs import update_recent` and backfill/ has
+          # no __init__.py anywhere — it's never been an importable
+          # package, only ever invoked as a standalone script.
           if [ "${{ github.event.inputs.mode }}" = "backfill" ]; then
             if [ -n "${{ github.event.inputs.end_date }}" ]; then
-              python -u backfill/cfb/cfb_player_game_logs.py backfill "${{ github.event.inputs.start_date }}" "${{ github.event.inputs.end_date }}"
+              python -u cfb_player_game_logs.py backfill "${{ github.event.inputs.start_date }}" "${{ github.event.inputs.end_date }}"
             else
-              python -u backfill/cfb/cfb_player_game_logs.py backfill "${{ github.event.inputs.start_date }}"
+              python -u cfb_player_game_logs.py backfill "${{ github.event.inputs.start_date }}"
             fi
           else
-            python -u backfill/cfb/cfb_player_game_logs.py update
+            python -u cfb_player_game_logs.py update
           fi
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}

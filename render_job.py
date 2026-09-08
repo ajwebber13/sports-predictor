@@ -265,6 +265,14 @@ def run_alerts(sport: str) -> bool:
             except Exception as e:
                 log(f"MLB player stats error: {e}")
 
+        if sport == "cfb":
+            try:
+                from cfb_player_game_logs import update_recent
+                update_recent(days=7)
+                log("CFB player game logs updated")
+            except Exception as e:
+                log(f"CFB player game logs error: {e}")
+
         log_situational_factors(sport, games)
         log(f"Situational factors logged for {sport}")
     except Exception as e:
