@@ -75,6 +75,16 @@ import performance_tracker
 import edge_finder
 import player_profile
 
+# Single shared source of truth for which sports show up anywhere on this
+# dashboard — same list render_job.py's alert pipeline reads. Added
+# 2026-09-08 to replace four separately-hardcoded sport lists (Power
+# Rankings, Player Profiles, edge_finder.SUPPORTED_SPORTS, GAME_LOG_TABLES)
+# that had already drifted from each other and from active_sports.py.
+# Bringing a sport back later means editing active_sports.ALL_SPORTS once —
+# every selector below reads it directly at render time, nothing here
+# caches its own copy.
+from active_sports import ALL_SPORTS
+
 st.set_page_config(page_title="Culture & Pulse Picks", layout="wide", initial_sidebar_state="collapsed")
 
 # ---------- PASSWORD GATE ----------
@@ -239,7 +249,7 @@ def pick_display(row) -> str:
 # (last 10 games vs the line, colored by hit/miss) and a small vanilla-JS
 # click-to-sort so we don't lose the sortability of the native table.
 
-GAME_LOG_TABLES = {"wnba": "wnba_game_log", "mlb": "mlb_game_log", "nba": "nba_game_log", "nfl": "nfl_game_log"}
+GAME_LOG_TABLES = {sport: f"{sport}_game_log" for sport in ALL_SPORTS}
 
 # Pitching stats live in a SEPARATE table from batting (mlb_pitcher_game_log,
 # not mlb_game_log) — confirmed real and working since 2026-07-20. Any MLB
@@ -955,7 +965,11 @@ with tab_games:
         st.markdown("---")
         fc1, fc2, fc3, fc4, fc5 = st.columns([1, 1, 1, 1, 1.3])
         with fc1:
-            sport_filter = st.multiselect("Sport", options=df["sport"].unique(), default=list(df["sport"].unique()), key="g_sport")
+            # Wired to the shared ALL_SPORTS list (2026-09-08) instead of
+            # raw distinct values from `predictions` — a shelved sport's
+            # historical rows no longer show up as a selectable option
+            # here just because old rows for it still exist in the table.
+            sport_filter = st.multiselect("Sport", options=ALL_SPORTS, default=ALL_SPORTS, key="g_sport")
         with fc2:
             market_filter = st.multiselect(
                 "Market",
@@ -1396,7 +1410,7 @@ with tab_players:
 
     pc1, pc2 = st.columns([1, 2])
     with pc1:
-        profile_sport = st.selectbox("Sport", options=["wnba", "mlb", "nba", "nfl"], index=0, key="pp_sport")
+        profile_sport = st.selectbox("Sport", options=ALL_SPORTS, index=0, key="pp_sport")
     with pc2:
         player_options = load_player_list(profile_sport)
         if player_options:
@@ -1469,8 +1483,7 @@ with tab_players:
                 st.caption("No recent game log found for this player/sport.")
 
 with tab_rankings:
-    AVAILABLE_SPORTS = ["wnba", "nba", "nfl", "mlb"]
-    rank_sport = st.selectbox("Sport", AVAILABLE_SPORTS, key="rank_sport")
+    rank_sport = st.selectbox("Sport", ALL_SPORTS, key="rank_sport")
 
     rankings = load_rankings(rank_sport)
 
@@ -1518,10 +1531,22 @@ with tab_rankings:
 # TAB 4: BETTING ANALYTICS
 # =========================================================
 with tab_betting:
-    period_label = st.radio("Period", ["Today", "Last 7 Days", "Season"], horizontal=True, key="perf_period")
+    bc1, bc2 = st.columns([2, 1])
+    with bc1:
+        period_label = st.radio("Period", ["Today", "Last 7 Days", "Season"], horizontal=True, key="perf_period")
+    with bc2:
+        # Added 2026-09-08 — this tab used to blend every sport ever
+        # logged (including shelved ones) into one number with no way
+        # to narrow it. "All" keeps that exact old behavior; the shared
+        # ALL_SPORTS options let you scope to one active sport instead.
+        # Nothing here deletes historical MLB/NBA rows — "All" still
+        # includes them, and picking either sport back up in
+        # active_sports.ALL_SPORTS makes it reappear as its own option
+        # here too, same as everywhere else this list is used.
+        betting_sport = st.selectbox("Sport", ["All"] + ALL_SPORTS, index=0, key="bt_sport")
     period_key = {"Today": "today", "Last 7 Days": "week", "Season": "season"}[period_label]
 
-    summary = load_performance_summary(period_key)
+    summary = load_performance_summary(period_key, sport=None if betting_sport == "All" else betting_sport)
 
     if not summary or summary["record"]["total"] == 0:
         st.info("No graded picks in this period.")

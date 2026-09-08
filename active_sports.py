@@ -10,8 +10,18 @@ Rule (2026-09-03): no sport goes back in without an eyeballed
 preflight of a real day's output.
 """
 
-ALL_SPORTS = ["wnba", "nfl", "cfb"]  # nba, ncaab, mlb shelved
+ALL_SPORTS = ["wnba", "nfl", "cfb"]  # game picks — nba, ncaab, mlb shelved
+
+# Player-prop alerts are gated separately: a sport can have live game
+# picks and shelved props (or vice versa). MLB props shelved 2026-09-04
+# (props model lost at every threshold); WNBA props live on the
+# projection-based selector only.
+PROPS_SPORTS = ["wnba"]
 
 
 def is_active(sport: str) -> bool:
     return (sport or "").lower() in ALL_SPORTS
+
+
+def props_active(sport: str) -> bool:
+    return (sport or "").lower() in PROPS_SPORTS

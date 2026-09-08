@@ -51,6 +51,7 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn as _get_conn, rows_to_dicts as _rows_to_dicts
+from active_sports import ALL_SPORTS
 
 HIT_RATE_WEIGHT = 0.40
 EDGE_PCT_WEIGHT = 0.40
@@ -64,7 +65,15 @@ DEFENSE_WEIGHT  = 0.20
 # still shows the real uncapped number.
 MAX_EDGE_PCT_FOR_SCORING = 100.0
 
-SUPPORTED_SPORTS = ["wnba", "mlb", "nba", "nfl"]
+# Was its own hardcoded list — now reads active_sports.ALL_SPORTS
+# directly (2026-09-08), same shared source as the dashboard, so this
+# and every other sport-list consumer can't drift apart again. Note:
+# player_props only actually has rows for whatever's in
+# active_sports.PROPS_SPORTS (wnba only, currently) — a sport being
+# in ALL_SPORTS and therefore SUPPORTED_SPORTS here just means it's
+# not rejected outright; get_edge_finder() still returns an empty list
+# for a sport with no prop data logged, same as it always has.
+SUPPORTED_SPORTS = ALL_SPORTS
 
 # --- Confidence guardrails ---
 # Eligibility floor — rows failing any of these are dropped before ranking,

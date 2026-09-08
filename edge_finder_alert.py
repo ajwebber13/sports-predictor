@@ -46,8 +46,9 @@ from edge_finder_parlay import build_parlay
 CENTRAL_OFFSET = -5
 
 # Fallback webhook, kept from the old content-type migration — used
-# only for a sport with no dedicated channel yet (e.g. nba, per
-# SUPPORTED_SPORTS = ["wnba","mlb","nba","nfl"] in edge_finder.py).
+# only for a sport with no dedicated channel yet. edge_finder.py's
+# SUPPORTED_SPORTS now reads active_sports.ALL_SPORTS directly rather
+# than a hardcoded list here.
 DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 
 CONFIDENCE_EMOJI = {"HIGH": "\U0001F525", "MEDIUM": "\u2705"}  # fire / check
