@@ -636,22 +636,52 @@ def run(sports: list, retry: bool = False):
     # per sport, so this groups all_sharp_hits by hit['sport'] and
     # sends one message per sport that actually had a hit, each to its
     # own channel — same pattern as recap_engine.py's restructure.
+    #
+    # DEDUPE added 2026-09-08 — noon_retry.yml runs this twice a day
+    # (noon + 3 PM), and log_line_movement() always compares the
+    # CURRENT price against the game's untouched opening price, so a
+    # line that crossed the threshold by noon and simply stayed there
+    # was re-alerting again at 3 PM for no new information. Each hit
+    # is checked against line_movement.steam_alerted_at/_move (see
+    # get_steam_alert_state()) before being included: skipped if
+    # already alerted AND the move hasn't gone further in the same
+    # direction or reversed past the threshold again; otherwise sent,
+    # then marked via mark_steam_alerted() so the next retry sees it.
     if retry and all_sharp_hits:
-        hits_by_sport = {}
+        from database import get_steam_alert_state, mark_steam_alerted
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        new_hits = []
         for hit in all_sharp_hits:
-            hits_by_sport.setdefault(hit["sport"], []).append(hit)
+            prev_at, prev_move = get_steam_alert_state(today, hit["sport"], hit["home_team"], hit["away_team"])
+            if prev_at is not None:
+                same_or_lesser = (prev_move >= 0) == (hit["movement"] >= 0) and abs(hit["movement"]) <= abs(prev_move)
+                if same_or_lesser:
+                    continue
+            new_hits.append(hit)
 
-        for sport, hits in hits_by_sport.items():
-            lines = ["⚡ <b>Line Movement Alert</b>", ""]
-            for hit in hits:
-                lines.append(f"🏟 {hit['game']} ({hit['sport'].upper()})")
-                lines.append(f"   {hit['detail']}")
-            lines.append("")
-            lines.append("Culture & Pulse Analytics | Line movement, not a pick.")
-            send_discord_alert("\n".join(lines), sport)
+        suppressed = len(all_sharp_hits) - len(new_hits)
 
-        log(f"Sent {len(hits_by_sport)} steam alert(s) covering {len(all_sharp_hits)} game(s) across "
-            f"{len(hits_by_sport)} sport(s)")
+        if new_hits:
+            hits_by_sport = {}
+            for hit in new_hits:
+                hits_by_sport.setdefault(hit["sport"], []).append(hit)
+
+            for sport, hits in hits_by_sport.items():
+                lines = ["⚡ <b>Line Movement Alert</b>", ""]
+                for hit in hits:
+                    lines.append(f"🏟 {hit['game']} ({hit['sport'].upper()})")
+                    lines.append(f"   {hit['detail']}")
+                lines.append("")
+                lines.append("Culture & Pulse Analytics | Line movement, not a pick.")
+                if send_discord_alert("\n".join(lines), sport):
+                    for hit in hits:
+                        mark_steam_alerted(today, hit["sport"], hit["home_team"], hit["away_team"], hit["movement"])
+
+            log(f"Sent {len(hits_by_sport)} steam alert(s) covering {len(new_hits)} game(s) across "
+                f"{len(hits_by_sport)} sport(s) ({suppressed} suppressed as already-alerted)")
+        elif suppressed:
+            log(f"Steam alert: {suppressed} hit(s) suppressed, all already alerted with no further movement")
 
     if not retry:
         log("")

@@ -228,6 +228,15 @@ def _get_h2h_prices(game: dict, home_team: str, away_team: str) -> tuple:
 # behavior (unchanged, out of scope of what was reported).
 LINE_MOVEMENT_DATA_ERROR_PTS = {"nfl": 7, "cfb": 10}
 
+# The sharp-signal bar itself — single source of truth. capture_closing_lines.py
+# used to have its own separate SHARP_THRESHOLD = 8, which meant the same
+# game could get flagged "sharp" by one script and not the other, with
+# whichever ran last silently overwriting line_movement.sharp_signal.
+# Standardized 2026-09-08 to this constant (10, not 8) since 10 is what the
+# live Discord steam alert actually fires on — capture_closing_lines.py now
+# imports this instead of hardcoding its own number.
+SHARP_MOVE_THRESHOLD = 10
+
 
 def log_odds(sport: str, games: list, source: str = "espn"):
     """Recovered from pre-regression database.py (commit b13a88a) —
@@ -303,9 +312,13 @@ def update_closing_odds(sport: str, games: list):
 def log_line_movement(sport: str, games: list):
     """Recovered from pre-regression database.py — render_job.py's noon retry.
 
-    Now also RETURNS the list of sharp-signal hits it detects (game,
-    sharp text), instead of only printing them — render_job.py uses
-    this to build a real Telegram steam alert. Storage/print behavior
+    Now also RETURNS the list of sharp-signal hits it detects, instead
+    of only printing them — render_job.py uses this to build the
+    Discord steam alert. Each hit dict carries sport/game/detail plus
+    home_team/away_team/movement (added 2026-09-08) so render_job.py's
+    steam-alert block can look up and update this exact row's
+    steam_alerted_at/steam_alerted_move dedupe columns without having
+    to re-parse the "away @ home" game string. Storage/print behavior
     unchanged, this is additive.
 
     FIXED 2026-09-04, after a real false alert ("Colts @ Chiefs home
@@ -362,17 +375,20 @@ def log_line_movement(sport: str, games: list):
         movement_away = away_ml - opening_away
 
         sharp = None
+        sharp_move = None
         if error_threshold is not None and (abs(movement_home) > error_threshold
                                              or abs(movement_away) > error_threshold):
             print(f"  DATA ERROR: {away_team} @ {home_team} — home moved {movement_home} pts, "
                   f"away moved {movement_away} pts — implausible for {sport.upper()} "
                   f"(> {error_threshold} pts in one session), logging only, not alerting")
-        elif abs(movement_home) >= 10:
+        elif abs(movement_home) >= SHARP_MOVE_THRESHOLD:
             direction = "shorter" if home_ml < opening_home else "longer"
             sharp = f"HOME line moved {movement_home} pts ({direction}) - possible sharp action"
-        elif abs(movement_away) >= 10:
+            sharp_move = movement_home
+        elif abs(movement_away) >= SHARP_MOVE_THRESHOLD:
             direction = "shorter" if away_ml < opening_away else "longer"
             sharp = f"AWAY line moved {movement_away} pts ({direction}) - possible sharp action"
+            sharp_move = movement_away
 
         try:
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -404,6 +420,9 @@ def log_line_movement(sport: str, games: list):
                     "sport": sport,
                     "game": f"{away_team} @ {home_team}",
                     "detail": sharp,
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "movement": sharp_move,
                 })
 
         except Exception as e:
@@ -414,6 +433,49 @@ def log_line_movement(sport: str, games: list):
     conn.close()
     print(f"Line movement logged: {saved} games ({sport})")
     return sharp_hits
+
+
+def get_steam_alert_state(date: str, sport: str, home_team: str, away_team: str):
+    """Added 2026-09-08 to dedupe render_job.py's steam alert. Returns
+    (steam_alerted_at, steam_alerted_move) for this exact line_movement
+    row — both None if this game hasn't been steam-alerted today (or
+    the row doesn't exist yet). steam_alerted_move is the signed
+    movement value AT the time of the last alert, so the caller can
+    tell a genuinely new move (further in the same direction, or a
+    reversal) from the same move re-detected on a later retry."""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        SELECT steam_alerted_at, steam_alerted_move FROM line_movement
+        WHERE date = ? AND sport = ? AND home_team = ? AND away_team = ?
+    """, (date, sport, home_team, away_team))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None, None
+    return row["steam_alerted_at"], row["steam_alerted_move"]
+
+
+def mark_steam_alerted(date: str, sport: str, home_team: str, away_team: str, movement: int):
+    """Added 2026-09-08. Called only after send_discord_alert() actually
+    returns True for this hit — a failed send must NOT mark the row as
+    alerted, or a transient Discord outage would silently swallow the
+    alert for good on the next retry."""
+    conn = get_conn()
+    c = conn.cursor()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        c.execute("""
+            UPDATE line_movement
+            SET steam_alerted_at = ?, steam_alerted_move = ?
+            WHERE date = ? AND sport = ? AND home_team = ? AND away_team = ?
+        """, (now_str, movement, date, sport, home_team, away_team))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Steam-alert mark error: {e}")
+    finally:
+        conn.close()
 
 
 def log_injuries(sport: str):

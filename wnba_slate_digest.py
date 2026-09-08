@@ -841,11 +841,8 @@ def format_digest(
                 close_h = lm.get("closing_home_ml")
                 open_a  = lm.get("opening_away_ml")
                 close_a = lm.get("closing_away_ml")
-                sharp   = lm.get("sharp_signal", "")
                 if open_h and close_h:
                     lines.append(f"📉 {abbr(home)} {open_h:+d}→{close_h:+d} | {abbr(away)} {open_a:+d}→{close_a:+d}")
-                if sharp:
-                    lines.append(f"🔔 {sharp}")
 
             # ESPN divergence — only show if winner differs
             espn_game            = espn_probs.get(game_key, {})

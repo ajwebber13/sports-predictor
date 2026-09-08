@@ -24,14 +24,19 @@ import argparse
 from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import get_conn
+from database import get_conn, SHARP_MOVE_THRESHOLD
 
 CENTRAL_OFFSET = -5  # CDT
 
 ACTIVE_SPORTS = ["wnba", "nfl", "ncaaf"]  # nba added when in season
 
-# Sharp movement threshold — line moves 8+ points = possible sharp money
-SHARP_THRESHOLD = 8
+# Standardized 2026-09-08 to import database.py's SHARP_MOVE_THRESHOLD
+# instead of hardcoding a separate value here (was 8, database.py's
+# log_line_movement() was 10) — the two scripts write the same
+# line_movement.sharp_signal column, so a different bar in each meant
+# whichever one ran last could silently flip a game between "sharp"
+# and not depending on run order.
+SHARP_THRESHOLD = SHARP_MOVE_THRESHOLD
 
 
 def get_today_ct() -> str:
