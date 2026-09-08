@@ -166,9 +166,33 @@ def throttle_bets(bets: list, sport: str) -> tuple:
 
         qualified.append(bet)
 
-    # ── Step 2: Deduplicate — one pick per game ──
+    # ── Step 2: Rank by edge descending ──
+    # FIXED 2026-09-08: this used to run AFTER the game dedup below,
+    # which meant "one pick per game" kept whichever market happened to
+    # appear FIRST in the route's bet list — not the highest-edge one.
+    # _build_bets_for_game() always appends moneyline, then spread, then
+    # total, so moneyline silently won every multi-market game
+    # regardless of whether spread or total actually had the better
+    # edge — confirmed this was live/systematic, not a rare tie, by
+    # checking that append order directly. Sorting first, THEN
+    # deduping (Step 3 keeps the first-seen bet per game, which is now
+    # the highest-edge one since the list is already sorted) is what
+    # actually delivers on the "one pick per game" claim in this
+    # function's own docstring above.
+    #
+    # Tiebreak: Python's sort is stable, and reverse=True preserves —
+    # does not reverse — original relative order among equal keys
+    # (confirmed live, not just assumed from the docs: sorting
+    # [('moneyline',8.0),('spread',8.0),('total',8.0)] with
+    # reverse=True returns them in that same order). So an exact edge
+    # tie between markets on the same game still resolves to
+    # moneyline-first, same as today's behavior — just now that's an
+    # explicit, verified tiebreak instead of an accidental ordering bug.
+    ranked = sorted(qualified, key=lambda b: get_edge_pct(b), reverse=True)
+
+    # ── Step 3: Deduplicate — one pick per game ──
     deduped = []
-    for bet in qualified:
+    for bet in ranked:
         game_key = get_game_key(bet)
         if game_key in seen_games:
             suppressed.append({
@@ -180,12 +204,9 @@ def throttle_bets(bets: list, sport: str) -> tuple:
         seen_games.add(game_key)
         deduped.append(bet)
 
-    # ── Step 3: Rank by edge descending ──
-    ranked = sorted(deduped, key=lambda b: get_edge_pct(b), reverse=True)
-
     # ── Step 4: Apply max picks cap ──
-    clean_bets = ranked[:max_picks]
-    capped     = ranked[max_picks:]
+    clean_bets = deduped[:max_picks]
+    capped     = deduped[max_picks:]
 
     for bet in capped:
         suppressed.append({
