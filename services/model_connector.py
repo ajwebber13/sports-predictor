@@ -1,7 +1,16 @@
 import sys, os, math
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from odds_parser import get_live_odds, american_to_implied
+# FIXED 2026-09-09: was `from odds_parser import ...` (bare, unqualified)
+# — because this file inserts the repo root at the front of sys.path
+# above, that resolved to the root-level odds_parser.py, a stray
+# byte-identical duplicate of this same directory's odds_parser.py
+# (every other caller in the repo — render_job.py, the app/api routes,
+# database.py — already imports the services. one). Both copies drifted
+# apart the moment one got a fix the other didn't (the persistent Odds
+# API cache added the same day), so this now points at the single
+# canonical copy and the root duplicate has been deleted.
+from services.odds_parser import get_live_odds, american_to_implied
 from enhanced_predictor import EnhancedPredictionEngine
 from enhanced_data import GameContext
 

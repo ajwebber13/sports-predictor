@@ -9,6 +9,7 @@ Same output format for all downstream code.
 import requests
 import os
 import time
+import json
 from datetime import datetime, timezone, timedelta
 
 CENTRAL_OFFSET = -5  # CDT
@@ -38,6 +39,77 @@ ODDS_API_BASE  = "https://api.the-odds-api.com/v4"
 # past any previous cache entry's TTL and always misses.
 _odds_cache: dict = {}
 _ODDS_CACHE_TTL_SECONDS = 600
+
+# Persistent cache for the ODDS API FALLBACK specifically (2026-09-09)
+# — separate from _odds_cache above, which stays in-memory and
+# unchanged for the ESPN-primary path. ESPN is free (no credit cost),
+# so an in-memory, per-process cache was never the actual problem
+# there; the real cost sits on the Odds API branch, which only fires
+# when ESPN comes back empty. render_job.py runs as a fresh,
+# ephemeral process on every scheduled run, retry, and manual
+# trigger — Render's cron jobs don't share a filesystem or memory
+# between runs — so _odds_cache resetting every time meant every one
+# of those re-hit the Odds API from scratch even for the same
+# sport+date, which is exactly what burned the account's monthly
+# credits down in days (see the 2026-09-08 cache comment above, and
+# the 2026-09-09 OUT_OF_USAGE_CREDITS incident this table fixes).
+# Stored in the shared DB via database.get_conn() — the one thing
+# that actually persists across those ephemeral runs — keyed by
+# (sport, cache_date) so a cross-midnight run can't reuse yesterday's
+# odds, with a 2-hour TTL (odds don't need refreshing more often than
+# that, and it's short enough that a real line move on a longer-
+# running day still gets picked up well before game time).
+ODDS_API_CACHE_TTL_SECONDS = 7200
+
+
+def _get_today_ct_str() -> str:
+    return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).strftime("%Y-%m-%d")
+
+
+def _read_odds_api_cache(sport: str, cache_date: str):
+    """Returns cached Odds API games for (sport, cache_date) if a row
+    exists and is within ODDS_API_CACHE_TTL_SECONDS, else None (miss,
+    expired, or any read error — a cache problem degrades to a real
+    API call rather than breaking the run)."""
+    try:
+        from database import get_conn
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute(
+            "SELECT games_json, cached_at FROM odds_api_cache WHERE sport = ? AND cache_date = ?",
+            (sport, cache_date),
+        )
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return None
+        if time.time() - row["cached_at"] >= ODDS_API_CACHE_TTL_SECONDS:
+            return None
+        return json.loads(row["games_json"])
+    except Exception as e:
+        print(f"  Odds API cache read error ({sport}): {e}")
+        return None
+
+
+def _write_odds_api_cache(sport: str, cache_date: str, games: list):
+    """Best-effort — a failed cache write must never block returning
+    real data to the caller, so this only ever prints on error."""
+    try:
+        from database import get_conn
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO odds_api_cache (sport, cache_date, cached_at, games_json)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (sport, cache_date) DO UPDATE SET
+                cached_at  = EXCLUDED.cached_at,
+                games_json = EXCLUDED.games_json
+        """, (sport, cache_date, int(time.time()), json.dumps(games)))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"  Odds API cache write error ({sport}): {e}")
+
 
 ODDS_API_SPORT_KEYS = {
     "nfl":   "americanfootball_nfl",
@@ -74,8 +146,19 @@ def _get_today_ct():
 
 # ── THE ODDS API (fallback — demoted 2026-09-08) ────────────────────────
 
-def get_odds_api(sport: str) -> list:
-    """Pull live moneyline odds from The Odds API — DraftKings/FanDuel lines."""
+def get_odds_api(sport: str):
+    """Pull live moneyline odds from The Odds API — DraftKings/FanDuel lines.
+
+    Returns a list on success (empty list is a genuine "no games right
+    now" response) or None on a real request failure — 2026-09-09,
+    changed from always-returns-a-list so get_live_odds() can tell
+    "the API said zero games" apart from "the call itself failed" and
+    only persistently cache the former. Caching a failure as if it were
+    a real empty result would otherwise block the noon/3pm retry from
+    ever trying again for up to ODDS_API_CACHE_TTL_SECONDS, defeating
+    the entire point of having a retry. The only caller is
+    get_live_odds() in this same module, so this contract change is
+    self-contained."""
     if not API_KEY:
         return []
 
@@ -99,7 +182,7 @@ def get_odds_api(sport: str) -> list:
         data = r.json()
     except Exception as e:
         print(f"Odds API error ({sport}): {e}")
-        return []
+        return None
 
     games = []
     for game in data:
@@ -289,11 +372,19 @@ def get_live_odds(sport: str = "nba") -> list:
     comes from render_job.py's own direct calls or the /edges route's
     internal call (including across fetch_edges_with_retry()'s retry
     attempts) — same data, no reason to hit the network twice. An
-    empty result is cached too, deliberately: if a source (ESPN or, on
-    fallback, a quota-exhausted Odds API) has nothing right now,
-    retrying it seconds later within the same run won't get a
+    empty result is cached too, deliberately: if ESPN has nothing right
+    now, retrying it seconds later within the same run won't get a
     different answer, so there's nothing to gain from hitting it again
-    before the TTL expires.
+    before the TTL expires. This in-memory cache is ESPN-only and
+    unchanged from 2026-09-08 — ESPN is free, so a per-process cache
+    resetting on every run was never the actual cost problem.
+
+    ODDS API FALLBACK — separately, persistently cached (2026-09-09,
+    see ODDS_API_CACHE_TTL_SECONDS above) via the shared DB, since this
+    branch is the one that actually burns real, limited monthly
+    credits and render_job.py runs as a fresh process every time. Only
+    reached when ESPN comes back empty — the ESPN-primary path above
+    is untouched by this.
     """
     now = time.time()
     cached = _odds_cache.get(sport)
@@ -307,9 +398,26 @@ def get_live_odds(sport: str = "nba") -> list:
         return games
     print(f"  ESPN empty for {sport} — falling back to Odds API")
 
-    # Fall back to the Odds API (demoted, not removed)
+    # Fall back to the Odds API (demoted, not removed) — persistent
+    # cache checked first so a same-day retry/manual-trigger reuses a
+    # recent fetch instead of spending another credit.
+    cache_date = _get_today_ct_str()
+    cached_games = _read_odds_api_cache(sport, cache_date)
+    if cached_games is not None:
+        print(f"  Odds API cache hit for {sport} ({cache_date}) — {len(cached_games)} game(s), no credit spent")
+        _odds_cache[sport] = (now, cached_games)
+        return cached_games
+
     if API_KEY:
         games = get_odds_api(sport)
+        if games is None:
+            # Real request failure, not a genuine "0 games" response —
+            # do NOT persist this as a cache hit, or a transient error
+            # would block every retry for the next 2 hours instead of
+            # letting the noon/3pm retry actually try again.
+            games = []
+        else:
+            _write_odds_api_cache(sport, cache_date, games)
         _odds_cache[sport] = (now, games)
         return games
 

@@ -31,6 +31,17 @@ API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 # context is available at all (shouldn't normally happen).
 DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 
+# --dry-run (added 2026-09-09): set by the CLI block at the bottom of
+# this file before run() starts. Checked in ONE place — inside
+# send_discord_alert() itself — rather than threading a dry_run param
+# through every call site, since every real send in this file already
+# funnels through that one function (the startup-check alert, the
+# fetch-failure alert, both alert flows' picks, and the steam alert).
+# Everything upstream of the send (fetch, score, throttle, log_prediction
+# with real alerted/suppressed_reason) runs completely unchanged — this
+# only ever intercepts the outbound Discord call itself.
+DRY_RUN = False
+
 from active_sports import ALL_SPORTS  # single shelf list — edit active_sports.py, not here
 
 SPORT_ENDPOINTS = {
@@ -105,7 +116,22 @@ def send_discord_alert(text: str, sport: str = None) -> bool:
     — never silently drops a message just because a channel doesn't
     exist. Returns True only if the message actually reached Discord
     — callers must check this instead of assuming success, so a
-    failed send doesn't get logged as 'Sent' (2026-07-24 fix)."""
+    failed send doesn't get logged as 'Sent' (2026-07-24 fix).
+
+    DRY_RUN (2026-09-09): when set, prints the exact text that would
+    have gone out and which sport's channel it would have hit, then
+    returns True without making any real HTTP request — added after a
+    one-off verification run (`--sport mlb`, to check the logging fix)
+    fired a real live alert to production Discord for a sport that's
+    shelved from the normal schedule. `--dry-run` exists specifically
+    so re-verifying a pipeline change never risks that again."""
+    if DRY_RUN:
+        webhook_label = sport.upper() if sport else "default"
+        log(f"[DRY RUN] Would send to {webhook_label} Discord channel:")
+        print(f"----- DRY RUN MESSAGE ({webhook_label}) -----")
+        print(text)
+        print("-" * (28 + len(webhook_label)))
+        return True
     try:
         from discord_alerts import send_discord_message, html_to_discord_markdown, get_webhook_for_sport
         webhook = (get_webhook_for_sport(sport) if sport else "") or DISCORD_WEBHOOK_GAME_PICKS
@@ -842,6 +868,12 @@ if __name__ == "__main__":
                         help="Exclude one sport from the run (e.g. --exclude wnba)")
     parser.add_argument("--retry",   action="store_true",
                         help="Noon retry run for missed morning picks")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Run the full pipeline (fetch, score, log to predictions "
+                             "with real alerted/suppressed_reason) but skip every real "
+                             "Discord send — prints what would have gone out instead. "
+                             "Use this to re-verify pipeline changes without risking a "
+                             "live send to a real channel.")
     args = parser.parse_args()
 
     if args.sport:
@@ -850,5 +882,11 @@ if __name__ == "__main__":
         sports = [s for s in ALL_SPORTS if s != args.exclude.lower()]
     else:
         sports = ALL_SPORTS
+
+    if args.dry_run:
+        DRY_RUN = True
+        log("══════════════════════════════════════════════")
+        log("DRY RUN — no Discord messages will actually be sent.")
+        log("══════════════════════════════════════════════")
 
     run(sports=sports, retry=args.retry)
