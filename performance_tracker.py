@@ -105,7 +105,7 @@ def calculate_clv(date: str = None, date_range: tuple = None, sport: str = None)
         LEFT JOIN odds_history oh
             ON oh.date = r.date AND oh.sport = r.sport
             AND oh.home_team = r.home_team AND oh.away_team = r.away_team
-        WHERE {where} AND r.correct IS NOT NULL
+        WHERE {where} AND r.correct IS NOT NULL AND p.alerted = true
     """, params)
     rows = c.fetchall()
     conn.close()
@@ -168,17 +168,23 @@ def calculate_record(date: str = None, date_range: tuple = None, sport: str = No
     best_pick_per_game() (shared with calculate_roi()/
     calculate_record_by_sport() and dashboard.py's load_picks(), so
     this can't drift from what the Game Picks table itself shows) —
-    keeps only the highest-edge_at_pick market per (date, sport, game)."""
+    keeps only the highest-edge_at_pick market per (date, sport, game).
+
+    ALERTED FILTER (2026-09-09): joins to `predictions` and requires
+    `p.alerted = true` — see best_pick_per_game()'s docstring in
+    database.py for why "log full slate" made this necessary."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
+    where = where.replace("date", "r.date")
     if sport:
-        where += " AND sport = ?"
+        where += " AND r.sport = ?"
         params.append(sport)
     c.execute(f"""
-        SELECT date, sport, game, prediction_id as id, edge_at_pick, correct
-        FROM results
-        WHERE {where} AND correct IS NOT NULL
+        SELECT r.date, r.sport, r.game, r.prediction_id as id, r.edge_at_pick, r.correct
+        FROM results r
+        JOIN predictions p ON r.prediction_id = p.id
+        WHERE {where} AND r.correct IS NOT NULL AND p.alerted = true
     """, params)
     rows = rows_to_dicts(c, c.fetchall())
     conn.close()
@@ -206,17 +212,22 @@ def calculate_roi(date: str = None, date_range: tuple = None, sport: str = None)
     ONE ROW PER GAME (2026-09-08): same grouping as calculate_record()
     — see that function's docstring. Applied here too so ROI reflects
     the same picks the win/loss record and the Game Picks table do,
-    via the shared database.best_pick_per_game()."""
+    via the shared database.best_pick_per_game().
+
+    ALERTED FILTER (2026-09-09): joins to `predictions` and requires
+    `p.alerted = true` — same reasoning as calculate_record()."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
+    where = where.replace("date", "r.date")
     if sport:
-        where += " AND sport = ?"
+        where += " AND r.sport = ?"
         params.append(sport)
     c.execute(f"""
-        SELECT date, sport, game, prediction_id as id, edge_at_pick, correct, odds_at_pick
-        FROM results
-        WHERE {where} AND correct IS NOT NULL
+        SELECT r.date, r.sport, r.game, r.prediction_id as id, r.edge_at_pick, r.correct, r.odds_at_pick
+        FROM results r
+        JOIN predictions p ON r.prediction_id = p.id
+        WHERE {where} AND r.correct IS NOT NULL AND p.alerted = true
     """, params)
     rows = rows_to_dicts(c, c.fetchall())
     conn.close()
@@ -256,14 +267,19 @@ def calculate_record_by_sport(date: str = None, date_range: tuple = None) -> lis
     ONE ROW PER GAME (2026-09-08): grouping now happens in Python via
     the shared database.best_pick_per_game() before the per-sport
     breakdown, instead of a plain SQL GROUP BY sport over every graded
-    market row — see calculate_record()'s docstring for why."""
+    market row — see calculate_record()'s docstring for why.
+
+    ALERTED FILTER (2026-09-09): joins to `predictions` and requires
+    `p.alerted = true` — same reasoning as calculate_record()."""
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
+    where = where.replace("date", "r.date")
     c.execute(f"""
-        SELECT date, sport, game, prediction_id as id, edge_at_pick, correct
-        FROM results
-        WHERE {where} AND correct IS NOT NULL
+        SELECT r.date, r.sport, r.game, r.prediction_id as id, r.edge_at_pick, r.correct
+        FROM results r
+        JOIN predictions p ON r.prediction_id = p.id
+        WHERE {where} AND r.correct IS NOT NULL AND p.alerted = true
     """, params)
     rows = rows_to_dicts(c, c.fetchall())
     conn.close()
@@ -310,7 +326,7 @@ def calculate_confidence_buckets(date: str = None, date_range: tuple = None, spo
         SELECT r.correct, p.model_prob
         FROM results r
         JOIN predictions p ON r.prediction_id = p.id
-        WHERE {where} AND r.correct IS NOT NULL AND p.model_prob IS NOT NULL
+        WHERE {where} AND r.correct IS NOT NULL AND p.model_prob IS NOT NULL AND p.alerted = true
     """, params)
     rows = c.fetchall()
     conn.close()
@@ -347,32 +363,39 @@ def get_best_worst_pick(date: str = None, date_range: tuple = None) -> dict:
     that lost tells you something different than a big-edge pick that
     won; best/worst alone can't distinguish "bad result" from "bad
     prediction" the way this can.
+
+    ALERTED FILTER (2026-09-09): joins to `predictions` and requires
+    `p.alerted = true` — same reasoning as calculate_record().
     """
     conn = get_conn()
     c = conn.cursor()
     where, params = _date_filter_sql(date, date_range)
+    where = where.replace("date", "r.date")
 
     c.execute(f"""
-        SELECT game, sport, edge_at_pick, odds_at_pick
-        FROM results
-        WHERE {where} AND correct = 1 AND edge_at_pick IS NOT NULL
-        ORDER BY edge_at_pick DESC LIMIT 1
+        SELECT r.game, r.sport, r.edge_at_pick, r.odds_at_pick
+        FROM results r
+        JOIN predictions p ON r.prediction_id = p.id
+        WHERE {where} AND r.correct = 1 AND r.edge_at_pick IS NOT NULL AND p.alerted = true
+        ORDER BY r.edge_at_pick DESC LIMIT 1
     """, params)
     best = c.fetchone()
 
     c.execute(f"""
-        SELECT game, sport, edge_at_pick, odds_at_pick
-        FROM results
-        WHERE {where} AND correct = 0 AND edge_at_pick IS NOT NULL
-        ORDER BY edge_at_pick DESC LIMIT 1
+        SELECT r.game, r.sport, r.edge_at_pick, r.odds_at_pick
+        FROM results r
+        JOIN predictions p ON r.prediction_id = p.id
+        WHERE {where} AND r.correct = 0 AND r.edge_at_pick IS NOT NULL AND p.alerted = true
+        ORDER BY r.edge_at_pick DESC LIMIT 1
     """, params)
     worst = c.fetchone()
 
     c.execute(f"""
-        SELECT game, sport, edge_at_pick, odds_at_pick, correct
-        FROM results
-        WHERE {where} AND edge_at_pick IS NOT NULL
-        ORDER BY edge_at_pick DESC LIMIT 1
+        SELECT r.game, r.sport, r.edge_at_pick, r.odds_at_pick, r.correct
+        FROM results r
+        JOIN predictions p ON r.prediction_id = p.id
+        WHERE {where} AND r.edge_at_pick IS NOT NULL AND p.alerted = true
+        ORDER BY r.edge_at_pick DESC LIMIT 1
     """, params)
     highest_confidence = c.fetchone()
 

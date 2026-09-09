@@ -1050,7 +1050,8 @@ def model_report(sport: str = None):
     print("-" * 45)
 
 
-def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: str = None):
+def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: str = None,
+                    alerted: bool = True, suppressed_reason: str = None):
     """Recovered from pre-regression database.py (commit b13a88a) —
     render_job.py imports this directly. Column names (bet, model_prob,
     home_record, predicted_winner, etc.) confirmed matching PRODUCTION's
@@ -1098,7 +1099,20 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: 
     — a Saturday query would never find that row at all. Defaults to
     `date` (today) when not passed, which is correct for same-day
     callers (the overwhelming majority) and is exactly the old,
-    unchanged behavior for anyone not passing it yet."""
+    unchanged behavior for anyone not passing it yet.
+
+    alerted / suppressed_reason (added 2026-09-09, "log full slate"):
+    every game/market the model scores now gets logged here regardless
+    of confidence or edge — these two columns record what actually
+    happened to THIS row so grading/reporting code can tell a real
+    sent pick apart from one that was logged but never alerted.
+    Defaults (alerted=True, suppressed_reason=None) preserve the old
+    implicit "logged = alerted" behavior for every caller that doesn't
+    pass them (the WNBA digest/manual scripts). Callers that DO want to
+    log a suppressed pick pass alerted=False and a suppressed_reason —
+    reuse an existing reason string (alert_throttle.py's suppressed-
+    list format, or game_pick_selector's edge check) instead of
+    inventing a new one where one already fits."""
     conn  = get_conn()
     c     = conn.cursor()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -1126,8 +1140,9 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: 
              model_prob, raw_model_prob, implied_prob, edge, home_record, away_record,
              home_rest, away_rest, home_injuries, away_injuries, predicted_winner,
              market, pick, line, projected_home, projected_away,
-             projected_margin, projected_total, confidence, game_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             projected_margin, projected_total, confidence, game_date,
+             alerted, suppressed_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (date, sport, game, market) DO UPDATE SET
                 home_team        = EXCLUDED.home_team,
                 away_team        = EXCLUDED.away_team,
@@ -1151,7 +1166,9 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: 
                 projected_margin = EXCLUDED.projected_margin,
                 projected_total  = EXCLUDED.projected_total,
                 confidence       = EXCLUDED.confidence,
-                game_date        = EXCLUDED.game_date
+                game_date        = EXCLUDED.game_date,
+                alerted          = EXCLUDED.alerted,
+                suppressed_reason = EXCLUDED.suppressed_reason
         """, (
             today, sport, game,
             parts[1] if len(parts) == 2 else "",
@@ -1178,9 +1195,12 @@ def log_prediction(bet: dict, sport: str, market: str = "moneyline", game_date: 
             bet.get("projected_total"),
             bet.get("confidence", ""),
             game_date,
+            alerted,
+            suppressed_reason,
         ))
         conn.commit()
-        print(f"Logged prediction: {game} [{market}] (game_date={game_date})")
+        status = "alerted" if alerted else f"suppressed ({suppressed_reason})"
+        print(f"Logged prediction: {game} [{market}] (game_date={game_date}, {status})")
     except Exception as e:
         conn.rollback()
         print(f"Prediction log error: {e}")
@@ -1451,6 +1471,18 @@ def best_pick_per_game(rows: list, edge_key: str = "edge_at_pick", id_key: str =
 
     edge_key/id_key are parameterized rather than hardcoded because
     the two callers don't share a column-naming convention:
+    ALERTED FILTER (2026-09-09): performance_tracker.py's
+    calculate_record()/calculate_roi()/calculate_record_by_sport()/
+    calculate_confidence_buckets()/calculate_clv()/get_best_worst_pick()
+    and dashboard.py's load_picks() all now join to `predictions` and
+    require `alerted = true` before this grouping ever runs. "Log full
+    slate" means `results` can now contain graded rows for picks that
+    never actually reached Discord (sub-threshold edge/confidence,
+    throttled by the slate cap); without the filter, every one of these
+    would silently count into the season record, ROI, and calibration
+    numbers the moment it's logged and graded, even though nobody was
+    ever shown the pick.
+
     performance_tracker.py's queries read `results` directly (real
     column names `edge_at_pick`/`prediction_id`), while dashboard.py's
     load_picks() keeps its existing `edge` column name for backward

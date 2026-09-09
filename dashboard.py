@@ -768,7 +768,13 @@ def load_picks():
     graded (backfilled to the real game date — see
     migrate_backfill_cfb_game_dates_v2.py), else predictions.game_date
     for a still-pending pick. Not otherwise displayed — the visible
-    `date` column stays p.date (when the pick was made), unchanged."""
+    `date` column stays p.date (when the pick was made), unchanged.
+
+    ALERTED FILTER (2026-09-09): "log full slate" means predictions now
+    holds a row for every game/market the model scored, not just ones
+    that were actually sent — filtered to p.alerted = true so the Game
+    Picks table (and the Season ticker, which reads this) keeps showing
+    only picks that were actually alerted, same as before that change."""
     conn = get_conn()
 
     query = """
@@ -783,6 +789,7 @@ def load_picks():
                COALESCE(r.date, p.game_date) AS grouping_date
         FROM predictions p
         LEFT JOIN results r ON r.prediction_id = p.id
+        WHERE p.alerted = true
         ORDER BY p.date DESC
     """
     cur = conn.execute(query)

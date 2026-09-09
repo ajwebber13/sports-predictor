@@ -181,7 +181,18 @@ def fetch_edges_with_retry(sport: str, attempts: int = 3, backoff: int = 15):
 def already_alerted_recently(sport: str, game: str, market: str = None) -> bool:
     """
     Returns True if a pick for this game (and, if given, this specific
-    market) was already logged within the last 7 days.
+    market) was already ALERTED within the last 7 days.
+
+    FIXED 2026-09-09 ("log full slate"): this used to count any row in
+    `predictions` for the game/market, full stop. That was fine when a
+    row only ever existed if it had been alerted — but now every
+    game/market the model scores gets logged regardless of confidence
+    or edge, so an unfiltered count would treat "logged but suppressed"
+    the same as "already sent," and permanently block a real alert for
+    any game/market that had merely been SCORED (not sent) earlier in
+    the week. Filtered to `alerted = true` so this dedup check keeps
+    meaning what it always meant: don't re-send something we already
+    sent, not don't send something we merely looked at.
     """
     try:
         from database import get_conn
@@ -190,13 +201,13 @@ def already_alerted_recently(sport: str, game: str, market: str = None) -> bool:
         if market:
             cur = conn.execute(
                 "SELECT COUNT(*) as cnt FROM predictions "
-                "WHERE sport = ? AND game = ? AND date >= ? AND market = ?",
+                "WHERE sport = ? AND game = ? AND date >= ? AND market = ? AND alerted = true",
                 (sport, game, cutoff, market),
             )
         else:
             cur = conn.execute(
                 "SELECT COUNT(*) as cnt FROM predictions "
-                "WHERE sport = ? AND game = ? AND date >= ?",
+                "WHERE sport = ? AND game = ? AND date >= ? AND alerted = true",
                 (sport, game, cutoff),
             )
         row = cur.fetchone()
@@ -319,9 +330,30 @@ def run_alerts(sport: str) -> bool:
     # what game_pick_selector chose to display).
     if sport in ("wnba", "mlb"):
         try:
-            from game_pick_selector import get_daily_game_picks
+            from game_pick_selector import (
+                get_daily_game_picks, extract_markets,
+                MIN_EDGE_PCT, MIN_SPREAD_EDGE_PCT, MIN_TOTAL_EDGE_PCT,
+            )
             from ai_game_analyzer import build_game_context, generate_game_reasoning
             from telegram_alerts import get_game_times, get_raw_time_for_bet, is_today_ct
+
+            def _bet_edge_and_min(bet):
+                """Individual per-market edge % and the threshold it's
+                held to — same constants game_pick_selector's
+                _clears_threshold() uses, recomputed here per-bet so a
+                suppressed row's log entry can say exactly how far off
+                it was, not just that it was suppressed."""
+                picks = extract_markets(sport, bet)
+                if not picks:
+                    return 0.0, MIN_EDGE_PCT.get(sport, 5.0)
+                pick = picks[0]
+                if pick.market == "spread":
+                    min_edge = MIN_SPREAD_EDGE_PCT
+                elif pick.market == "total":
+                    min_edge = MIN_TOTAL_EDGE_PCT
+                else:
+                    min_edge = MIN_EDGE_PCT.get(sport, 5.0)
+                return pick.edge_value, min_edge
 
             game_times, game_times_raw = get_game_times(sport)
 
@@ -354,7 +386,7 @@ def run_alerts(sport: str) -> bool:
                 log(f"No {sport.upper()} games today after date filter.")
                 return False
 
-            daily_games = get_daily_game_picks(sport, todays_bets)
+            all_qualifying_games = get_daily_game_picks(sport, todays_bets)
 
             # NOTE: this still checks per-game only (no market arg),
             # since daily_games is grouped by game, not by market —
@@ -366,36 +398,69 @@ def run_alerts(sport: str) -> bool:
             # that's already fully covered. Checked unconditionally now
             # (2026-09-04) — see already_alerted_recently()'s docstring.
             daily_games = [
-                g for g in daily_games
+                g for g in all_qualifying_games
                 if not already_alerted_recently(sport, g["game"])
             ]
 
-            if not daily_games:
-                log(f"No {sport.upper()} games cleared today's edge threshold.")
-                return False
-
-            # log predictions for every underlying bet row that fed a
-            # qualifying game (preserves existing prediction-logging
-            # behavior). Each bet is checked individually against the
-            # dedup table by its OWN market now, not just by game — so a
-            # game that already has a moneyline row logged this morning
-            # can still pick up a brand-new spread/total row on retry
-            # instead of being skipped wholesale.
-            qualifying_game_labels = {g["game"] for g in daily_games}
+            # ── LOG FULL SLATE (2026-09-09): every bet the model scored
+            # today gets a predictions row, before any edge/alert gating
+            # — this must run even when nothing below ends up qualifying
+            # to alert, so a 0%-cleared slate still leaves a full record
+            # instead of logging nothing. alerted/suppressed_reason
+            # record what actually happened to each one: whether it made
+            # this game's top-2-by-edge picks (game_pick_selector),
+            # whether it individually cleared the edge threshold at all,
+            # or whether it was held back by the 7-day re-alert dedup —
+            # reusing that log line's existing wording instead of a new
+            # one. Gate logic itself (get_daily_game_picks, top-2 cutoff,
+            # already_alerted_recently) is untouched.
+            all_qualifying_game_labels = {g["game"] for g in all_qualifying_games}
+            alerting_game_labels = {g["game"] for g in daily_games}
+            alerted_pairs = {
+                (g["game"], pick.market) for g in daily_games for pick in g["picks"]
+            }
             for bet in todays_bets:
-                if bet.get("game") not in qualifying_game_labels:
-                    continue
+                game = bet.get("game", "")
                 bet_market = bet.get("market", "moneyline")
-                if already_alerted_recently(sport, bet.get("game", ""), market=bet_market):
-                    log(f"Already alerted recently, skipping duplicate: {bet.get('game')} [{bet_market}]")
-                    continue
+
+                if (game, bet_market) in alerted_pairs:
+                    if already_alerted_recently(sport, game, market=bet_market):
+                        alerted = False
+                        suppressed_reason = "Already alerted recently (duplicate)"
+                    else:
+                        alerted = True
+                        suppressed_reason = None
+                elif game in all_qualifying_game_labels and game not in alerting_game_labels:
+                    # This game DID clear the edge threshold, but the
+                    # whole game was held back this run by the game-level
+                    # re-alert dedup above — same reason for every market
+                    # in it, not an edge shortfall.
+                    alerted = False
+                    suppressed_reason = "Already alerted recently (duplicate)"
+                else:
+                    edge_val, min_edge = _bet_edge_and_min(bet)
+                    alerted = False
+                    if game in all_qualifying_game_labels and edge_val >= min_edge:
+                        # Individually cleared this market's own edge bar,
+                        # but lost out to another market in the same game
+                        # under the top-2-per-game cap.
+                        suppressed_reason = "Not in top 2 qualifying picks for this game"
+                    else:
+                        suppressed_reason = f"Edge {edge_val:.1f}% below minimum {min_edge:.0f}%"
+
                 try:
                     from database import log_prediction
                     from telegram_alerts import raw_time_to_central_date
                     raw_time = get_raw_time_for_bet(bet, game_times_raw)
-                    log_prediction(bet, sport, market=bet_market, game_date=raw_time_to_central_date(raw_time))
+                    log_prediction(bet, sport, market=bet_market,
+                                    game_date=raw_time_to_central_date(raw_time),
+                                    alerted=alerted, suppressed_reason=suppressed_reason)
                 except Exception as e:
                     log(f"Prediction log error: {e}")
+
+            if not daily_games:
+                log(f"No {sport.upper()} games cleared today's edge threshold.")
+                return False
 
             rankings_by_team = {}
             try:
@@ -469,25 +534,44 @@ def run_alerts(sport: str) -> bool:
 
         game_times, game_times_raw = get_game_times(sport)
 
-        from telegram_alerts import get_raw_time_for_bet, is_today_ct
-        clean_bets = []
+        from telegram_alerts import get_raw_time_for_bet, is_today_ct, raw_time_to_central_date
+
+        # Bets that pass the date filter — every one of these is "the
+        # model scored this game/market for today's slate" and gets
+        # logged below regardless of what the confidence/edge/throttle
+        # gates below do with it. raw_time is kept alongside each bet
+        # since get_game_times()/get_raw_time_for_bet() aren't cheap to
+        # redo per bet and game_date needs it either way.
+        date_filtered = []
         for bet in bets:
             raw_time = get_raw_time_for_bet(bet, game_times_raw)
             # Hard rule, added 2026-09-04: unknown kickoff time is held,
             # not assumed to be today — see the matching fix in the
             # WNBA/MLB leaner path above for the full explanation. This
             # is the exact gap that let a Saturday CFB game reach Discord
-            # on a Thursday afternoon run.
+            # on a Thursday afternoon run. Not logged either — there's no
+            # reliable game_date for it yet, same as before this change.
             if not raw_time:
                 log(f"held: no game time — {bet.get('game')} [{bet.get('market', 'moneyline')}]")
                 continue
             if not is_today_ct(raw_time):
                 log(f"Skipping stale game: {bet.get('game')} — {raw_time}")
                 continue
+            date_filtered.append((bet, raw_time))
 
+        # ── Evaluate the 55% gate and the re-alert dedup, WITHOUT
+        # logging yet — final alerted/suppressed_reason for the bets
+        # that reach throttle_bets() below isn't known until it returns,
+        # so every bet is logged exactly once, in its final state,
+        # after all gates have run. Gate logic itself is unchanged from
+        # before this restructuring.
+        pre_throttle = []       # (bet, raw_time) that reach throttle_bets()
+        gated_out = {}          # id(bet) -> suppressed_reason, for bets that never reach throttle
+        for bet, raw_time in date_filtered:
             recommended_prob = get_recommended_prob(bet)
             if recommended_prob < 55:
                 log(f"Skipping low confidence: {bet.get('game')} — {recommended_prob}%")
+                gated_out[id(bet)] = f"Confidence {recommended_prob:.1f}% below minimum 55%"
                 continue
 
             # PREDICTION ENGINE v2: this path already treats each bet
@@ -501,26 +585,64 @@ def run_alerts(sport: str) -> bool:
             # see already_alerted_recently()'s docstring.
             if already_alerted_recently(sport, bet.get("game", ""), market=bet.get("market", "moneyline")):
                 log(f"Already alerted recently, skipping duplicate: {bet.get('game')} [{bet.get('market', 'moneyline')}]")
+                gated_out[id(bet)] = "Already alerted recently (duplicate)"
                 continue
 
-            clean_bets.append(bet)
-
-        if not clean_bets:
-            log(f"No {sport.upper()} bets met confidence threshold.")
-            return False
+            pre_throttle.append((bet, raw_time))
 
         # ── THROTTLE: per-sport edge/confidence floor, one pick per
         # game, and a max-picks cap (see alert_throttle.THROTTLE_CONFIG)
         # — same filter the WNBA/MLB leaner path gets via
         # game_pick_selector, now applied here too so NFL/CFB/etc. can't
         # blow past the min_edge floor set for them.
+        throttle_input = [b for b, _ in pre_throttle]
         try:
             from alert_throttle import throttle_bets
-            clean_bets, suppressed, throttle_log = throttle_bets(clean_bets, sport)
+            clean_bets, suppressed, throttle_log = throttle_bets(throttle_input, sport)
             log(throttle_log)
         except Exception as e:
             log(f"Throttle error — falling back to confidence filter: {e}")
-            clean_bets = [b for b in clean_bets if get_recommended_prob(b) >= 55]
+            clean_bets = [b for b in throttle_input if get_recommended_prob(b) >= 55]
+            suppressed = []
+
+        survived_ids = {id(b) for b in clean_bets}
+        # keyed by (game, bet text) — throttle_bets() only returns copies
+        # of those two fields per suppressed entry, not the bet object
+        # itself, but that pair is unique per market within a game.
+        throttle_reason_by_key = {(s["game"], s["bet"]): s["reason"] for s in suppressed}
+
+        # ── LOG FULL SLATE (2026-09-09): log every date-filtered bet
+        # exactly once, now that every gate has been evaluated. Must run
+        # even when nothing survives throttle, so a fully-suppressed
+        # slate still leaves a complete record instead of logging
+        # nothing (see the `if not clean_bets` returns below — those
+        # only stop the Discord send, not the logging, which already
+        # happened here).
+        for bet, raw_time in date_filtered:
+            bet_market = bet.get("market", "moneyline")
+            if id(bet) in survived_ids:
+                alerted = True
+                suppressed_reason = None
+            elif id(bet) in gated_out:
+                alerted = False
+                suppressed_reason = gated_out[id(bet)]
+            else:
+                alerted = False
+                suppressed_reason = throttle_reason_by_key.get(
+                    (bet.get("game", ""), bet.get("bet", "")),
+                    "Suppressed by throttle",
+                )
+            try:
+                from database import log_prediction
+                log_prediction(bet, sport, market=bet_market,
+                                game_date=raw_time_to_central_date(raw_time),
+                                alerted=alerted, suppressed_reason=suppressed_reason)
+            except Exception as e:
+                log(f"Prediction log error: {e}")
+
+        if not pre_throttle:
+            log(f"No {sport.upper()} bets met confidence threshold.")
+            return False
 
         if not clean_bets:
             log(f"No {sport.upper()} bets survived throttle.")
@@ -528,15 +650,6 @@ def run_alerts(sport: str) -> bool:
 
         sent_count = 0
         for bet in clean_bets:
-            try:
-                from database import log_prediction
-                from telegram_alerts import raw_time_to_central_date
-                raw_time = get_raw_time_for_bet(bet, game_times_raw)
-                log_prediction(bet, sport, market=bet.get("market", "moneyline"),
-                                game_date=raw_time_to_central_date(raw_time))
-            except Exception as e:
-                log(f"Prediction log error: {e}")
-
             game      = bet.get("game", "")
             game_time = game_times.get(game, "Time TBD")
 

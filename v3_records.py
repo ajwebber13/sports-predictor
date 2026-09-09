@@ -13,6 +13,11 @@ print("=" * 50)
 print(f"V3 PERFORMANCE REPORT (since {V3_START})")
 print("=" * 50)
 
+# ALERTED FILTER (2026-09-09): "log full slate" means predictions now
+# holds a row for every game/market the model scored, not just ones
+# actually alerted — every query below requires p.alerted = true so
+# this report doesn't start counting picks nobody was ever shown.
+
 # Overall
 c.execute("""
     SELECT
@@ -24,6 +29,7 @@ c.execute("""
     WHERE p.sport = 'wnba'
     AND r.date >= ?
     AND r.correct IS NOT NULL
+    AND p.alerted = true
 """, (V3_START,))
 row = c.fetchone()
 losses = (row['total'] or 0) - (row['wins'] or 0)
@@ -41,6 +47,7 @@ c.execute("""
     AND r.date >= ?
     AND r.correct IS NOT NULL
     AND p.edge >= 10
+    AND p.alerted = true
 """, (V3_START,))
 row = c.fetchone()
 losses = (row['total'] or 0) - (row['wins'] or 0)
@@ -58,6 +65,7 @@ c.execute("""
     WHERE p.sport = 'wnba'
     AND r.date >= ?
     AND r.correct IS NOT NULL
+    AND p.alerted = true
     GROUP BY r.date
     ORDER BY r.date ASC
 """, (V3_START,))

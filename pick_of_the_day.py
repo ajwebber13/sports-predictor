@@ -167,13 +167,20 @@ def combine_parlay_odds(american_odds_list: list) -> int:
 
 
 def get_game_pick_of_the_day(sport: str, date_str: str):
-    """Highest-edge game pick for this sport today, only if model_prob >= floor."""
+    """Highest-edge game pick for this sport today, only if model_prob >= floor.
+
+    ALERTED FILTER (2026-09-09): "log full slate" means predictions now
+    holds a row for every game/market the model scored, including ones
+    well below GAME_CONFIDENCE_FLOOR's own gate never actually reached
+    Discord (suppressed by edge/throttle even at high confidence).
+    Filtered to alerted = true so a suppressed pick can never become
+    the Lock of the Day."""
     conn = get_conn()
     c = conn.cursor()
     c.execute("""
         SELECT game, bet, odds, model_prob, edge
         FROM predictions
-        WHERE date = ? AND sport = ? AND model_prob >= ?
+        WHERE date = ? AND sport = ? AND model_prob >= ? AND alerted = true
         ORDER BY edge DESC
         LIMIT 1
     """, (date_str, sport, GAME_CONFIDENCE_FLOOR))
@@ -190,7 +197,14 @@ def get_model_projection(sport: str, date_str: str):
     model_prob game (most lopsided projection), not highest edge,
     since without a floor 'highest edge' can surface a coin-flip game
     with a large edge purely from a soft market line, which isn't
-    what "who does the model favor" is asking."""
+    what "who does the model favor" is asking.
+
+    NOT filtered to alerted = true (2026-09-09), unlike
+    get_game_pick_of_the_day(): this function's entire purpose is
+    surfacing a pick that did NOT clear the real alert bar, labeled
+    honestly as "not a Lock" in the output. Requiring alerted=true here
+    would make it return nothing on almost every call, defeating the
+    reason it exists."""
     conn = get_conn()
     c = conn.cursor()
     c.execute("""

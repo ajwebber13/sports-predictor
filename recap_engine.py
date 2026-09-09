@@ -102,6 +102,10 @@ def send_message(text: str, sport: str):
 
 
 def get_results(sport: str, start_date: str, end_date: str) -> list:
+    """ALERTED FILTER (2026-09-09): "log full slate" means results can
+    now contain graded rows for picks that never actually reached
+    Discord — filtered to p.alerted = true so the recap never reports
+    a result for a pick the audience was never shown."""
     conn = get_conn()
     c = conn.cursor()
     c.execute("""
@@ -113,6 +117,7 @@ def get_results(sport: str, start_date: str, end_date: str) -> list:
         WHERE r.sport = ?
         AND r.date >= ? AND r.date <= ?
         AND r.correct IS NOT NULL
+        AND p.alerted = true
         ORDER BY r.date ASC
     """, (sport, start_date, end_date))
     rows = [dict(row) for row in c.fetchall()]
