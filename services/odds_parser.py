@@ -1,7 +1,9 @@
 """
 services/odds_parser.py
-Primary: The Odds API (real DraftKings/FanDuel lines)
-Fallback: ESPN free API (no key needed)
+Primary: ESPN free API (no key needed, no credit cost)
+Fallback: The Odds API (real DraftKings/FanDuel lines) — demoted
+2026-09-08, kept working rather than removed in case ESPN's
+undocumented endpoint ever breaks or gets rate-limited unexpectedly.
 Same output format for all downstream code.
 """
 import requests
@@ -70,7 +72,7 @@ def _get_today_ct():
     return (datetime.now(timezone.utc) + timedelta(hours=CENTRAL_OFFSET)).date()
 
 
-# ── THE ODDS API (Primary) ───────────────────────────────────────────────
+# ── THE ODDS API (fallback — demoted 2026-09-08) ────────────────────────
 
 def get_odds_api(sport: str) -> list:
     """Pull live moneyline odds from The Odds API — DraftKings/FanDuel lines."""
@@ -113,23 +115,39 @@ def get_odds_api(sport: str) -> list:
     return games
 
 
-# ── ESPN FALLBACK ────────────────────────────────────────────────────────
+# ── ESPN (primary — promoted 2026-09-08) ────────────────────────────────
 
 def get_espn_odds(sport: str) -> list:
-    """Pull today's games from ESPN free API — fallback when Odds API unavailable."""
+    """Pull today's games from ESPN free API.
+
+    PROMOTED TO PRIMARY 2026-09-08 — see get_live_odds() below.
+
+    FIXED same day: ESPN's scoreboard endpoint silently defaults to an
+    arbitrary ~25-event subset when called with no params — the exact
+    issue already found and fixed for cfb_data.get_cfb_events()/
+    telegram_alerts.get_game_times() weeks ago, but this function never
+    got that same fix, since until today it was only ever a rarely-hit
+    fallback. Confirmed live: CFB without groups=80&limit=200 returned
+    24 of 86 real games for this week, missing nearly all of Saturday's
+    slate — a silent, serious coverage gap now that this path is
+    primary. NFL doesn't need this (32 teams, one coherent weekly
+    slate — same reasoning as the earlier fix)."""
     endpoint = ESPN_ENDPOINTS.get(sport)
     if not endpoint:
         return []
 
-    url      = f"{ESPN_BASE}/{endpoint}/scoreboard"
+    url    = f"{ESPN_BASE}/{endpoint}/scoreboard"
+    params = {}
+    if sport == "cfb":
+        params = {"groups": "80", "limit": 200}
     today_ct = _get_today_ct()
 
     try:
-        r    = requests.get(url, headers=HEADERS, timeout=10)
+        r    = requests.get(url, headers=HEADERS, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
     except Exception as e:
-        print(f"ESPN fallback error ({sport}): {e}")
+        print(f"ESPN error ({sport}): {e}")
         return []
 
     games = []
@@ -159,7 +177,7 @@ def get_espn_odds(sport: str) -> list:
             odds_data  = comp.get("odds", [{}])
             odds_obj   = odds_data[0] if odds_data else {}
 
-            # No silent fallback here — a missing real moneyLine is
+            # No silent fallback here — a missing real moneyline is
             # "we don't have this game's real price," not "-110 both
             # sides." That defaulting is exactly the fabricated-odds
             # pattern this project already found and fixed once
@@ -169,12 +187,38 @@ def get_espn_odds(sport: str) -> list:
             # calculate_roi/calculate_clv) already handles a missing/
             # None odds value correctly by excluding it, rather than
             # silently trusting a fake symmetric line.
-            raw_home_ml = odds_obj.get("homeTeamOdds", {}).get("moneyLine")
-            raw_away_ml = odds_obj.get("awayTeamOdds", {}).get("moneyLine")
+            #
+            # FIXED 2026-09-08: was odds_obj.get("homeTeamOdds", {}).
+            # get("moneyLine") / awayTeamOdds — that path doesn't exist
+            # in ESPN's actual schema (homeTeamOdds/awayTeamOdds only
+            # carry favorite/underdog flags), so has_real_ml was False
+            # for every game, always, and this "no fallback" comment's
+            # intent was silently defeated the whole time — h2h simply
+            # never populated regardless of whether ESPN had a real
+            # price. Confirmed live: the real moneyline lives at
+            # odds_obj["moneyline"]["home"/"away"]["close"]["odds"]
+            # (a string like "-170"), a completely different structure.
+            moneyline_obj = odds_obj.get("moneyline", {})
+            raw_home_ml = moneyline_obj.get("home", {}).get("close", {}).get("odds")
+            raw_away_ml = moneyline_obj.get("away", {}).get("close", {}).get("odds")
             has_real_ml = raw_home_ml is not None and raw_away_ml is not None
 
-            spread     = odds_obj.get("spread", 0)
-            over_under = odds_obj.get("overUnder", 0)
+            # FIXED 2026-09-08: was odds_obj.get("spread", 0) / .get(
+            # "overUnder", 0) — defaulting to 0 whenever a game had no
+            # real odds object at all (comp.get("odds") is None; confirmed
+            # live for ~1/3 of CFB games — DraftKings, ESPN's only
+            # provider, doesn't price every buy game). 0 is a real,
+            # meaningful spread/total value (a true pick'em / even
+            # total), indistinguishable from "no data" once defaulted —
+            # exactly the fabricated-line problem the comment above
+            # already describes fixing for moneyline, just still present
+            # here. No default now: a missing key correctly comes back
+            # None, and the guards below skip adding that market entirely
+            # rather than inventing a line, matching how The Odds API
+            # path already behaves for a game it has no coverage for
+            # (that game simply doesn't appear in events_odds at all).
+            spread     = odds_obj.get("spread")
+            over_under = odds_obj.get("overUnder")
 
             markets = []
             if has_real_ml:
@@ -186,28 +230,29 @@ def get_espn_odds(sport: str) -> list:
                     ]
                 })
             else:
-                print(f"  [ESPN fallback] no real moneyline for {away_name} @ {home_name} — "
+                print(f"  [ESPN] no real moneyline for {away_name} @ {home_name} — "
                       f"skipping h2h market rather than defaulting to -110/-110")
 
-            # Spread/total markets legitimately default to -110 —
-            # that's the real, standard vig price books use for point
-            # spreads and totals, unlike moneylines which vary widely
-            # by matchup. Leaving these untouched is correct, not the
-            # same bug.
-            markets.append({
-                "key": "spreads",
-                "outcomes": [
-                    {"name": home_name, "point": spread, "price": -110},
-                    {"name": away_name, "point": -spread if spread else 0, "price": -110},
-                ]
-            })
-            markets.append({
-                "key": "totals",
-                "outcomes": [
-                    {"name": "Over",  "point": over_under, "price": -110},
-                    {"name": "Under", "point": over_under, "price": -110},
-                ]
-            })
+            # Prices legitimately default to -110 — that's the real,
+            # standard vig price books use for point spreads and totals.
+            # The LINE itself (spread/over_under) never defaults, per the
+            # fix above — only added when ESPN actually has one.
+            if spread is not None:
+                markets.append({
+                    "key": "spreads",
+                    "outcomes": [
+                        {"name": home_name, "point": spread, "price": -110},
+                        {"name": away_name, "point": -spread if spread else 0, "price": -110},
+                    ]
+                })
+            if over_under is not None:
+                markets.append({
+                    "key": "totals",
+                    "outcomes": [
+                        {"name": "Over",  "point": over_under, "price": -110},
+                        {"name": "Under", "point": over_under, "price": -110},
+                    ]
+                })
 
             games.append({
                 "home_team":     home_name,
@@ -223,7 +268,7 @@ def get_espn_odds(sport: str) -> list:
         except Exception:
             continue
 
-    print(f"ESPN fallback returned {len(games)} game(s) for {sport}")
+    print(f"ESPN returned {len(games)} game(s) for {sport}")
     return games
 
 
@@ -231,36 +276,45 @@ def get_espn_odds(sport: str) -> list:
 
 def get_live_odds(sport: str = "nba") -> list:
     """
-    Primary: The Odds API (real DraftKings/FanDuel lines)
-    Fallback: ESPN free API
+    Primary: ESPN free API — no key, no credit cost. Real DraftKings
+    lines (confirmed live: 100% DraftKings-provided, 0.0 spread
+    difference against The Odds API's own DraftKings line across every
+    matched NFL game checked) at effectively zero ongoing cost.
+    Fallback: The Odds API — demoted 2026-09-08, not removed, so a
+    working key is still there if ESPN's undocumented endpoint ever
+    breaks or gets rate-limited unexpectedly.
 
     CACHED — see _ODDS_CACHE_TTL_SECONDS above. Every call for this
     sport within the TTL window reuses the same result, whether it
     comes from render_job.py's own direct calls or the /edges route's
     internal call (including across fetch_edges_with_retry()'s retry
-    attempts) — same data, no reason to hit the network twice. A
-    quota-exhausted/empty result is cached too, deliberately: if the
-    Odds API is out of credits, retrying it seconds later within the
-    same run won't get a different answer, so there's nothing to gain
-    from hitting it again before the TTL expires.
+    attempts) — same data, no reason to hit the network twice. An
+    empty result is cached too, deliberately: if a source (ESPN or, on
+    fallback, a quota-exhausted Odds API) has nothing right now,
+    retrying it seconds later within the same run won't get a
+    different answer, so there's nothing to gain from hitting it again
+    before the TTL expires.
     """
     now = time.time()
     cached = _odds_cache.get(sport)
     if cached is not None and (now - cached[0]) < _ODDS_CACHE_TTL_SECONDS:
         return cached[1]
 
-    # Try Odds API first
+    # Try ESPN first
+    games = get_espn_odds(sport)
+    if games:
+        _odds_cache[sport] = (now, games)
+        return games
+    print(f"  ESPN empty for {sport} — falling back to Odds API")
+
+    # Fall back to the Odds API (demoted, not removed)
     if API_KEY:
         games = get_odds_api(sport)
-        if games:
-            _odds_cache[sport] = (now, games)
-            return games
-        print(f"  Odds API empty for {sport} — falling back to ESPN")
+        _odds_cache[sport] = (now, games)
+        return games
 
-    # Fall back to ESPN
-    games = get_espn_odds(sport)
-    _odds_cache[sport] = (now, games)
-    return games
+    _odds_cache[sport] = (now, [])
+    return []
 
 
 # ── HELPERS ──────────────────────────────────────────────────────────────
