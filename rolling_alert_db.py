@@ -62,7 +62,13 @@ def infer_market(bet_text):
 
 
 def fetch_graded(days_back=30):
-    """Pull graded results from the last N days."""
+    """Pull graded results from the last N days.
+
+    ALERTED FILTER (2026-09-09): "log full slate" means results can now
+    contain graded rows for picks that never actually reached Discord —
+    filtered to p.alerted = true so a batch of suppressed sub-threshold
+    picks can't drag down (or inflate) the rolling win-rate/ROI signal
+    this alert acts on."""
     conn = get_conn()
     cur = conn.cursor()
     cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
@@ -73,6 +79,7 @@ def fetch_graded(days_back=30):
         JOIN predictions p ON r.prediction_id = p.id
         WHERE r.date >= ?
           AND r.correct IS NOT NULL
+          AND p.alerted = true
         """,
         (cutoff,),
     )

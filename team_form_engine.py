@@ -89,7 +89,20 @@ def _team_game_rows(team: str, sport: str = None, date_range: tuple = None) -> l
     of the old prediction_id FK join — same "only populate if the
     model actually picked THIS team" rule as before, just a different
     join path to get there. Sports without a mapped source still fall
-    back to the old results-based query, unchanged."""
+    back to the old results-based query, unchanged.
+
+    ALERTED FILTER (2026-09-09), narrower than elsewhere: this file's
+    core signal — result "W"/"L" — is deliberately sourced from real
+    game outcomes, INDEPENDENT of whether the model ever alerted on the
+    game (see module docstring: a team can go 5-0 while the model
+    faded it every time). A blanket `WHERE p.alerted = true` would
+    silently drop every real game whose attached prediction wasn't
+    alerted — corrupting the one signal this file exists to keep
+    model-activity-independent. So games are NOT filtered; instead
+    edge/model_prob (the only genuinely model-derived fields here) are
+    nulled out per-row when the attached prediction wasn't alerted,
+    same as the existing picked_this_team gate already does for a
+    prediction that picked the other side."""
     sport = _norm_sport(sport)
     conn = get_conn()
     c = conn.cursor()
@@ -108,7 +121,7 @@ def _team_game_rows(team: str, sport: str = None, date_range: tuple = None) -> l
 
         c.execute(f"""
             SELECT g.date, g.sport, g.home_team, g.away_team, g.winner AS actual_winner,
-                   p.predicted_winner, p.model_prob, p.edge
+                   p.predicted_winner, p.model_prob, p.edge, p.alerted
             FROM {source_table} g
             LEFT JOIN results r ON r.date = g.date AND r.home_team = g.home_team
                                 AND r.away_team = g.away_team AND r.sport = g.sport
@@ -123,15 +136,15 @@ def _team_game_rows(team: str, sport: str = None, date_range: tuple = None) -> l
         for r in rows:
             result = "W" if r["actual_winner"] == team else "L"
             opponent = r["away_team"] if r["home_team"] == team else r["home_team"]
-            picked_this_team = r["predicted_winner"] == team
+            picked_this_team_and_alerted = r["predicted_winner"] == team and bool(r["alerted"])
             out.append({
                 "date": r["date"],
                 "game": f"{r['away_team']} @ {r['home_team']}",
                 "opponent": opponent,
                 "sport": r["sport"],
                 "result": result,
-                "edge": r["edge"] if picked_this_team else None,
-                "model_prob": r["model_prob"] if picked_this_team else None,
+                "edge": r["edge"] if picked_this_team_and_alerted else None,
+                "model_prob": r["model_prob"] if picked_this_team_and_alerted else None,
             })
         return out
 
@@ -148,7 +161,7 @@ def _team_game_rows(team: str, sport: str = None, date_range: tuple = None) -> l
 
     c.execute(f"""
         SELECT r.date, r.game, r.sport, r.home_team, r.away_team,
-               r.actual_winner, p.predicted_winner, p.model_prob, p.edge
+               r.actual_winner, p.predicted_winner, p.model_prob, p.edge, p.alerted
         FROM results r
         LEFT JOIN predictions p ON r.prediction_id = p.id
         WHERE {where} AND r.actual_winner IS NOT NULL
@@ -163,15 +176,15 @@ def _team_game_rows(team: str, sport: str = None, date_range: tuple = None) -> l
             continue  # actual_winner doesn't match either team string — skip rather than misclassify
         result = "W" if r["actual_winner"] == team else "L"
         opponent = r["away_team"] if r["home_team"] == team else r["home_team"]
-        picked_this_team = r["predicted_winner"] == team
+        picked_this_team_and_alerted = r["predicted_winner"] == team and bool(r["alerted"])
         out.append({
             "date": r["date"],
             "game": r["game"],
             "opponent": opponent,
             "sport": r["sport"],
             "result": result,
-            "edge": r["edge"] if picked_this_team else None,
-            "model_prob": r["model_prob"] if picked_this_team else None,
+            "edge": r["edge"] if picked_this_team_and_alerted else None,
+            "model_prob": r["model_prob"] if picked_this_team_and_alerted else None,
         })
     return out
 

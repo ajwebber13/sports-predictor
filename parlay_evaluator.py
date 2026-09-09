@@ -324,7 +324,15 @@ def _build_summary(legs, raw, adj, correlations, weak_legs, tier, payout) -> str
 # ─────────────────────────────────────────────
 
 def get_model_prob(team: str, date: str = None) -> float | None:
-    """Pull today's model probability for a team ML from predictions table."""
+    """Pull today's model probability for a team ML from predictions table.
+
+    ALERTED FILTER (2026-09-09): "log full slate" means predictions now
+    holds a row for every game/market the model scored, including ones
+    that never cleared the real alert bar. This auto-fetches a
+    probability the user is asked to accept for a real parlay leg
+    ("Auto-fetched model prob: X% — Use this?"), so filtered to
+    alerted = true — a suppressed, never-trusted-enough-to-send number
+    shouldn't be handed to the user as if it were a real pick."""
     conn = get_conn()
     c    = conn.cursor()
 
@@ -337,6 +345,7 @@ def get_model_prob(team: str, date: str = None) -> float | None:
         FROM predictions
         WHERE date = ?
           AND (home_team LIKE ? OR away_team LIKE ?)
+          AND alerted = true
         ORDER BY created_at DESC
         LIMIT 1
     """, (date, f"%{team}%", f"%{team}%"))
