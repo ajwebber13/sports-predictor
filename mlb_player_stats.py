@@ -29,6 +29,7 @@ except ImportError:
 
 from database import get_conn
 from player_profiles import init_player_tables, calculate_impact_score
+from espn_scoreboard import get_espn_game_ids
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -39,20 +40,12 @@ MLB_SEASON_START = "20260327"  # confirm actual 2026 Opening Day before backfill
 
 
 def get_game_ids(date_str: str) -> list:
-    """Get all completed MLB game IDs for a given date (YYYYMMDD)."""
-    url = f"https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard?dates={date_str}"
-    try:
-        r    = requests.get(url, headers=HEADERS, timeout=10)
-        data = r.json()
-        ids  = []
-        for event in data.get("events", []):
-            completed = event.get("status", {}).get("type", {}).get("completed", False)
-            if completed:
-                ids.append(event.get("id"))
-        return ids
-    except Exception as e:
-        print(f"  Scoreboard error {date_str}: {e}")
-        return []
+    """Get all completed MLB game IDs for a given date (YYYYMMDD).
+
+    CONSOLIDATED 2026-09-10 — see wnba_player_stats.py's get_game_ids()
+    docstring; now a thin wrapper over the shared
+    espn_scoreboard.get_espn_game_ids()."""
+    return get_espn_game_ids("mlb", date_str)
 
 
 def parse_box_score(event_id: str) -> list:

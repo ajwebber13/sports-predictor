@@ -44,6 +44,7 @@ except ImportError:
     pass
 
 from database import get_conn
+from espn_scoreboard import get_espn_game_ids
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -91,20 +92,14 @@ def get_game_ids(date_str: str) -> list:
     """Get all completed CFB game IDs for a given date (YYYYMMDD).
     NOTE: FBS has 130+ teams and a much heavier Saturday slate than the
     NFL — a single date can return far more games than NFL's scoreboard
-    call ever would, so backfill runs will naturally take longer."""
-    url = f"https://site.api.espn.com/apis/site/v2/sports/{ESPN_SPORT_PATH}/scoreboard?dates={date_str}&limit=200"
-    try:
-        r    = requests.get(url, headers=HEADERS, timeout=15)
-        data = r.json()
-        ids  = []
-        for event in data.get("events", []):
-            completed = event.get("status", {}).get("type", {}).get("completed", False)
-            if completed:
-                ids.append(event.get("id"))
-        return ids
-    except Exception as e:
-        print(f"  Scoreboard error {date_str}: {e}")
-        return []
+    call ever would, so backfill runs will naturally take longer.
+
+    CONSOLIDATED 2026-09-10 — see wnba_player_stats.py's get_game_ids()
+    docstring; now a thin wrapper over the shared
+    espn_scoreboard.get_espn_game_ids(), which keeps this sport's
+    original &limit=200 param and 15s timeout (both preserved in
+    espn_scoreboard.SPORT_EXTRA_PARAMS / the timeout arg below)."""
+    return get_espn_game_ids("cfb", date_str, timeout=15)
 
 
 def debug_dump_keys(event_id: str):

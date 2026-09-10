@@ -237,7 +237,22 @@ def get_espn_odds(sport: str) -> list:
     for event in data.get("events", []):
         try:
             game_date = event.get("date", "")
-            if game_date:
+            # Same-day filter — correct for WNBA/MLB/CFB, whose real
+            # slate for a given calendar day IS that day's games.
+            # DELIBERATE EXCEPTION for NFL (2026-09-10): its real slate
+            # spans Thu-Mon, not one calendar day — this filter was
+            # throwing out the rest of the week every day but game day.
+            # Confirmed live: ESPN returned 16 real NFL games across 4
+            # distinct dates for the week, and this filter kept exactly
+            # 1. Also defeats odds_history's actual purpose for NFL
+            # specifically — logging today's price on a game that
+            # plays out LATER in the week is exactly how line-movement
+            # tracking is supposed to work; skipping non-today games
+            # means NFL can never have a real opening line captured
+            # days ahead of kickoff. Do NOT add this filter back for
+            # NFL — completed games are still excluded below via the
+            # status check, regardless of sport.
+            if game_date and sport != "nfl":
                 utc_dt     = datetime.fromisoformat(game_date.replace("Z", "+00:00"))
                 central_dt = utc_dt + timedelta(hours=CENTRAL_OFFSET)
                 if central_dt.date() != today_ct:

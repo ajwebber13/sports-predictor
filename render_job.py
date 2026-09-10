@@ -160,7 +160,13 @@ def fetch_edges_with_retry(sport: str, attempts: int = 3, backoff: int = 15):
             return r.json()
         except Exception as e:
             last_error = e
-            log(f"API error for {sport} (attempt {attempt}/{attempts}): {e}")
+            # 2026-09-10: added type(e).__name__ and repr(e) alongside
+            # the plain message — a bare "Connection aborted" from
+            # str(e) alone wasn't enough to tell a real timeout apart
+            # from a connection reset, or see whatever underlying
+            # cause/errno the exception actually carries.
+            log(f"API error for {sport} (attempt {attempt}/{attempts}): "
+                f"{type(e).__name__}: {e} | repr={e!r}")
             if attempt < attempts:
                 time.sleep(backoff)
 

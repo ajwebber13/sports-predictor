@@ -14,6 +14,7 @@ import time
 from datetime import datetime, timedelta
 from database import get_conn
 from player_profiles import init_player_tables, calculate_impact_score
+from espn_scoreboard import get_espn_game_ids
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -73,20 +74,16 @@ def _detect_game_type(data: dict) -> str:
 
 
 def get_game_ids(date_str: str) -> list:
-    """Get all completed WNBA game IDs for a given date (YYYYMMDD)."""
-    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard?dates={date_str}"
-    try:
-        r    = requests.get(url, headers=HEADERS, timeout=10)
-        data = r.json()
-        ids  = []
-        for event in data.get("events", []):
-            completed = event.get("status", {}).get("type", {}).get("completed", False)
-            if completed:
-                ids.append(event.get("id"))
-        return ids
-    except Exception as e:
-        print(f"  Scoreboard error {date_str}: {e}")
-        return []
+    """Get all completed WNBA game IDs for a given date (YYYYMMDD).
+
+    CONSOLIDATED 2026-09-10 — was its own copy of this exact function
+    (5 near-identical copies existed across every sport's player-stats
+    file, same bug in all of them: no status code or raw body logged
+    on a JSON parse failure). Now a thin wrapper over the shared
+    espn_scoreboard.get_espn_game_ids(), kept here so every existing
+    caller in this file (backfill_season(), update_recent()) needs no
+    changes beyond this."""
+    return get_espn_game_ids("wnba", date_str)
 
 
 def parse_box_score(event_id: str) -> list:

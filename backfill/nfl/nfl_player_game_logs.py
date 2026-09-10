@@ -43,6 +43,7 @@ except ImportError:
     pass
 
 from database import get_conn
+from espn_scoreboard import get_espn_game_ids
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -89,20 +90,12 @@ GAME_LOG_COLUMNS = [
 
 
 def get_game_ids(date_str: str) -> list:
-    """Get all completed NFL game IDs for a given date (YYYYMMDD)."""
-    url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates={date_str}"
-    try:
-        r    = requests.get(url, headers=HEADERS, timeout=10)
-        data = r.json()
-        ids  = []
-        for event in data.get("events", []):
-            completed = event.get("status", {}).get("type", {}).get("completed", False)
-            if completed:
-                ids.append(event.get("id"))
-        return ids
-    except Exception as e:
-        print(f"  Scoreboard error {date_str}: {e}")
-        return []
+    """Get all completed NFL game IDs for a given date (YYYYMMDD).
+
+    CONSOLIDATED 2026-09-10 — see wnba_player_stats.py's get_game_ids()
+    docstring; now a thin wrapper over the shared
+    espn_scoreboard.get_espn_game_ids()."""
+    return get_espn_game_ids("nfl", date_str)
 
 
 def debug_dump_keys(event_id: str):
