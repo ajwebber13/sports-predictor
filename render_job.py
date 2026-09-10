@@ -31,16 +31,37 @@ API_BASE         = "https://sports-predictor-api-44a0.onrender.com"
 # context is available at all (shouldn't normally happen).
 DISCORD_WEBHOOK_GAME_PICKS = os.getenv("DISCORD_WEBHOOK_GAME_PICKS", "")
 
-# --dry-run (added 2026-09-09): set by the CLI block at the bottom of
-# this file before run() starts. Checked in ONE place — inside
-# send_discord_alert() itself — rather than threading a dry_run param
-# through every call site, since every real send in this file already
-# funnels through that one function (the startup-check alert, the
-# fetch-failure alert, both alert flows' picks, and the steam alert).
-# Everything upstream of the send (fetch, score, throttle, log_prediction
-# with real alerted/suppressed_reason) runs completely unchanged — this
-# only ever intercepts the outbound Discord call itself.
-DRY_RUN = False
+# --dry-run (added 2026-09-09, default flipped 2026-09-10). Checked in
+# ONE place — inside send_discord_alert() itself — rather than
+# threading a dry_run param through every call site, since every real
+# send in this file already funnels through that one function (the
+# startup-check alert, the fetch-failure alert, both alert flows'
+# picks, and the steam alert). Everything upstream of the send (fetch,
+# score, throttle, log_prediction with real alerted/suppressed_reason)
+# runs completely unchanged — this only ever intercepts the outbound
+# Discord call itself.
+#
+# SAFE BY DEFAULT (2026-09-10): this module default is True — no real
+# sends — specifically so importing this file and calling a function
+# directly (a REPL, a one-off verification script, a future unit test)
+# can never silently fire a live Discord alert just because nobody
+# thought to pass --dry-run. That's exactly what happened twice testing
+# this same file: a `--sport mlb` verification run fired a real alert
+# to a shelved sport's channel, and a direct call to
+# fetch_edges_with_retry() sent a real fabricated "NFL fetch failed"
+# alert. The ONLY place this gets set to False (live sends allowed) is
+# the __main__ block below — the one sanctioned entry point that means
+# "this is a real scheduled/manual run." Anyone who wants live sends
+# from a direct call must now explicitly set render_job.DRY_RUN = False
+# themselves — an unambiguous, deliberate act, not an accident of which
+# function happened to get called first.
+#
+# Independent second layer: RENDER_JOB_FORCE_DRY_RUN env var, checked
+# fresh inside send_discord_alert() on every call (not just once at
+# import time). Forces dry-run regardless of DRY_RUN's Python-level
+# state — useful for a CI/test environment to guarantee safety without
+# relying on nothing having mutated the module global.
+DRY_RUN = True
 
 from active_sports import ALL_SPORTS  # single shelf list — edit active_sports.py, not here
 
@@ -125,9 +146,14 @@ def send_discord_alert(text: str, sport: str = None) -> bool:
     fired a real live alert to production Discord for a sport that's
     shelved from the normal schedule. `--dry-run` exists specifically
     so re-verifying a pipeline change never risks that again."""
-    if DRY_RUN:
+    # Checked fresh here (not cached at import time) so an env var set
+    # any time before this call — e.g. by a test harness's setup, after
+    # render_job has already been imported — still takes effect.
+    force_dry_run = os.environ.get("RENDER_JOB_FORCE_DRY_RUN", "").strip().lower() in ("1", "true", "yes")
+    if DRY_RUN or force_dry_run:
         webhook_label = sport.upper() if sport else "default"
-        log(f"[DRY RUN] Would send to {webhook_label} Discord channel:")
+        reason = "RENDER_JOB_FORCE_DRY_RUN env var" if (force_dry_run and not DRY_RUN) else "DRY_RUN"
+        log(f"[DRY RUN — {reason}] Would send to {webhook_label} Discord channel:")
         print(f"----- DRY RUN MESSAGE ({webhook_label}) -----")
         print(text)
         print("-" * (28 + len(webhook_label)))
@@ -889,6 +915,13 @@ if __name__ == "__main__":
     else:
         sports = ALL_SPORTS
 
+    # This __main__ block is the one sanctioned "real run" entry point
+    # — the module default above is DRY_RUN = True (safe) specifically
+    # so nothing sends live unless it actually gets here. Explicitly
+    # flip to live first, then let --dry-run override back to safe if
+    # passed — same two states as before, just no longer relying on
+    # "nobody set DRY_RUN yet" to mean live.
+    DRY_RUN = False
     if args.dry_run:
         DRY_RUN = True
         log("══════════════════════════════════════════════")
