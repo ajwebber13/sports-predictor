@@ -33,6 +33,7 @@ Usage:
 """
 
 import requests
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -43,7 +44,7 @@ except ImportError:
     pass
 
 from database import get_conn
-from espn_scoreboard import get_espn_game_ids
+from espn_scoreboard import get_espn_game_ids, get_scoreboard_error_count, reset_scoreboard_error_count
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -275,6 +276,7 @@ def backfill_season(start_date: str = NFL_SEASON_START, end_date: str = None):
     end   = datetime.strptime(end_date, "%Y%m%d") if end_date else datetime.now()
     total_games   = 0
     total_players = 0
+    reset_scoreboard_error_count()
 
     print(f"\nBackfilling NFL box scores from {start_date} to {end.strftime('%Y%m%d')}...")
     print("(2025 season is complete — this pulls historical data since no 2026 games exist yet)\n")
@@ -298,11 +300,20 @@ def backfill_season(start_date: str = NFL_SEASON_START, end_date: str = None):
 
     print(f"\nBackfill complete: {total_games} games, {total_players} player-game records")
 
+    errors = get_scoreboard_error_count()
+    if total_games == 0 and errors > 0:
+        raise RuntimeError(
+            f"0 games found across the full date range, but {errors} scoreboard fetch(es) "
+            f"failed (see 'Scoreboard error' lines above). Treating this as a failed run — "
+            f"likely ESPN blocking this IP — not a genuine empty slate."
+        )
+
 
 def update_recent(days: int = 7):
     """Pull last N days of games. No-op until the 2026 season starts."""
     today = datetime.now()
     total = 0
+    reset_scoreboard_error_count()
 
     print(f"\nUpdating NFL stats for last {days} days...")
 
@@ -322,22 +333,38 @@ def update_recent(days: int = 7):
 
     print(f"Update complete: {total} player-game records added")
 
+    errors = get_scoreboard_error_count()
+    if total == 0 and errors > 0:
+        raise RuntimeError(
+            f"0 games found across the last {days} days, but {errors} scoreboard fetch(es) "
+            f"failed (see 'Scoreboard error' lines above). Treating this as a failed run — "
+            f"likely ESPN blocking this IP — not a genuine empty slate."
+        )
+
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
-        if arg == "backfill":
-            start_arg = sys.argv[2] if len(sys.argv) > 2 else NFL_SEASON_START
-            end_arg   = sys.argv[3] if len(sys.argv) > 3 else None
-            backfill_season(start_arg, end_arg)
-        elif arg == "update":
-            days = int(sys.argv[2]) if len(sys.argv) > 2 else 7
-            update_recent(days)
-        elif arg == "debug" and len(sys.argv) > 2:
-            debug_dump_keys(sys.argv[2])
+    try:
+        if len(sys.argv) > 1:
+            arg = sys.argv[1].lower()
+            if arg == "backfill":
+                start_arg = sys.argv[2] if len(sys.argv) > 2 else NFL_SEASON_START
+                end_arg   = sys.argv[3] if len(sys.argv) > 3 else None
+                backfill_season(start_arg, end_arg)
+            elif arg == "update":
+                days = int(sys.argv[2]) if len(sys.argv) > 2 else 7
+                update_recent(days)
+            elif arg == "debug" and len(sys.argv) > 2:
+                debug_dump_keys(sys.argv[2])
+            else:
+                print("Usage: python nfl_player_game_logs.py [backfill|update|debug <event_id>]")
         else:
             print("Usage: python nfl_player_game_logs.py [backfill|update|debug <event_id>]")
-    else:
-        print("Usage: python nfl_player_game_logs.py [backfill|update|debug <event_id>]")
+    except RuntimeError as e:
+        # Zero-games guard tripped (ESPN blocked/erroring on every
+        # request) — fail the CI job instead of exiting 0 with an empty
+        # backfill. Only the CLI entry point exits non-zero: render_job.py
+        # imports update_recent() directly in-process and relies on
+        # catching a normal exception (not SystemExit) to log-and-continue
+        # instead of crashing the whole alert run.
+        print(f"FATAL: {e}")
+        sys.exit(1)

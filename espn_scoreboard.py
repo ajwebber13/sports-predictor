@@ -28,6 +28,21 @@ HEADERS = {
 
 ESPN_SCOREBOARD_BASE = "https://site.api.espn.com/apis/site/v2/sports"
 
+# Tracks scoreboard fetch failures (non-200, exception, JSON parse failure)
+# since process start or the last reset — lets callers tell "ESPN said zero
+# games" apart from "ESPN wouldn't answer" (blocked/erroring), e.g. NFL's
+# zero-games guard in backfill/nfl/nfl_player_game_logs.py.
+_scoreboard_errors = 0
+
+
+def get_scoreboard_error_count() -> int:
+    return _scoreboard_errors
+
+
+def reset_scoreboard_error_count():
+    global _scoreboard_errors
+    _scoreboard_errors = 0
+
 # Per-sport ESPN path + any extra query params, matching each original
 # file's own call exactly (only CFB carried &limit=200 — its heavier
 # 130+-team slate needs it to avoid ESPN's endpoint truncating results;
@@ -63,15 +78,19 @@ def get_espn_game_ids(sport: str, date_str: str, timeout: int = 10) -> list:
     params = dict(SPORT_EXTRA_PARAMS.get(sport, {}))
     params["dates"] = date_str
 
+    global _scoreboard_errors
+
     try:
         r = requests.get(url, headers=HEADERS, params=params, timeout=timeout)
     except Exception as e:
         print(f"  Scoreboard error {date_str} ({sport}): request failed — {type(e).__name__}: {e}")
+        _scoreboard_errors += 1
         return []
 
     if r.status_code != 200:
         print(f"  Scoreboard error {date_str} ({sport}): status={r.status_code} "
               f"content-type={r.headers.get('content-type')!r} body={r.text[:300]!r}")
+        _scoreboard_errors += 1
         return []
 
     try:
@@ -80,6 +99,7 @@ def get_espn_game_ids(sport: str, date_str: str, timeout: int = 10) -> list:
         print(f"  Scoreboard error {date_str} ({sport}): JSON parse failed ({e}) — "
               f"status={r.status_code} content-type={r.headers.get('content-type')!r} "
               f"body={r.text[:300]!r}")
+        _scoreboard_errors += 1
         return []
 
     ids = []
