@@ -89,7 +89,7 @@ CENTRAL_OFFSET = -5
 # only if get_webhook_for_sport("wnba") can't find DISCORD_WEBHOOK_WNBA.
 DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 
-# ── Selector (rewritten 2026-09-04) ──────────────────────────────────────────
+# ── Selector (rewritten 2026-09-04, PTS dropped 2026-09-11) ─────────────────
 # The old rule picked by historical hit rate (>=80 over / <=20 under).
 # Backtest on 3,241 graded WNBA props: that rule LOST money, and making
 # the projection engine "agree" with history made it worse (-22% ROI).
@@ -98,9 +98,22 @@ DISCORD_WEBHOOK_PROPS = os.getenv("DISCORD_WEBHOOK_PROPS", "")
 # What actually held up: projection engine tier = green, OVERS only,
 # on combo/points stats (PA +13.5%, PRA +5.7%, PTS ~flat on 100-170
 # picks each). Rebounds/assists alone lost, and every UNDER category
-# lost across the board. So:
+# lost across the board. So the 9/4 rewrite shipped with PA/PRA/PTS.
+#
+# PTS dropped 2026-09-11: audit_wnba_selector.py's per-stat breakdown
+# (independently re-run on the full pre-shipment sample, not just the
+# comment above) showed PTS at -5.4% ROI (n=65) — losing, not flat —
+# while carrying 48% of the qualifying volume. PA alone was +26.3%
+# (n=41), PRA flat at +0.2% (n=28); PTS's volume was dragging the
+# combined live-config ROI down to +5.5% from what PA/PRA alone would
+# show. No live post-shipment data exists yet to confirm this (the
+# WNBA schedule has a gap 8/30-9/16, games resume 9/17) — this is
+# still in-sample, same data the original 9/4 fit saw. CHECKPOINT:
+# re-run `audit_wnba_selector.py --start 2026-09-17` once real
+# post-gap games have graded, to validate PA/PRA out-of-sample and
+# confirm cutting PTS was correct rather than overfit to this window.
 PROJECTION_TIER = "green"
-ALLOWED_STATS = ("pa", "pra", "pts")   # add "pr" once it backtests positive
+ALLOWED_STATS = ("pa", "pra")          # pts dropped 2026-09-11 — was -5.4% ROI at 48% of volume, see above
 MIN_EDGE_PCT = 20.0                    # projection_edge_pct floor; raise to 20-35 for a shorter, sharper list
 MAX_PICKS = 8                          # never post more than this — a long list is noise, not value
 STRONG_THRESHOLD = 80  # kept for prop_tracker.py --picks-only compatibility; NOT used to pick anymore

@@ -72,6 +72,17 @@ def run(start):
             print(fmt(f"{stats_label}, edge_pct >= {min_edge}", summarize(ps)))
         print()
 
+    print(f"PROPOSED, stats filter, edge_pct >= 20 — BY STAT (live selector's actual MIN_EDGE_PCT)")
+    by_stat = defaultdict(list)
+    for r in rows:
+        if r["projection_tier"] != "green" or not is_over(r) or r["stat"] not in PROPOSED_STATS: continue
+        e = r["projection_edge_pct"]
+        if e is None or float(e) < 20: continue
+        by_stat[r["stat"]].append((r["hit"]==1, r["over_odds"], r["stat"]))
+    for stat in PROPOSED_STATS:
+        print(fmt(f"  {stat}", summarize(by_stat.get(stat, []))))
+    print()
+
     print("PROPOSED, stats filter, edge >= 0 — by month (does it hold up over time?)")
     bym = defaultdict(list)
     for r in rows:
