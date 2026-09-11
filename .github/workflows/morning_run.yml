@@ -1,8 +1,17 @@
 name: Morning Run
 
 on:
+  # Stopgap 2026-09-11 — was '7 14 * * *' (14:07 UTC / 9:07 AM CT).
+  # GitHub Actions scheduled triggers were landing 2.5-4.5h late every
+  # single day for a week straight (confirmed via gh run list), not a
+  # one-off: cron minutes like :07/:35 are popular platform-wide and
+  # GitHub's own docs say schedule events get deprioritized under load,
+  # especially near the top of the hour. Moved to an odd, unpopular
+  # minute well before the real 9 AM CT deadline as a cheap mitigation.
+  # Real fix (Render-cron-triggered workflow_dispatch instead of GitHub
+  # Actions' own `schedule:`) is scoped separately, not done here.
   schedule:
-    - cron: '7 14 * * *'
+    - cron: '47 10 * * *'   # 5:47 AM CT
   workflow_dispatch:
 
 jobs:
