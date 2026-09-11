@@ -21,11 +21,12 @@ Usage:
 """
 
 import requests
+import sys
 import time
 from datetime import datetime, timedelta
 from database import get_conn
 from player_profiles import init_player_tables, calculate_impact_score
-from espn_scoreboard import get_espn_game_ids
+from espn_scoreboard import get_espn_game_ids, get_scoreboard_error_count, reset_scoreboard_error_count
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -277,6 +278,7 @@ def backfill_season(start_date: str = NBA_SEASON_START):
     today  = datetime.now()
     total_games   = 0
     total_players = 0
+    reset_scoreboard_error_count()
 
     print(f"\nBackfilling NBA box scores from {start_date} to today...")
     print("(NBA is in its offseason — this pulls the completed 2025-26 season for historical data)\n")
@@ -299,6 +301,15 @@ def backfill_season(start_date: str = NBA_SEASON_START):
         current += timedelta(days=1)
 
     print(f"\nBackfill complete: {total_games} games, {total_players} player-game records")
+
+    errors = get_scoreboard_error_count()
+    if total_games == 0 and errors > 0:
+        raise RuntimeError(
+            f"0 games found across the full date range, but {errors} scoreboard fetch(es) "
+            f"failed (see 'Scoreboard error' lines above). Treating this as a failed run — "
+            f"likely ESPN blocking this IP — not a genuine empty slate."
+        )
+
     print("Building player averages...")
     build_player_averages()
 
@@ -309,6 +320,7 @@ def update_recent(days: int = 7):
 
     today  = datetime.now()
     total  = 0
+    reset_scoreboard_error_count()
 
     print(f"\nUpdating NBA stats for last {days} days...")
 
@@ -327,22 +339,40 @@ def update_recent(days: int = 7):
                 time.sleep(0.3)
 
     print(f"Update complete: {total} player-game records added")
+
+    errors = get_scoreboard_error_count()
+    if total == 0 and errors > 0:
+        raise RuntimeError(
+            f"0 games found across the last {days} days, but {errors} scoreboard fetch(es) "
+            f"failed (see 'Scoreboard error' lines above). Treating this as a failed run — "
+            f"likely ESPN blocking this IP — not a genuine empty slate."
+        )
+
     print("Rebuilding averages...")
     build_player_averages()
 
 
 if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].lower()
-        if arg == "backfill":
-            backfill_season()
-        elif arg == "update":
-            days = int(sys.argv[2]) if len(sys.argv) > 2 else 7
-            update_recent(days)
-        elif arg == "top":
-            from player_profiles import print_top_players
-            print_top_players("nba", 15)
-    else:
-        print("Usage: python nba_player_stats.py [backfill|update|top]")
+    try:
+        if len(sys.argv) > 1:
+            arg = sys.argv[1].lower()
+            if arg == "backfill":
+                backfill_season()
+            elif arg == "update":
+                days = int(sys.argv[2]) if len(sys.argv) > 2 else 7
+                update_recent(days)
+            elif arg == "top":
+                from player_profiles import print_top_players
+                print_top_players("nba", 15)
+            else:
+                print("Usage: python nba_player_stats.py [backfill|update|top]")
+        else:
+            print("Usage: python nba_player_stats.py [backfill|update|top]")
+    except RuntimeError as e:
+        # Zero-games guard tripped (ESPN blocked/erroring on every request)
+        # — fail the CI job instead of exiting 0 with an empty backfill.
+        # Not currently imported in-process by render_job.py (no NBA hook
+        # there yet), but kept RuntimeError + __main__-only sys.exit(1)
+        # for consistency with the other sports in case that changes.
+        print(f"FATAL: {e}")
+        sys.exit(1)
