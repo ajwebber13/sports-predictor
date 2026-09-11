@@ -10,7 +10,7 @@ Updates automatically each week.
 """
 
 import requests
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Optional, Dict, List
 
 ESPN_BASE = "http://site.api.espn.com/apis/site/v2/sports/football/college-football"
@@ -454,8 +454,20 @@ def get_team_stats(team_name: str):
         print(f"Unknown team: {team_name}")
         return None
 
+    # Persistent (Supabase-backed) cache — added 2026-09-11, same fix
+    # as nfl_data.py's get_team_stats() (see services/team_stats_cache.py's
+    # docstring for the incident this addresses: a deploy wiping the
+    # in-process _stats_cache below forces every team in that day's
+    # slate to be live-refetched from ESPN, uncached, sequentially).
+    # Checked before any ESPN call.
+    from services.team_stats_cache import read_team_stats_cache, write_team_stats_cache
+    cached = read_team_stats_cache("cfb", team_name)
+    if cached is not None:
+        return CFBTeamStats(**cached)
+
     current = _fetch_and_parse(team_name, team_id)
     if current and (current.wins + current.losses) > 0:
+        write_team_stats_cache("cfb", team_name, asdict(current))
         return current
 
     # This fallback only runs when `current` has zero games recorded for
@@ -474,11 +486,17 @@ def get_team_stats(team_name: str):
         prior.wins = prior.losses = 0
         prior.home_wins = prior.home_losses = 0
         prior.away_wins = prior.away_losses = 0
+        write_team_stats_cache("cfb", team_name, asdict(prior))
         return prior
 
     if current is not None:
+        write_team_stats_cache("cfb", team_name, asdict(current))
         return current
 
+    # Last-resort flat defaults are NOT written to the persistent
+    # cache — a transient ESPN outage shouldn't poison 6 hours of
+    # future requests with fabricated stats; better to retry live
+    # next time than serve made-up defaults from cache.
     return _flat_defaults(team_name, team_id)
 
 
@@ -644,7 +662,9 @@ def build_enhanced_profile(stats: CFBTeamStats):
     )
 
 
-# Cache for session
+# Cache for session — in-process only, does not survive across
+# deploys/processes (get_team_stats() above now also checks/writes
+# the persistent team_stats_cache table for that).
 _stats_cache: Dict[str, CFBTeamStats] = {}
 
 

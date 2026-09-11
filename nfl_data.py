@@ -9,7 +9,7 @@ built in from day one (not bolted on after a live bug, like CFB was).
 """
 
 import requests
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Optional, Dict
 
 ESPN_BASE = "http://site.api.espn.com/apis/site/v2/sports/football/nfl"
@@ -232,14 +232,11 @@ def _flat_defaults(team_name: str, team_id: str) -> NFLTeamStats:
 # Cache for session — added 2026-09-08, matching cfb_data.py's
 # _stats_cache pattern (there, applied one layer up on get_profile();
 # here applied directly on get_team_stats() since that's the function
-# routes_nfl.py's nfl_edges() actually calls). Unlike cfb_data.py, this
-# was never wired in at all: every /nfl/edges call re-fetched all ~32
-# teams live and uncached, and every retry within the same
-# render_job.py run paid that full cost again — a contributing factor
-# to /nfl/edges' intermittent 280s timeouts (see the 2026-09-08 audit).
-# Does NOT change what gets fetched or how the offseason fallback below
-# decides between current/prior season — only avoids re-fetching a team
-# already resolved once in this process.
+# routes_nfl.py's nfl_edges() actually calls). This in-process layer
+# avoids re-fetching a team already resolved once in this process
+# (e.g. repeated calls within one request, or a retry). It does NOT
+# survive across processes/deploys — see team_stats_cache below for
+# the layer that does.
 _stats_cache: Dict[str, NFLTeamStats] = {}
 
 
@@ -260,9 +257,23 @@ def get_team_stats(team_name: str) -> Optional[NFLTeamStats]:
         print(f"Unknown team: {team_name}")
         return None
 
+    # Persistent (Supabase-backed) cache — added 2026-09-11 after a
+    # deploy landing mid-run wiped _stats_cache above and the next
+    # /nfl/edges call had to live-fetch all 32 teams from ESPN
+    # sequentially, taking ~8 minutes (see services/team_stats_cache.py's
+    # docstring for the full incident). Checked after the in-process
+    # cache (cheaper) but before any ESPN call.
+    from services.team_stats_cache import read_team_stats_cache, write_team_stats_cache
+    cached = read_team_stats_cache("nfl", team_name)
+    if cached is not None:
+        result = NFLTeamStats(**cached)
+        _stats_cache[team_name] = result
+        return result
+
     current = _fetch_and_parse(team_name, team_id)
     if current and (current.wins + current.losses) > 0:
         _stats_cache[team_name] = current
+        write_team_stats_cache("nfl", team_name, asdict(current))
         return current
 
     from datetime import datetime
@@ -276,12 +287,18 @@ def get_team_stats(team_name: str) -> Optional[NFLTeamStats]:
         prior.home_wins = prior.home_losses = 0
         prior.away_wins = prior.away_losses = 0
         _stats_cache[team_name] = prior
+        write_team_stats_cache("nfl", team_name, asdict(prior))
         return prior
 
     if current is not None:
         _stats_cache[team_name] = current
+        write_team_stats_cache("nfl", team_name, asdict(current))
         return current
 
+    # Last-resort flat defaults are NOT written to the persistent
+    # cache — a transient ESPN outage shouldn't poison 6 hours of
+    # future requests with fabricated stats; better to retry live
+    # next time than serve made-up defaults from cache.
     result = _flat_defaults(team_name, team_id)
     _stats_cache[team_name] = result
     return result
