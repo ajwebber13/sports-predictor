@@ -61,12 +61,6 @@ CALIBRATION_FILE = Path(__file__).parent / "calibration_maps.pkl"
 
 MARKETS = ["moneyline", "spread", "total"]
 
-# Sports allowed to fall back to the old market-only curve when no
-# sport-specific curve exists. These are the two sports that curve
-# was actually fit on. Every other sport passes raw prob through
-# until it has its own curve.
-LEGACY_FALLBACK_SPORTS = {"mlb", "wnba"}
-
 # Below this many graded picks in a market, don't trust a fitted curve —
 # fall back to raw model_prob untouched. Isotonic regression with too few
 # points overfits to noise.
@@ -165,10 +159,18 @@ def apply_calibration(raw_prob: float, market: str, sport: str = None) -> float:
     raw_prob: 0-1 or 0-100, handles either.
     market: "moneyline" | "spread" | "total"
     sport:  "mlb" | "wnba" | "nfl" | "ncaaf" | "nba" | "ncaab" | None
-            Looks up "<sport>:<market>" first. If missing, mlb/wnba fall
-            back to the legacy market-only curve; every other sport
-            returns raw_prob unchanged. sport=None keeps the old
-            market-only behavior for any call site not yet updated.
+            Looks up "<sport>:<market>" only — no cross-sport fallback.
+            A sport without its own fitted curve gets raw_prob
+            unchanged, same as before its first fit. sport=None keeps
+            the old pooled-market-key behavior for any call site not
+            yet updated to pass sport (2026-09-11: removed the
+            mlb/wnba-specific fallback to a shared cross-sport pooled
+            curve — that fallback is what silently trained MLB's
+            "calibrated" probability on a curve fit across every
+            sport's graded picks pooled together, not MLB's own data;
+            see calibration investigation notes. Every sport now
+            either has its own real curve or passes raw_prob through
+            — never borrows another sport's curve again).
 
     Returns a 0-1 probability. If no calibration map exists yet for
     that market (not enough graded data), returns raw_prob unchanged
@@ -183,11 +185,8 @@ def apply_calibration(raw_prob: float, market: str, sport: str = None) -> float:
     with open(CALIBRATION_FILE, "rb") as f:
         maps = pickle.load(f)
 
-    iso = None
     if sport:
         iso = maps.get(f"{sport}:{market}")
-        if iso is None and sport in LEGACY_FALLBACK_SPORTS:
-            iso = maps.get(market)
     else:
         # No sport given — old call path. Keep old behavior.
         iso = maps.get(market)

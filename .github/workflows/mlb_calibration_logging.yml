@@ -1,0 +1,51 @@
+name: MLB Calibration Logging (dry-run, no live alerts)
+
+# Reactivates MLB in log-only mode after it was shelved from
+# active_sports.ALL_SPORTS — NOT a live-alert reactivation. Runs
+# render_job.py --sport mlb --dry-run, which fetches/scores/logs a
+# full MLB slate (every game/market, real model_prob and edge, real
+# alerted/suppressed_reason) but intercepts every Discord send (see
+# --dry-run's docstring in render_job.py). Bypasses ALL_SPORTS
+# entirely via --sport, so MLB stays absent from the dashboard/
+# edge_finder/pick_of_the_day and the live morning/noon runs.
+#
+# Purpose (2026-09-11 calibration investigation): the fitted MLB
+# calibration curve (calibration_maps.pkl's mlb:moneyline/mlb:total)
+# was trained exclusively on picks that had already cleared
+# /mlb/edges' edge>=3.0 gate — a selection-biased sample, not the
+# full distribution of predictions the model makes. render_job.py's
+# MLB endpoint now points at /mlb/predictions (min_edge=0.0) instead
+# of /mlb/edges specifically so this run logs an unbiased sample.
+#
+# CHECKPOINT: do not refit calibration_transform.py against this data
+# until roughly 300-500 new picks have accumulated here — see
+# project memory (sports-predictor-pipeline) for the full tracking
+# note. At MLB's real per-day game volume this route should clear
+# that in about 3-4 weeks; check accumulated volume with:
+#   SELECT COUNT(*) FROM predictions WHERE sport='mlb' AND date >= '<this workflow's first run date>'
+
+on:
+  schedule:
+    - cron: '13 16 * * *'   # 11:13 AM CT — after lineups/odds are typically posted, odd minute per morning_run.yml's scheduling lesson
+  workflow_dispatch:
+
+jobs:
+  mlb_calibration_logging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Log MLB full slate (dry-run, no live alerts)
+        run: python render_job.py --sport mlb --dry-run
+        env:
+          DISCORD_WEBHOOK_MLB: ${{ secrets.DISCORD_WEBHOOK_MLB }}
+          DISCORD_WEBHOOK_GAME_PICKS: ${{ secrets.DISCORD_WEBHOOK_GAME_PICKS }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}

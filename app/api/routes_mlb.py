@@ -215,18 +215,50 @@ def _build_bets_for_pred(pred: dict, game_label: str, ml_odds: dict, min_edge: f
 @router.get("/predictions")
 def mlb_predictions():
     """
-    Returns ALL games with predictions, no edge filter — matches
-    the WNBA/CFB/NFL /predictions route used by morning briefings.
-    Left as the raw prediction payload (not bet rows) — unchanged.
+    Returns ALL games as bet-shaped rows (model_prob, edge, pick,
+    market) with min_edge=0.0 — genuinely matches the WNBA/CFB/NFL
+    /predictions route shape now (2026-09-11 fix; this route used to
+    return raw predict_game() payloads with a docstring claiming
+    parity it didn't actually have — no model_prob/edge/pick fields,
+    and nothing here ever reached the database).
+
+    Built specifically to feed render_job.py's --dry-run full-slate
+    LOGGING path (see SPORT_ENDPOINTS["mlb"] in render_job.py) so
+    every game's real model_prob gets a predictions row regardless of
+    edge, not just the ones that clear /mlb/edges' own min_edge=3.0
+    default. That route-level 3.0 floor is exactly what left MLB's
+    calibration curve trained on an edge-pre-filtered sample only
+    (see the 2026-09-11 calibration investigation) — this route has
+    no such floor.
+
+    include_matchup=False deliberately, NOT a shortcut: /mlb/edges'
+    two-pass system (MLB_EDGES_MAX_WORKERS / MLB_MATCHUP_CANDIDATE_
+    BUFFER above) exists because fetching per-batter matchup data for
+    every game on the slate is what caused /mlb/edges' original
+    timeout problems. A min_edge=0 route by definition has no
+    candidate-buffer to skip the expensive fetch with — every game
+    would need it. Pass-1-only (no matchup) is the same cost profile
+    /mlb/edges already runs across the FULL slate every day before
+    deciding which games get pass-2, so this route carries no new
+    performance risk. The tradeoff: logged model_prob is missing the
+    matchup adjustment factor real alerts get — acceptable for
+    calibration-curve training data, not something to alert on.
     """
     events = get_mlb_events()
-    results = []
+    best_bets = []
 
     for event in events:
-        pred = predict_game(event)
-        results.append(pred)
+        odds = get_moneyline_odds(event)
+        if not odds:
+            continue
+        run_line_odds = get_run_line_odds(event)
+        total_odds = get_total_odds(event)
+        pred = predict_game(event, include_matchup=False)
+        game_label = f"{pred['away_team']} @ {pred['home_team']}"
+        best_bets.extend(_build_bets_for_pred(pred, game_label, odds, min_edge=0.0,
+                                               run_line_odds=run_line_odds, total_odds=total_odds))
 
-    return {"count": len(results), "games": results}
+    return {"count": len(best_bets), "best_bets": best_bets}
 
 
 def _process_one_game(event: dict, dh_game_number: int, matchup_is_dh: bool, min_edge: float) -> list:

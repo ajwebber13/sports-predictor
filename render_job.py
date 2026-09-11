@@ -71,7 +71,22 @@ SPORT_ENDPOINTS = {
     "nfl":   f"{API_BASE}/nfl/edges",
     "cfb":   f"{API_BASE}/cfb/edges",
     "ncaab": f"{API_BASE}/ncaab/edges",
-    "mlb":   f"{API_BASE}/mlb/edges",
+    # Points at /mlb/predictions (min_edge=0.0), not /mlb/edges
+    # (2026-09-11) — MLB is shelved from ALL_SPORTS, so this is
+    # currently only ever reached via `--sport mlb`, which is only
+    # ever run as `--dry-run` (see mlb_calibration_logging.yml) for
+    # full-slate calibration-data logging, not live alerts. /mlb/edges'
+    # own min_edge=3.0 default is exactly what left the calibration
+    # curve trained on an edge-pre-filtered sample only (see the
+    # 2026-09-11 investigation) — this run intentionally sources from
+    # the zero-floor route instead. This module's own downstream
+    # alert-worthiness logic (_bet_edge_and_min/MIN_EDGE_PCT/
+    # get_daily_game_picks below) still does the real filtering
+    # either way, so if MLB is ever reactivated in ALL_SPORTS for live
+    # alerts, this is also the more correct source, not just a
+    # logging-only compromise — revisit only if that reactivation
+    # itself needs reconsidering, not because of this pointer.
+    "mlb":   f"{API_BASE}/mlb/predictions",
 }
 
 # nba has no dedicated predictor module yet (no routes_nba.py either) —
