@@ -26,11 +26,21 @@ PROPS_SPORTS = ["wnba"]
 # the whole rest of the pipeline (edge_finder, alert_throttle,
 # game_pick_selector's MIN_EDGE_PCT) assumes "active" means "eligible
 # to clear an edge threshold and get bet on" — HBCU never will.
-# Empty until hbcu_predict.py's output has actually been eyeballed —
-# see project notes. Not wired into render_job.py or any workflow yet;
-# adding a sport key here does not, by itself, cause anything to run
-# or send.
-PREVIEW_SPORTS = []
+#
+# Flipped live 2026-09-11 after: (1) spot-checking 10 matchups across
+# all three sub-sports for real Elo/net-rating spread and no crashes
+# (football on real upcoming games, mbb/wbb on hypothetical top-vs-
+# bottom Elo pairs since basketball season doesn't start until
+# November), (2) sending a real test message through send_message()
+# and confirming sport_label()/sport_emoji() rendered correctly in
+# Discord for all three sub-sports (fell back to the generic
+# game-picks channel — DISCORD_WEBHOOK_HBCU still isn't set).
+#
+# Still NOT wired into render_job.py or any workflow — this list
+# being non-empty doesn't cause anything to run or send by itself.
+# Something still needs to actually call preview_active() and invoke
+# hbcu_predict.py on a schedule before this produces a real live post.
+PREVIEW_SPORTS = ["hbcu_football", "hbcu_mbb", "hbcu_wbb"]
 
 
 def is_active(sport: str) -> bool:
