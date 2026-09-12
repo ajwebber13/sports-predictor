@@ -5,8 +5,16 @@ basketball, women's basketball (MEAC + SWAC).
 
 Pulls completed game results from ESPN's free team schedule
 endpoint for each HBCU team, season by season, and stores them
-in the head_to_head table tagged with sport keys:
-  hbcu_football, hbcu_mbb, hbcu_wbb
+in team_game_results (same table WNBA/NBA already use), tagged
+with sport keys: hbcu_football, hbcu_mbb, hbcu_wbb.
+
+RE-ENABLED 2026-09-11: save_games()/backfill_sport() were disabled
+during the 2026-07-14 Postgres migration because they wrote to
+head_to_head, which was never created in production. fetch_team_schedule()
+below was never broken — only the write target was. Repointed at
+team_game_results (the real games-log table elo_ratings.py's
+GAME_RESULTS_SOURCE expects), same ON CONFLICT(sport, date, home_team,
+away_team) upsert pattern wnba_game_results.py already uses there.
 
 Usage:
   python hbcu_backfill.py football        # backfill 10yrs of football
@@ -18,7 +26,14 @@ Usage:
 import requests
 import time
 from datetime import datetime
-from database import get_conn, init_db
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+from database import get_conn
 from hbcu_teams import HBCU_FOOTBALL_TEAMS, HBCU_MBB_TEAMS, HBCU_WBB_TEAMS
 
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
@@ -102,30 +117,71 @@ def fetch_team_schedule(sport_key: str, team_id: str, season: int) -> list:
 
 
 def save_games(sport_key: str, games: list) -> int:
-    """MIGRATION NOTE (2026-07-14): disabled, not converted.
+    """Upserts into team_game_results — same table and same
+    ON CONFLICT(sport, date, home_team, away_team) key
+    wnba_game_results.py already uses for WNBA. Returns count of rows
+    actually inserted (not updated) this call, matching the original
+    (pre-2026-07-14) return-value contract callers expect."""
+    conn = get_conn()
+    c    = conn.cursor()
+    saved = 0
 
-    Same finding as the other head_to_head-dependent files in this
-    migration: writes to a table confirmed to not exist in production.
-    Unlike backfill.py and backfill_h2h_wnba.py, this one's error
-    handling actually prints failures rather than swallowing them
-    silently — meaning any real run of this script would have visibly
-    spammed "no such table: head_to_head" errors, one per game, the
-    whole time. Disabling rather than converting, same reasoning as
-    the others: not inventing schema to catch up with a feature that
-    never had a working data source."""
-    print(f"    save_games() is disabled — head_to_head table was "
-          f"never created in production.")
-    return 0
+    for g in games:
+        try:
+            c.execute("""
+                INSERT INTO team_game_results
+                (sport, date, home_team, away_team, home_score, away_score, winner, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(sport, date, home_team, away_team) DO UPDATE SET
+                    home_score = ?,
+                    away_score = ?,
+                    winner     = ?
+            """, (
+                sport_key, g["date"], g["home_team"], g["away_team"],
+                g["home_score"], g["away_score"], g["winner"], "espn",
+                g["home_score"], g["away_score"], g["winner"],
+            ))
+            if c.rowcount > 0:
+                saved += 1
+        except Exception as e:
+            print(f"    Save error: {e}")
+
+    conn.commit()
+    conn.close()
+    return saved
 
 
 def backfill_sport(sport_key: str):
-    """MIGRATION NOTE (2026-07-14): disabled — depends entirely on
-    save_games() above, which no longer writes anything. See that
-    function's docstring."""
-    print(f"  backfill_sport('{sport_key}') is disabled — depends on "
-          f"the head_to_head table, which was never created in "
-          f"production. See save_games()'s docstring for details.")
-    return
+    """Runs the full 10-year backfill for one HBCU sport."""
+    registry = SPORT_REGISTRIES.get(sport_key)
+    if not registry:
+        print(f"Unknown sport key: {sport_key}")
+        return
+
+    label = sport_key.replace("hbcu_", "").upper()
+    print(f"\n{'='*60}")
+    print(f"  HBCU {label} BACKFILL -- {YEARS_BACK} years, {len(registry)} teams")
+    print(f"{'='*60}")
+
+    total_games = 0
+    seasons = range(CURRENT_YEAR - YEARS_BACK, CURRENT_YEAR + 1)
+
+    for team_name, info in registry.items():
+        team_id    = info["id"]
+        team_games = 0
+
+        for season in seasons:
+            games = fetch_team_schedule(sport_key, team_id, season)
+            if games:
+                saved = save_games(sport_key, games)
+                team_games += saved
+            time.sleep(0.2)
+
+        print(f"  {team_name:<38} {team_games} games saved")
+        total_games += team_games
+
+    print(f"\n{label} backfill complete: {total_games} total games saved")
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":

@@ -18,6 +18,20 @@ ALL_SPORTS = ["wnba", "nfl", "cfb"]  # game picks — nba, ncaab, mlb shelved
 # projection-based selector only.
 PROPS_SPORTS = ["wnba"]
 
+# Power-rankings/preview content (2026-09-11): NOT odds-driven picks —
+# no betting lines exist for these, so there's no edge/confidence gate
+# to clear, unlike ALL_SPORTS/PROPS_SPORTS. hbcu_predict.py outputs
+# pure model win probabilities + team strength as game previews, not
+# bets. A separate list rather than folding into ALL_SPORTS because
+# the whole rest of the pipeline (edge_finder, alert_throttle,
+# game_pick_selector's MIN_EDGE_PCT) assumes "active" means "eligible
+# to clear an edge threshold and get bet on" — HBCU never will.
+# Empty until hbcu_predict.py's output has actually been eyeballed —
+# see project notes. Not wired into render_job.py or any workflow yet;
+# adding a sport key here does not, by itself, cause anything to run
+# or send.
+PREVIEW_SPORTS = []
+
 
 def is_active(sport: str) -> bool:
     return (sport or "").lower() in ALL_SPORTS
@@ -25,3 +39,7 @@ def is_active(sport: str) -> bool:
 
 def props_active(sport: str) -> bool:
     return (sport or "").lower() in PROPS_SPORTS
+
+
+def preview_active(sport: str) -> bool:
+    return (sport or "").lower() in PREVIEW_SPORTS

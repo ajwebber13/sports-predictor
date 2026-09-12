@@ -23,6 +23,13 @@ Usage:
 import math
 import os
 from datetime import datetime
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from database import get_conn
 
 BASE_ELO = 1500.0
@@ -68,6 +75,13 @@ MOV_DAMPENING = {
 GAME_RESULTS_SOURCE = {
     "wnba": "team_game_results",
     "nba": "team_game_results",
+    # Added 2026-09-11 — backfill/hbcu/hbcu_backfill.py now writes real
+    # completed games (ESPN schedule endpoint, not betting-filtered)
+    # into team_game_results, same as WNBA/NBA. Run that backfill
+    # before `elo_ratings.py backfill hbcu_*` or this will find 0 rows.
+    "hbcu_football": "team_game_results",
+    "hbcu_mbb": "team_game_results",
+    "hbcu_wbb": "team_game_results",
 }
 
 # Season game counts — used for dynamic K scaling

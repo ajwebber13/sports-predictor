@@ -232,7 +232,7 @@ def send_message(text: str, sport: str = None):
     send_discord_message(html_to_discord_markdown(text), webhook_url=webhook)
 
 def sport_emoji(sport: str) -> str:
-    return "🏈" if sport in ["cfb", "nfl"] else "⚾" if sport == "mlb" else "🏀"
+    return "🏈" if sport in ["cfb", "nfl", "hbcu_football"] else "⚾" if sport == "mlb" else "🏀"
 
 
 def sport_label(sport: str) -> str:
@@ -244,6 +244,9 @@ def sport_label(sport: str) -> str:
         "wnba":  "WNBA",
         "nba":   "NBA",
         "mlb":   "MLB",
+        "hbcu_football": "HBCU Football",
+        "hbcu_mbb":      "HBCU Men's Basketball",
+        "hbcu_wbb":      "HBCU Women's Basketball",
     }
     return labels.get(sport, sport.upper())
 

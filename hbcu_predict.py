@@ -20,6 +20,13 @@ Usage:
 import requests
 import time
 from datetime import datetime, timedelta
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from database import get_conn
 from hbcu_teams import HBCU_FOOTBALL_TEAMS, HBCU_MBB_TEAMS, HBCU_WBB_TEAMS
 from hbcu_rivalries import get_rivalry_context
@@ -151,8 +158,26 @@ def get_adv_metrics(team_name: str, sport_key: str) -> dict:
 
 def predict_game(home_team: str, away_team: str, sport_key: str) -> dict:
     """
-    Combines Elo + advanced metrics + ensemble ML into a
-    final win probability for each team.
+    Combines Elo + advanced metrics into a final win probability for
+    each team — a straight 50/50 blend, no ensemble ML component.
+
+    DROPPED THE ENSEMBLE STEP (2026-09-11): it silently no-op'd on
+    every single call. ensemble_model.py's get_team_features() queries
+    team_stats for pts_per_game/pts_allowed/net_rating/home_wins/
+    away_wins — none of those columns exist in production anymore
+    (real schema: points_for, points_against, offensive_rating,
+    defensive_rating), and team_stats has zero HBCU rows regardless.
+    Every call threw psycopg2.errors.UndefinedColumn, caught by a bare
+    except Exception: pass, so predictions "worked" while quietly
+    running on 60% of the intended blend instead of the documented
+    Elo(30%)+advanced(30%)+ensemble(40%). Rather than keep hiding that,
+    or half-fix a component with zero real HBCU training data behind
+    it either way, this now runs on exactly the two signals that are
+    real: Elo (once elo_ratings.py has real HBCU history — see
+    GAME_RESULTS_SOURCE in elo_ratings.py) and advanced_metrics
+    (refreshed via hbcu_football_metrics.py build). If ensemble_model.py
+    ever gets fixed AND given real HBCU team_stats data, re-add it
+    deliberately — not silently.
     """
     home_elo = get_elo(home_team, sport_key)
     away_elo = get_elo(away_team, sport_key)
@@ -171,16 +196,6 @@ def predict_game(home_team: str, away_team: str, sport_key: str) -> dict:
 
     home_prob = round((home_elo_prob * 0.5) + (adv_home_prob * 0.5), 3)
     away_prob = round(1 - home_prob, 3)
-
-    try:
-        from ensemble_model import predict_game as ens_predict
-        ens = ens_predict(home_team, away_team, sport_key)
-        if ens and ens.get("ensemble_home_prob"):
-            ens_home  = ens["ensemble_home_prob"] / 100
-            home_prob = round((home_prob * 0.6) + (ens_home * 0.4), 3)
-            away_prob = round(1 - home_prob, 3)
-    except Exception:
-        pass
 
     home_conf = get_conference(home_team, sport_key)
     away_conf = get_conference(away_team, sport_key)
@@ -285,7 +300,10 @@ def run_hbcu_sport(sport_key: str, send_telegram: bool = False):
         if send_telegram:
             try:
                 from telegram_alerts import send_message
-                send_message(alert)
+                # sport= resolves DISCORD_WEBHOOK_HBCU via
+                # discord_alerts.SPORT_WEBHOOK_ENV — without it this
+                # falls through to the generic game-picks channel.
+                send_message(alert, sport=sport_key)
                 time.sleep(1)
             except Exception as e:
                 print(f"  Telegram error: {e}")

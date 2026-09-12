@@ -19,6 +19,13 @@ Usage:
 import requests
 import time
 from datetime import datetime
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from database import get_conn, init_db
 from hbcu_teams import HBCU_FOOTBALL_TEAMS
 

@@ -52,6 +52,14 @@ SPORT_WEBHOOK_ENV = {
     "nfl":   "DISCORD_WEBHOOK_NFL",
     "cfb":   "DISCORD_WEBHOOK_CFB",
     "ncaab": "DISCORD_WEBHOOK_NCAAB",
+    # One shared channel for all 3 HBCU sub-sports (2026-09-11) rather
+    # than three separate ones — football/mbb/wbb content doesn't
+    # overlap in time (fall vs winter), and this is low-volume preview
+    # content, not picks. Falls back to DISCORD_WEBHOOK_GAME_PICKS
+    # (existing behavior) until this env var is actually set.
+    "hbcu_football": "DISCORD_WEBHOOK_HBCU",
+    "hbcu_mbb":      "DISCORD_WEBHOOK_HBCU",
+    "hbcu_wbb":      "DISCORD_WEBHOOK_HBCU",
 }
 
 
