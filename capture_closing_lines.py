@@ -24,7 +24,7 @@ import argparse
 from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from database import get_conn, SHARP_MOVE_THRESHOLD
+from database import get_conn, SHARP_MOVE_THRESHOLD, SHARP_MOVE_MIN_PROB_DELTA_PTS, LINE_MOVEMENT_DATA_ERROR_PTS, _get_h2h_prices
 
 CENTRAL_OFFSET = -5  # CDT
 
@@ -63,17 +63,32 @@ def movement_label(movement: int) -> str:
     return f"moved {abs(movement)} pts {direction}"
 
 
-def sharp_signal(home_move: int, away_move: int, home_team: str, away_team: str) -> str | None:
+def sharp_signal(home_move: int, away_move: int, home_team: str, away_team: str,
+                  home_shift: float = None, away_shift: float = None) -> str | None:
     """
     Detect sharp signal. Sharp money typically:
     - Moves the line against the public (public bets favorites, sharps fade them)
     - Creates meaningful line movement (8+ points on ML)
-    """
-    if abs(home_move) >= SHARP_THRESHOLD:
+
+    home_shift/away_shift (added 2026-09-14): the SAME implied_shift()
+    values run() already computes for the printed summary, now also
+    required here — same fix as database.py's log_line_movement()
+    (SHARP_MOVE_MIN_PROB_DELTA_PTS), after a WNBA false alert (Sparks @
+    Wings, -310 -> -298, "12 pts" — a real 12-point raw move on a
+    steep line, but only 0.7pp of real implied-probability shift, not
+    sharp action). This script and log_line_movement() independently
+    write the SAME line_movement.sharp_signal column — the raw-points
+    threshold alone was already unified between them (2026-09-08
+    comment above), but the probability-delta requirement wasn't
+    ported over here until now, leaving this path just as exposed to
+    the same false-positive class. Optional args (default None) only
+    to avoid breaking any other caller of this function signature;
+    run() always passes them."""
+    if abs(home_move) >= SHARP_THRESHOLD and (home_shift is None or abs(home_shift) >= SHARP_MOVE_MIN_PROB_DELTA_PTS):
         direction = "shorter" if home_move < 0 else "longer"
         team = home_team
         return f"{team} ML moved {home_move:+d} pts ({direction}) — possible sharp action"
-    if abs(away_move) >= SHARP_THRESHOLD:
+    if abs(away_move) >= SHARP_THRESHOLD and (away_shift is None or abs(away_shift) >= SHARP_MOVE_MIN_PROB_DELTA_PTS):
         direction = "shorter" if away_move < 0 else "longer"
         team = away_team
         return f"{team} ML moved {away_move:+d} pts ({direction}) — possible sharp action"
@@ -100,21 +115,16 @@ def run(sports: list, dry_run: bool = False):
         for game in games:
             home_team = game.get("home_team", "")
             away_team = game.get("away_team", "")
-            current_home_ml = None
-            current_away_ml = None
-
-            for bm in game.get("bookmakers", []):
-                for market in bm.get("markets", []):
-                    if market["key"] == "h2h":
-                        for o in market.get("outcomes", []):
-                            if o["name"] == home_team:
-                                current_home_ml = o["price"]
-                            elif o["name"] == away_team:
-                                current_away_ml = o["price"]
-                        if current_home_ml and current_away_ml:
-                            break
-                if current_home_ml and current_away_ml:
-                    break
+            # FIXED 2026-09-14: was an inline loop that took whichever
+            # bookmaker happened to list h2h prices first in this API
+            # response — not necessarily the same book _get_h2h_prices()
+            # (used when the OPENING price was captured, in log_odds())
+            # picked. Same cross-bookmaker bug class as the NFL/CFB
+            # fix (database.py's _get_h2h_prices docstring) — a real
+            # DraftKings-vs-FanDuel price gap read as a market move
+            # that never happened. Now uses the same consistent,
+            # priority-ordered book selection both times.
+            current_home_ml, current_away_ml = _get_h2h_prices(game, home_team, away_team)
 
             if not current_home_ml or not current_away_ml:
                 print(f"  ⚠️  No current odds: {away_team} @ {home_team}")
@@ -146,7 +156,24 @@ def run(sports: list, dry_run: bool = False):
             movement_away = current_away_ml - opening_away
             home_shift    = implied_shift(opening_home, current_home_ml)
             away_shift    = implied_shift(opening_away, current_away_ml)
-            sharp         = sharp_signal(movement_home, movement_away, home_team, away_team)
+
+            # Same data-error ceiling as log_line_movement() (added
+            # 2026-09-14) — a raw move bigger than this in one session
+            # is a bad quote, not real sharp action, for the same
+            # reason it isn't there: two prices that are each real on
+            # their own can still be a garbage READING (e.g. a feed
+            # glitch), which a probability-delta check alone can't
+            # catch since a corrupted price can imply a huge, very
+            # "real-looking" probability shift.
+            error_threshold = LINE_MOVEMENT_DATA_ERROR_PTS.get(sport)
+            if error_threshold is not None and (abs(movement_home) > error_threshold
+                                                 or abs(movement_away) > error_threshold):
+                print(f"  DATA ERROR: {away_team} @ {home_team} — home moved {movement_home} pts, "
+                      f"away moved {movement_away} pts — implausible for {sport.upper()} "
+                      f"(> {error_threshold} pts in one session), logging only, not alerting")
+                sharp = None
+            else:
+                sharp = sharp_signal(movement_home, movement_away, home_team, away_team, home_shift, away_shift)
 
             print(f"  {away_team} @ {home_team}")
             print(f"    Home: {opening_home:+d} → {current_home_ml:+d} ({movement_label(movement_home)}, {home_shift:+.1f}% implied)")

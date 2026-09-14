@@ -13,9 +13,17 @@ morning) and "current" (captured on a later retry) could silently come
 from two different books -- a real DraftKings-vs-FanDuel price gap read
 as a 15-point market move that never happened.
 
-Also covers the new sport-specific data-error ceiling
+Also covers the sport-specific data-error ceiling
 (LINE_MOVEMENT_DATA_ERROR_PTS): a single move bigger than that isn't
 real sharp action, and is logged instead of surfacing a false alert.
+
+Extended 2026-09-14 for the WNBA line-movement bug (a 12-pt "sharp"
+alert on a -310 favorite that was really a 0.7pp implied-probability
+move): added SHARP_MOVE_MIN_PROB_DELTA_PTS (global, implied-probability
+based, additive to the existing raw-points threshold) and a WNBA entry
+in LINE_MOVEMENT_DATA_ERROR_PTS (catches genuine feed corruption like
+-115 -> -100000, distinct from the steep-line false positives the
+probability filter handles).
 
 Usage:
     py tests/test_line_movement.py
@@ -151,20 +159,68 @@ def run():
         f"sharp_hits={sharp_hits2}",
     ))
 
-    # A move within the plausible range (<=10 total but still >=10 to
-    # trigger the pre-existing sharp threshold) for a sport with NO
-    # data-error ceiling configured (e.g. wnba) should still alert as
-    # before -- the ceiling is sport-specific and opt-in, not a global
-    # behavior change.
-    game_wnba = _game_with_books("Team A", "Team B", {"draftkings": (-125, 105)})
+    # A real near-even-money move (-110 -> -125, 15 raw pts, 3.2pp
+    # implied-probability shift) should still alert for a sport with no
+    # data-error ceiling configured beyond WNBA (e.g. a hypothetical
+    # future sport) -- neither new WNBA-specific protection added
+    # 2026-09-14 is a blanket "no sport but nfl/cfb ever alerts" change.
+    game_other_sport = _game_with_books("Team A", "Team B", {"draftkings": (-125, 105)})
     opening_row3 = {"opening_home_ml": -110, "opening_away_ml": -110}
     fake_cursor3 = _FakeCursor(opening_row3)
     with patch.object(database, "get_conn", return_value=_FakeConn(fake_cursor3)):
-        sharp_hits3 = database.log_line_movement("wnba", [game_wnba])
+        sharp_hits3 = database.log_line_movement("ncaab", [game_other_sport])
     results.append(_check(
-        "a sport with no configured data-error ceiling (wnba) keeps the old sharp-alert behavior",
+        "a real near-even-money move still alerts for a sport with no configured protections",
         len(sharp_hits3) == 1,
         f"sharp_hits={sharp_hits3}",
+    ))
+
+    print("\nTesting the 2026-09-14 WNBA fix: proportionally-trivial moves on steep lines...")
+    # The actual reported bug, reconstructed: Sparks @ Wings, DraftKings
+    # -310 -> -298 (12 raw pts, clears the flat >=10 bar) but only a
+    # 0.7pp real implied-probability shift -- not sharp action. Must be
+    # silently suppressed (no alert, no data-error log either -- it's
+    # a real quote, just not a meaningful move).
+    game_steep = _game_with_books("Dallas Wings", "Los Angeles Sparks", {"draftkings": (-298, 240)})
+    opening_row4 = {"opening_home_ml": -310, "opening_away_ml": 250}
+    fake_cursor4 = _FakeCursor(opening_row4)
+    with patch.object(database, "get_conn", return_value=_FakeConn(fake_cursor4)):
+        sharp_hits4 = database.log_line_movement("wnba", [game_steep])
+    results.append(_check(
+        "Sparks @ Wings -310 -> -298 (12 raw pts, 0.7pp real) does NOT fire as sharp",
+        sharp_hits4 == [],
+        f"sharp_hits={sharp_hits4}",
+    ))
+
+    # The actual feed-corruption incident, reconstructed: Sparks @ Storm,
+    # -115 -> -100000 in one session -- not a real bookmaker price.
+    # Must be caught by WNBA's new 5000pt data-error ceiling, not
+    # surfaced as a (technically real per the flat threshold) alert.
+    game_corrupt = _game_with_books("Seattle Storm", "Los Angeles Sparks", {"draftkings": (-100000, 115)})
+    opening_row5 = {"opening_home_ml": -115, "opening_away_ml": 105}
+    fake_cursor5 = _FakeCursor(opening_row5)
+    with patch.object(database, "get_conn", return_value=_FakeConn(fake_cursor5)):
+        sharp_hits5 = database.log_line_movement("wnba", [game_corrupt])
+    results.append(_check(
+        "-115 -> -100000 (feed corruption, not a real price) is caught as a WNBA data error, not alerted",
+        sharp_hits5 == [],
+        f"sharp_hits={sharp_hits5}",
+    ))
+
+    # A genuinely real WNBA move on a lopsided line -- -480 -> -2500 is
+    # a big raw number (2,020 pts) but also a real 13.4pp implied-
+    # probability shift (e.g. a late star-player scratch). Must still
+    # fire, proving the new filters suppress noise without silencing
+    # real signal.
+    game_real_steep = _game_with_books("Seattle Storm", "Minnesota Lynx", {"draftkings": (-2500, 400)})
+    opening_row6 = {"opening_home_ml": -480, "opening_away_ml": 400}
+    fake_cursor6 = _FakeCursor(opening_row6)
+    with patch.object(database, "get_conn", return_value=_FakeConn(fake_cursor6)):
+        sharp_hits6 = database.log_line_movement("wnba", [game_real_steep])
+    results.append(_check(
+        "-480 -> -2500 (real 13.4pp shift, not corrupted) still fires as sharp",
+        len(sharp_hits6) == 1,
+        f"sharp_hits={sharp_hits6}",
     ))
 
     print()

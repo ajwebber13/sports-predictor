@@ -219,14 +219,51 @@ def _get_h2h_prices(game: dict, home_team: str, away_team: str) -> tuple:
     return None, None
 
 
+def _implied_prob_delta_pts(open_ml: int, close_ml: int) -> float:
+    """How much a moneyline move actually means, in implied-probability
+    percentage points — not raw American-odds points, which mean wildly
+    different things depending on how lopsided the price already is.
+    Added 2026-09-14, see SHARP_MOVE_MIN_PROB_DELTA_PTS's comment."""
+    from services.odds_parser import american_to_implied
+    return abs(american_to_implied(close_ml) - american_to_implied(open_ml)) * 100
+
+
 # A single moneyline move bigger than this in one session isn't real
 # sharp action — it's two different quotes, a bad tick, or a stale row
 # getting compared against a fresh one. Logged as a data error instead
 # of surfacing a false "sharp" alert. Sport-specific because CFB's
 # lower-liquidity, more mispriced markets legitimately move further
-# than NFL's. Sports not listed here keep the old flat >=10 sharp-only
-# behavior (unchanged, out of scope of what was reported).
-LINE_MOVEMENT_DATA_ERROR_PTS = {"nfl": 7, "cfb": 10}
+# than NFL's, and WNBA's heavily-favored games routinely carry prices
+# in the -1000 to -2500 range where even a real move is a big RAW
+# number (added 2026-09-14 after a confirmed feed-corruption glitch:
+# Sparks @ Storm 8/30, -115 -> -100000 in one session — not a real
+# price, no bookmaker posts -100000 — flagged HOME +46.4pp implied
+# probability sharp move, a plain data error). 5000 is deliberately
+# generous for WNBA — a real, legitimate swing on a lopsided line
+# (e.g. -480 -> -2500, a genuine 2,020-point move, confirmed real
+# elsewhere in this same investigation) must still clear this ceiling
+# and reach the sharp check below, not get silently discarded as a
+# data error too.
+LINE_MOVEMENT_DATA_ERROR_PTS = {"nfl": 7, "cfb": 10, "wnba": 5000}
+
+# Minimum REAL move, in implied-probability percentage points, before
+# a raw-points move that clears SHARP_MOVE_THRESHOLD is actually
+# treated as sharp action. Added 2026-09-14: WNBA audit found 70 of
+# 106 historical "sharp" alerts (66%) were a raw move well over the
+# flat 10-point bar that amounted to under 3pp of real implied-
+# probability shift — e.g. Sparks @ Wings 9/13, -310 -> -298, "12 pts
+# (longer)", which is a 0.7pp shift, not sharp action. The flat
+# SHARP_MOVE_THRESHOLD alone can't distinguish that from a real move,
+# because the same raw-point gap means very different things depending
+# on how lopsided the price already is (12 points on a -310 favorite
+# is trivial; 12 points on a -110 near-pickem is real). Applied
+# globally (all sports) as an ADDITIONAL requirement alongside the
+# existing raw-points threshold, not a replacement — it can only
+# suppress alerts that were already going to fire, never add new
+# ones, so NFL/CFB's existing calibrated behavior is unaffected except
+# for filtering out this same latent false-positive class if it exists
+# there too.
+SHARP_MOVE_MIN_PROB_DELTA_PTS = 3.0
 
 # The sharp-signal bar itself — single source of truth. capture_closing_lines.py
 # used to have its own separate SHARP_THRESHOLD = 8, which meant the same
@@ -381,11 +418,11 @@ def log_line_movement(sport: str, games: list):
             print(f"  DATA ERROR: {away_team} @ {home_team} — home moved {movement_home} pts, "
                   f"away moved {movement_away} pts — implausible for {sport.upper()} "
                   f"(> {error_threshold} pts in one session), logging only, not alerting")
-        elif abs(movement_home) >= SHARP_MOVE_THRESHOLD:
+        elif abs(movement_home) >= SHARP_MOVE_THRESHOLD and _implied_prob_delta_pts(opening_home, home_ml) >= SHARP_MOVE_MIN_PROB_DELTA_PTS:
             direction = "shorter" if home_ml < opening_home else "longer"
             sharp = f"HOME line moved {movement_home} pts ({direction}) - possible sharp action"
             sharp_move = movement_home
-        elif abs(movement_away) >= SHARP_MOVE_THRESHOLD:
+        elif abs(movement_away) >= SHARP_MOVE_THRESHOLD and _implied_prob_delta_pts(opening_away, away_ml) >= SHARP_MOVE_MIN_PROB_DELTA_PTS:
             direction = "shorter" if away_ml < opening_away else "longer"
             sharp = f"AWAY line moved {movement_away} pts ({direction}) - possible sharp action"
             sharp_move = movement_away
