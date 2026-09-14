@@ -20,10 +20,44 @@ Sources:
 
 import os
 import requests
+import concurrent.futures
 from datetime import datetime, timezone
 from typing import Optional
 from dotenv import load_dotenv
 load_dotenv()
+
+# A HARD wall-clock deadline, on top of (not instead of) each
+# requests call's own timeout=. Added 2026-09-14 after confirming
+# live that requests' timeout= only bounds the gap BETWEEN
+# connect/read events, not total call duration — a single call can
+# still run for minutes if the server trickles the response slowly
+# enough that no single gap ever exceeds the nominal timeout. Run in
+# a worker thread so .result(timeout=...) can forcibly give up on the
+# calling side regardless of what the socket itself is doing.
+HARD_DEADLINE_SECONDS = 15
+
+
+def _run_with_deadline(fn, seconds: float):
+    """Runs fn() with a real wall-clock deadline. Raises
+    concurrent.futures.TimeoutError if it doesn't finish in time —
+    the underlying thread is abandoned (not killed; Python has no
+    clean way to kill a thread), but the CALLER is freed immediately,
+    which is what actually matters for not blowing through Render's
+    own request-level timeout.
+
+    Deliberately NOT a `with ThreadPoolExecutor() as pool:` block —
+    that calls shutdown(wait=True) on exit, which blocks until the
+    abandoned thread finishes anyway, defeating the entire point of
+    the deadline. shutdown(wait=False) here lets the caller return
+    immediately; the orphaned thread (and its eventual, ignored
+    result) gets cleaned up whenever the slow call finally resolves
+    on its own."""
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(fn)
+    try:
+        return future.result(timeout=seconds)
+    finally:
+        pool.shutdown(wait=False)
 
 # ─────────────────────────────────────────────
 # CONFIG
@@ -130,16 +164,29 @@ NO_PROFILE_DISCOUNT = 0.3
 
 class InjuryReport:
     def __init__(self, team: str, player: str, position: str,
-                 status: str, description: str, league: str = "nba"):
+                 status: str, description: str, league: str = "nba",
+                 db_cursor=None):
         self.team        = team
         self.player      = player
         self.position    = position
         self.status      = status
         self.description = description
         self.league      = league.lower()
-        self.impact      = self._calc_impact()  # must be last
+        self.impact      = self._calc_impact(db_cursor)  # must be last
 
-    def _calc_impact(self) -> float:
+    def _calc_impact(self, db_cursor=None) -> float:
+        """db_cursor (added 2026-09-14): pass an already-open cursor to
+        reuse ONE connection across every InjuryReport in a batch,
+        instead of each report opening (and 3x-retrying, per
+        database.get_conn()) its OWN connection. Confirmed live during
+        the /nfl/edges investigation that this was the REAL bottleneck
+        behind a reported ~440s hang — not the ESPN fetch itself
+        (that part was already fast, ~1s), but this function running
+        once per injured player (dozens per league-wide fetch), each
+        paying its own connection-establishment cost. Falls back to
+        opening its own connection when db_cursor is None, so any
+        other/future caller that doesn't pass one still works exactly
+        as before — just without the batching benefit."""
         sport_key = self.league.upper()
         pos_map = POSITION_IMPACT_BY_SPORT.get(sport_key, POSITION_IMPACT_BY_SPORT["NBA"])
         pos_weight = pos_map.get(self.position.upper(), pos_map.get("", 0.5))
@@ -147,10 +194,13 @@ class InjuryReport:
         base_impact = round(pos_weight * sev_weight, 3)
 
         try:
-            from player_profiles import get_player_impact
-            from database import get_conn
-            conn = get_conn()
-            c    = conn.cursor()
+            owns_conn = db_cursor is None
+            if owns_conn:
+                from database import get_conn
+                conn = get_conn()
+                c    = conn.cursor()
+            else:
+                c = db_cursor
             # Use LIKE for fuzzy name match to handle accents
             c.execute("""
                 SELECT impact_score FROM player_profiles
@@ -158,7 +208,8 @@ class InjuryReport:
                 ORDER BY season DESC LIMIT 1
             """, (self.league, f"%{self.player[:8]}%"))
             row = c.fetchone()
-            conn.close()
+            if owns_conn:
+                conn.close()
             if row and row["impact_score"] and row["impact_score"] > 0:
                 # Scale: impact 10 = 1.0 adj, impact 15 = 1.5 adj
                 # Trust real profile data over the generic position
@@ -218,32 +269,74 @@ def fetch_injuries(league: str) -> dict[str, list[InjuryReport]]:
     """
     Returns dict of {team_name: [InjuryReport, ...]}
     Uses ESPN's free injury API.
-    """
+
+    THE ACTUAL /nfl/edges 280s-hang root cause (2026-09-14 investigation,
+    corrected — see git history for the false start): NOT the ESPN
+    fetch itself. Traced live with a monkeypatched timing wrapper: the
+    ESPN call + JSON parse consistently returned in under 1s, while
+    the OVERALL function still took 420-450s. The real cost is
+    InjuryReport._calc_impact(), called once per injured player
+    (dozens per league-wide fetch) — each one previously opened its
+    OWN Postgres connection via database.get_conn(), which retries up
+    to 3x with backoff on any slowness. A handful of players hitting a
+    slow connection-establishment moment compounds into minutes. Fixed
+    by opening ONE connection here and passing its cursor into every
+    InjuryReport, cutting N connections down to 1 per fetch. Kept the
+    ESPN call wrapped in _run_with_deadline() anyway as cheap
+    insurance against the SAME slow-ESPN-response class documented
+    elsewhere in this codebase — it just wasn't what actually happened
+    here. Since this whole function is called once per process (see
+    _get_cached_injuries's cache) and only on the FIRST NFL prediction
+    after a fresh deploy, it was a second, independent contributor to
+    the "hangs right after a deploy" failure class, separate from (and
+    in addition to) the team_stats_cache fix from the same investigation."""
     url = ESPN_INJURY_URLS.get(league)
     if not url:
         return {}
 
-    try:
+    def _do_fetch():
         resp = requests.get(url, timeout=10)
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()
+
+    try:
+        data = _run_with_deadline(_do_fetch, HARD_DEADLINE_SECONDS)
     except Exception as e:
         print(f"  [Intel] Injury feed error: {e}")
         return {}
 
-    injuries = {}
-    for team_obj in data.get("injuries", []):
-        team_name = team_obj.get("displayName", "Unknown")
-        for item in team_obj.get("injuries", []):
-            athlete   = item.get("athlete", {})
-            player    = athlete.get("displayName", "Unknown")
-            pos_info  = athlete.get("position", {})
-            pos       = pos_info.get("abbreviation", "") if isinstance(pos_info, dict) else ""
-            status    = item.get("status", "Unknown")
-            desc      = item.get("shortComment", item.get("longComment", ""))
+    # One connection shared across every InjuryReport built below,
+    # instead of one per player (see this function's docstring) —
+    # the actual fix for the confirmed 420-450s hang. Best-effort: if
+    # even opening this one connection fails, fall through and let
+    # each InjuryReport open (and gracefully degrade) its own, same
+    # as before this fix existed.
+    conn = None
+    cursor = None
+    try:
+        from database import get_conn
+        conn = get_conn()
+        cursor = conn.cursor()
+    except Exception as e:
+        print(f"  [Intel] Shared connection unavailable, falling back to per-player connections: {e}")
 
-            report = InjuryReport(team_name, player, pos, status, desc, league)
-            injuries.setdefault(team_name, []).append(report)
+    try:
+        injuries = {}
+        for team_obj in data.get("injuries", []):
+            team_name = team_obj.get("displayName", "Unknown")
+            for item in team_obj.get("injuries", []):
+                athlete   = item.get("athlete", {})
+                player    = athlete.get("displayName", "Unknown")
+                pos_info  = athlete.get("position", {})
+                pos       = pos_info.get("abbreviation", "") if isinstance(pos_info, dict) else ""
+                status    = item.get("status", "Unknown")
+                desc      = item.get("shortComment", item.get("longComment", ""))
+
+                report = InjuryReport(team_name, player, pos, status, desc, league, db_cursor=cursor)
+                injuries.setdefault(team_name, []).append(report)
+    finally:
+        if conn is not None:
+            conn.close()
 
     return injuries
 

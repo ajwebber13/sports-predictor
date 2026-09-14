@@ -299,20 +299,37 @@ def _build_bets_for_game(home: str, away: str, pred, events_odds: list, min_edge
 
 @router.get("/edges")
 def nfl_edges(simulations: int = Query(default=50000), min_edge: float = Query(default=3.0)):
+    # TIMING instrumentation (2026-09-14, same reasoning as routes_mlb.py's
+    # 2026-07-22 addition): a 2026-09-11 request hung ~280s here right
+    # after a fresh deploy cold-started nfl_data.py's team-stats cache,
+    # forcing a live, uncached, sequential ESPN fetch for every team on
+    # the slate (see services/team_stats_cache.py — the persistent cache
+    # added the same day this was diagnosed). That specific cause is
+    # fixed, but this per-team timing stays so a FUTURE stall (a slow
+    # ESPN response, a cold cache after some other deploy, etc.) shows
+    # exactly which team/step it happened on instead of just "the route
+    # was slow" — nfl_data._get() logs each individual ESPN call too.
+    import time
+    request_start = time.time()
     from nfl_data import get_team_stats, NFL_TEAM_IDS, get_nfl_events
     from nfl_predictor import NFLPredictionEngine
     from services.odds_parser import get_live_odds
     engine = NFLPredictionEngine()
     events = get_nfl_events()
+    print(f"[NFL TIMING] nfl_edges started, {len(events)} event(s) fetched at {time.time() - request_start:.1f}s")
     events_odds = get_live_odds("nfl")
+    print(f"[NFL TIMING] odds fetched at {time.time() - request_start:.1f}s")
     results = []
     for event in events:
         home = event.get("home_team", "")
         away = event.get("away_team", "")
         if home not in NFL_TEAM_IDS or away not in NFL_TEAM_IDS:
             continue
+        team_t0 = time.time()
         home_stats = get_team_stats(home)
         away_stats = get_team_stats(away)
+        print(f"  [NFL TIMING] {away} @ {home}: team stats took {time.time() - team_t0:.2f}s "
+              f"(total {time.time() - request_start:.1f}s)")
         if not home_stats or not away_stats:
             continue
         market = _get_market_details(events_odds, home, away)
@@ -325,6 +342,7 @@ def nfl_edges(simulations: int = Query(default=50000), min_edge: float = Query(d
             continue
         results.extend(bets)
     results.sort(key=lambda x: x["edge"], reverse=True)
+    print(f"[NFL TIMING] nfl_edges TOTAL time: {time.time() - request_start:.1f}s")
     return {"count": len(results), "best_bets": results}
 
 

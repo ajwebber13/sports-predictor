@@ -9,6 +9,7 @@ built in from day one (not bolted on after a live bug, like CFB was).
 """
 
 import requests
+import time
 from dataclasses import asdict, dataclass
 from typing import Optional, Dict
 
@@ -104,11 +105,24 @@ class NFLTeamStats:
 # ─────────────────────────────────────────────────────────────
 
 def _get(url: str, params: dict = None) -> dict:
+    """Single choke point for every ESPN call this module makes —
+    already has an explicit 10s timeout (confirmed 2026-09-14 during
+    the /nfl/edges timeout investigation: every call in this module
+    already routes through here, none were missing one). Per-call
+    timing logging added the same day so a future slow/hung request
+    shows exactly which call and how long, instead of only "the whole
+    route was slow" — matches routes_mlb.py's [MLB TIMING] convention
+    from its own 2026-07-22 timeout investigation."""
+    t0 = time.time()
     try:
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
+        elapsed = time.time() - t0
+        print(f"  [NFL TIMING] GET {url} took {elapsed:.2f}s")
         return r.json()
     except Exception as e:
+        elapsed = time.time() - t0
+        print(f"  [NFL TIMING] GET {url} FAILED after {elapsed:.2f}s: {e}")
         print(f"ESPN API error {url}: {e}")
         return {}
 

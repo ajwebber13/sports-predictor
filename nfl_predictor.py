@@ -168,6 +168,23 @@ class NFLPredictionEngine:
     def predict(self, home_stats: NFLTeamStats, away_stats: NFLTeamStats,
                 spread_line: float = 0.0, over_under: float = 44.0,
                 simulations: int = 10000) -> NFLPrediction:
+        # Step-level timing (2026-09-14) — added during the /nfl/edges
+        # timeout investigation after routes_nfl.py's own per-team
+        # timing showed every individual step FAST (<1.2s) but the
+        # cumulative route time still exploding by ~400s+ on the very
+        # first game processed — meaning the gap was hiding inside
+        # THIS function, in something not covered by nfl_data._get()'s
+        # instrumentation (situational row, injury/line-movement adj,
+        # weather, or the Monte Carlo sim itself). This brackets every
+        # sub-step so a future hang shows exactly which one, instead of
+        # requiring another manual bisection like this one.
+        import time
+        _t = time.time()
+        def _lap(label):
+            nonlocal _t
+            now = time.time()
+            print(f"    [NFL PREDICT TIMING] {label}: {now - _t:.2f}s")
+            _t = now
 
         def _sane_rest(stored_value, team_name):
             # Treat a missing OR implausible stored rest value as "no
@@ -185,6 +202,7 @@ class NFLPredictionEngine:
             home_rest = get_rest_days(home_stats.team_name)
             away_rest = get_rest_days(away_stats.team_name)
             total_adj = 0.0
+        _lap("situational_row + rest_days")
 
         try:
             home_inj_adj, away_inj_adj = get_matchup_injury_adj(
@@ -192,6 +210,7 @@ class NFLPredictionEngine:
         except Exception as e:
             print(f"  [NFL] injury adj fetch failed, defaulting to 0: {e}")
             home_inj_adj, away_inj_adj = 0.0, 0.0
+        _lap("injury_adj")
 
         try:
             home_line_adj, away_line_adj = get_line_movement_adj(
@@ -199,11 +218,13 @@ class NFLPredictionEngine:
         except Exception as e:
             print(f"  [NFL] line movement fetch failed, defaulting to 0: {e}")
             home_line_adj, away_line_adj = 0.0, 0.0
+        _lap("line_movement_adj")
 
         exp_home, home_factors = self._expected_score(home_stats, away_stats, is_home=True,  rest_days=home_rest,
                                         situational_adj=total_adj, injury_adj=home_inj_adj, line_adj=home_line_adj)
         exp_away, away_factors = self._expected_score(away_stats, home_stats, is_home=False, rest_days=away_rest,
                                         situational_adj=total_adj, injury_adj=away_inj_adj, line_adj=away_line_adj)
+        _lap("expected_score (both teams)")
 
         # Weather adjustment (added 2026-09-08) — mirrors
         # enhanced_predictor.py's existing NFL/CFB block. Applied here,
@@ -230,6 +251,7 @@ class NFLPredictionEngine:
                 exp_away *= (1.0 + pass_pen)
         except Exception as e:
             print(f"  [NFL] weather adj fetch failed, defaulting to 0: {e}")
+        _lap("weather_adj")
 
         try:
             from database import save_prediction_factors
@@ -243,9 +265,11 @@ class NFLPredictionEngine:
             )
         except Exception as e:
             print(f"  [NFL] factor logging failed (non-fatal): {e}")
+        _lap("save_prediction_factors")
 
         scores_home = np.maximum(np.random.normal(exp_home, SCORE_STD_DEV, simulations), 0)
         scores_away = np.maximum(np.random.normal(exp_away, SCORE_STD_DEV, simulations), 0)
+        _lap(f"monte_carlo_sim ({simulations} sims)")
         margin = scores_home - scores_away
         n = simulations
 
