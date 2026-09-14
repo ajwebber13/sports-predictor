@@ -8,13 +8,15 @@ rather than betting edge signals. Think power rankings + game
 previews rather than betting picks.
 
 Sources: ESPN team schedule endpoint (upcoming games 7 days out)
-Models:  Elo ratings + advanced metrics + ensemble ML
+Models:  Elo ratings + advanced metrics (ensemble ML dropped 2026-09-11
+         — see predict_game()'s docstring)
 
 Usage:
   python hbcu_predict.py football
   python hbcu_predict.py mbb
   python hbcu_predict.py wbb
   python hbcu_predict.py all
+  python hbcu_predict.py --scheduled   # only sub-sports active in PREVIEW_SPORTS
 """
 
 import requests
@@ -30,6 +32,7 @@ except ImportError:
 from database import get_conn
 from hbcu_teams import HBCU_FOOTBALL_TEAMS, HBCU_MBB_TEAMS, HBCU_WBB_TEAMS
 from hbcu_rivalries import get_rivalry_context
+from active_sports import preview_active
 
 HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 
@@ -266,8 +269,7 @@ def format_alert(pred: dict, game_date: str, sport_key: str) -> str:
 
     alert += (
         f"\n{'─' * 24}\n"
-        f"<i>Culture &amp; Pulse Analytics\n"
-        f"For entertainment only.</i>"
+        f"<i>Culture &amp; Pulse Analytics — model projections, not betting advice.</i>"
     )
 
     return alert
@@ -276,6 +278,15 @@ def format_alert(pred: dict, game_date: str, sport_key: str) -> str:
 def run_hbcu_sport(sport_key: str, send_telegram: bool = False):
     config = SPORT_CONFIGS[sport_key]
     label  = config["label"]
+
+    # Gate only applies to the SEND path, not console output — a
+    # sport shelved in PREVIEW_SPORTS should still be inspectable
+    # locally (python hbcu_predict.py football with no --telegram),
+    # same as how a shelved ALL_SPORTS/PROPS_SPORTS sport can still be
+    # queried directly; it just can't reach Discord.
+    if send_telegram and not preview_active(sport_key):
+        print(f"{label} preview is shelved in active_sports.py (PREVIEW_SPORTS) — nothing sent.")
+        return []
 
     print(f"\n{'='*60}")
     print(f"  {label.upper()} PREDICTIONS")
@@ -313,6 +324,24 @@ def run_hbcu_sport(sport_key: str, send_telegram: bool = False):
     return predictions
 
 
+def run_all_previews(send_telegram: bool = False) -> dict:
+    """Entry point for a future scheduled workflow — loops every HBCU
+    sub-sport and only runs the ones currently active in
+    PREVIEW_SPORTS (active_sports.py). A sub-sport not listed there is
+    skipped outright, not attempted-then-blocked, so this is the
+    actual "publishing pipeline" hook: whatever eventually schedules
+    HBCU content should call this, not run_hbcu_sport() per sport
+    directly. run_hbcu_sport()'s own preview_active() gate still
+    covers direct/manual calls that bypass this loop."""
+    results = {}
+    for sport_key, config in SPORT_CONFIGS.items():
+        if preview_active(sport_key):
+            results[sport_key] = run_hbcu_sport(sport_key, send_telegram=send_telegram)
+        else:
+            print(f"{config['label']} not in PREVIEW_SPORTS — skipped.")
+    return results
+
+
 if __name__ == "__main__":
     import sys
 
@@ -330,9 +359,12 @@ if __name__ == "__main__":
             run_hbcu_sport("hbcu_football", send_telegram=send_tg)
             run_hbcu_sport("hbcu_mbb",      send_telegram=send_tg)
             run_hbcu_sport("hbcu_wbb",      send_telegram=send_tg)
+        elif arg == "--scheduled":
+            run_all_previews(send_telegram=send_tg)
         else:
             print(f"Unknown sport: {arg}")
-            print("Usage: python hbcu_predict.py [football|mbb|wbb|all] [--telegram]")
+            print("Usage: python hbcu_predict.py [football|mbb|wbb|all|--scheduled] [--telegram]")
     else:
-        print("Usage: python hbcu_predict.py [football|mbb|wbb|all] [--telegram]")
-        print("  --telegram   Send predictions to Telegram channel")
+        print("Usage: python hbcu_predict.py [football|mbb|wbb|all|--scheduled] [--telegram]")
+        print("  --telegram    Send predictions to Discord (see send_message())")
+        print("  --scheduled   Run only the sub-sports active in PREVIEW_SPORTS — the hook a future scheduled workflow should call")
