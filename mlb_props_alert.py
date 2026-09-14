@@ -39,7 +39,7 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import get_conn
 from prop_hit_rates import setup_props_table
-from active_sports import is_active
+from active_sports import props_active
 from prop_edge import evaluate_prop
 
 CENTRAL_OFFSET = -5
@@ -242,7 +242,7 @@ def send_message(text: str):
 
 
 def run(dry_run: bool = False, date_override: str = None):
-    if not is_active("mlb"):
+    if not props_active("mlb"):
         print("MLB is shelved in active_sports.py — no props alert sent.")
         return
     setup_props_table()
