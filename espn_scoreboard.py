@@ -19,7 +19,9 @@ Usage:
     game_ids = get_espn_game_ids("wnba", "20260910")
 """
 
+import os
 import requests
+from urllib.parse import urlencode
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -27,6 +29,64 @@ HEADERS = {
 }
 
 ESPN_SCOREBOARD_BASE = "https://site.api.espn.com/apis/site/v2/sports"
+
+# ScraperAPI proxy — GitHub Actions' runner IP range has been hard-403'd
+# by ESPN's WAF since 2026-09-12 (confirmed via 17 straight days of NFL
+# Stats Backfill failures); Render and local runs are NOT blocked
+# (confirmed 2026-09-11 via live Render log pull), so only route through
+# ScraperAPI when actually running on a GitHub Actions runner — no point
+# spending ScraperAPI credits on traffic that already gets through direct.
+# Same `http://api.scraperapi.com?api_key=...&url=...` shape as the
+# pattern auto_results.py/prop_tracker.py used before it was stripped out
+# 2026-08-21 ("call ESPN directly") — that removal predates this block
+# and was fine at the time; reintroducing it here, scoped to GitHub
+# Actions only, not restoring it unconditionally everywhere.
+SCRAPERAPI_URL = "http://api.scraperapi.com"
+
+_scraperapi_calls = 0
+
+
+def get_scraperapi_call_count() -> int:
+    return _scraperapi_calls
+
+
+def reset_scraperapi_call_count():
+    global _scraperapi_calls
+    _scraperapi_calls = 0
+
+
+def _scraperapi_key() -> str:
+    """Returns the ScraperAPI key to use for this call, or '' to go direct.
+    Gated on GITHUB_ACTIONS (set to "true" automatically by every GitHub
+    Actions runner, no workflow config needed) so Render/local traffic
+    never gets routed through the proxy."""
+    if os.environ.get("GITHUB_ACTIONS", "").strip().lower() != "true":
+        return ""
+    return os.environ.get("SCRAPERAPI_KEY", "").strip()
+
+
+def espn_get(url: str, params: dict = None, headers: dict = None, timeout: int = 10):
+    """Shared GET for any site.api.espn.com call (scoreboard or box
+    score/summary). Routes through ScraperAPI when running in GitHub
+    Actions and SCRAPERAPI_KEY is set — see module docstring. Builds the
+    real ESPN URL (with query params) first and hands the WHOLE thing to
+    ScraperAPI as its own `url` param, since ScraperAPI proxies arbitrary
+    URLs rather than being an ESPN-specific client."""
+    global _scraperapi_calls
+    headers = headers or HEADERS
+    key = _scraperapi_key()
+    if not key:
+        return requests.get(url, headers=headers, params=params, timeout=timeout)
+
+    real_url = f"{url}?{urlencode(params)}" if params else url
+    _scraperapi_calls += 1
+    return requests.get(
+        SCRAPERAPI_URL,
+        params={"api_key": key, "url": real_url},
+        headers=headers,
+        timeout=timeout,
+    )
+
 
 # Tracks scoreboard fetch failures (non-200, exception, JSON parse failure)
 # since process start or the last reset — lets callers tell "ESPN said zero
@@ -81,7 +141,7 @@ def get_espn_game_ids(sport: str, date_str: str, timeout: int = 10) -> list:
     global _scoreboard_errors
 
     try:
-        r = requests.get(url, headers=HEADERS, params=params, timeout=timeout)
+        r = espn_get(url, params=params, headers=HEADERS, timeout=timeout)
     except Exception as e:
         print(f"  Scoreboard error {date_str} ({sport}): request failed — {type(e).__name__}: {e}")
         _scoreboard_errors += 1

@@ -32,7 +32,6 @@ Usage:
   python nfl_player_game_logs.py debug <event_id> # dump real stat keys from one game
 """
 
-import requests
 import sys
 import time
 from datetime import datetime, timedelta
@@ -44,7 +43,10 @@ except ImportError:
     pass
 
 from database import get_conn
-from espn_scoreboard import get_espn_game_ids, get_scoreboard_error_count, reset_scoreboard_error_count
+from espn_scoreboard import (
+    get_espn_game_ids, get_scoreboard_error_count, reset_scoreboard_error_count,
+    espn_get, get_scraperapi_call_count, reset_scraperapi_call_count,
+)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -104,7 +106,7 @@ def debug_dump_keys(event_id: str):
     against a real completed game ID before trusting a backfill. Compare
     the printed keys against STAT_KEY_HINTS above and fix any mismatch."""
     url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event={event_id}"
-    r    = requests.get(url, headers=HEADERS, timeout=10)
+    r    = espn_get(url, headers=HEADERS, timeout=10)
     data = r.json()
     boxscore = data.get("boxscore", {})
     for team_data in boxscore.get("players", []):
@@ -165,7 +167,7 @@ def parse_box_score(event_id: str) -> list:
     receiving) that player appeared in for this game."""
     url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event={event_id}"
     try:
-        r    = requests.get(url, headers=HEADERS, timeout=10)
+        r    = espn_get(url, headers=HEADERS, timeout=10)
         data = r.json()
     except Exception as e:
         print(f"  Box score error {event_id}: {e}")
@@ -277,6 +279,7 @@ def backfill_season(start_date: str = NFL_SEASON_START, end_date: str = None):
     total_games   = 0
     total_players = 0
     reset_scoreboard_error_count()
+    reset_scraperapi_call_count()
 
     print(f"\nBackfilling NFL box scores from {start_date} to {end.strftime('%Y%m%d')}...")
     print("(2025 season is complete — this pulls historical data since no 2026 games exist yet)\n")
@@ -299,6 +302,7 @@ def backfill_season(start_date: str = NFL_SEASON_START, end_date: str = None):
         current += timedelta(days=1)
 
     print(f"\nBackfill complete: {total_games} games, {total_players} player-game records")
+    print(f"ScraperAPI calls used this run: {get_scraperapi_call_count()}")
 
     errors = get_scoreboard_error_count()
     if total_games == 0 and errors > 0:
@@ -314,6 +318,7 @@ def update_recent(days: int = 7):
     today = datetime.now()
     total = 0
     reset_scoreboard_error_count()
+    reset_scraperapi_call_count()
 
     print(f"\nUpdating NFL stats for last {days} days...")
 
@@ -332,6 +337,7 @@ def update_recent(days: int = 7):
                 time.sleep(0.3)
 
     print(f"Update complete: {total} player-game records added")
+    print(f"ScraperAPI calls used this run: {get_scraperapi_call_count()}")
 
     errors = get_scoreboard_error_count()
     if total == 0 and errors > 0:
