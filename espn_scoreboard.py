@@ -20,6 +20,8 @@ Usage:
 """
 
 import os
+import random
+import time
 import requests
 from urllib.parse import urlencode
 
@@ -42,6 +44,18 @@ ESPN_SCOREBOARD_BASE = "https://site.api.espn.com/apis/site/v2/sports"
 # and was fine at the time; reintroducing it here, scoped to GitHub
 # Actions only, not restoring it unconditionally everywhere.
 SCRAPERAPI_URL = "http://api.scraperapi.com"
+
+# Burst-rate test (2026-09-29): nfl_stats_backfill.yml fires 7 scoreboard
+# requests back-to-back with no delay (~100ms apart, confirmed from run
+# timestamps) and 403s every single time, while render_job.py's single,
+# isolated get_game_times() call to the SAME site.api.espn.com domain has
+# been succeeding on every recent run — suggests ESPN's WAF is flagging
+# request burst/rate rather than blanket-blocking the IP range. Testing
+# that theory here before paying for ScraperAPI: space every request out
+# and back off hard on a 403 instead of giving up after one try.
+MIN_DELAY = 2.0
+MAX_DELAY = 3.0
+RETRY_BACKOFFS = [5, 15, 45]  # seconds — up to 3 retries on a 403
 
 _scraperapi_calls = 0
 
@@ -68,24 +82,44 @@ def _scraperapi_key() -> str:
 def espn_get(url: str, params: dict = None, headers: dict = None, timeout: int = 10):
     """Shared GET for any site.api.espn.com call (scoreboard or box
     score/summary). Routes through ScraperAPI when running in GitHub
-    Actions and SCRAPERAPI_KEY is set — see module docstring. Builds the
-    real ESPN URL (with query params) first and hands the WHOLE thing to
-    ScraperAPI as its own `url` param, since ScraperAPI proxies arbitrary
-    URLs rather than being an ESPN-specific client."""
+    Actions and SCRAPERAPI_KEY is set — see module docstring; off right
+    now since no key is configured, so every call below goes direct.
+
+    Every attempt (initial + retries) sleeps MIN_DELAY-MAX_DELAY seconds
+    first, to test whether ESPN's block is burst/rate-triggered rather
+    than a blanket IP ban (see RETRY_BACKOFFS comment above). On a 403,
+    retries up to len(RETRY_BACKOFFS) times with that backoff schedule,
+    logging each retry. Any other status, or a real request exception,
+    is returned/raised immediately — same as before this change; only
+    the 403 case gets the new retry behavior."""
     global _scraperapi_calls
     headers = headers or HEADERS
     key = _scraperapi_key()
-    if not key:
-        return requests.get(url, headers=headers, params=params, timeout=timeout)
 
-    real_url = f"{url}?{urlencode(params)}" if params else url
-    _scraperapi_calls += 1
-    return requests.get(
-        SCRAPERAPI_URL,
-        params={"api_key": key, "url": real_url},
-        headers=headers,
-        timeout=timeout,
-    )
+    if key:
+        real_url = f"{url}?{urlencode(params)}" if params else url
+        send = lambda: requests.get(
+            SCRAPERAPI_URL,
+            params={"api_key": key, "url": real_url},
+            headers=headers,
+            timeout=timeout,
+        )
+    else:
+        send = lambda: requests.get(url, headers=headers, params=params, timeout=timeout)
+
+    max_retries = len(RETRY_BACKOFFS)
+    for attempt in range(max_retries + 1):
+        time.sleep(random.uniform(MIN_DELAY, MAX_DELAY))
+        if key:
+            _scraperapi_calls += 1
+        r = send()
+
+        if r.status_code != 403 or attempt == max_retries:
+            return r
+
+        backoff = RETRY_BACKOFFS[attempt]
+        print(f"  ESPN 403 on {url} — retry {attempt + 1}/{max_retries} in {backoff}s...")
+        time.sleep(backoff)
 
 
 # Tracks scoreboard fetch failures (non-200, exception, JSON parse failure)
